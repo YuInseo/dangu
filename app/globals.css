@@ -239,6 +239,11 @@ graft-island {
   letter-spacing: 0.08em;
 }
 
+/* 쿠션 구간이 아닌 쪽. 자리는 그대로 두고 보이지만 않게 해서 두 판의 높이를 맞춘다. */
+.side .cushion[data-empty='true'] {
+  visibility: hidden;
+}
+
 .side .score.cushion-score {
   color: var(--danger);
 }
