@@ -148,7 +148,7 @@ jobs:
             echo "ANDROID_KEYSTORE_BASE64 등 서명 시크릿이 설정되어 있는지 확인하세요."
             exit 1
           fi
-          NAME="dangu-${{ steps.version.outputs.value }}.apk"
+          NAME="billiard-${{ steps.version.outputs.value }}.apk"
           cp "$FOUND" "$NAME"
           echo "path=$NAME" >> "$GITHUB_OUTPUT"
 

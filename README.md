@@ -87,7 +87,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 2. `.env.local`(또는 CI 환경변수)에 저장소 이름을 넣습니다:
 
    ```
-   GRAFT_PUBLIC_GITHUB_REPO=your-name/dangu
+   GRAFT_PUBLIC_GITHUB_REPO=your-name/billiard
    ```
 
    워크플로는 이 값을 `github.repository`로 자동으로 채우므로, CI가 만든 APK는
