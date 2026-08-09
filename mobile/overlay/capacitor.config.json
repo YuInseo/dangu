@@ -1,0 +1,24 @@
+{
+  "appId": "com.dangu.score",
+  "appName": "billiard",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": {
+    "androidScheme": "http",
+    "iosScheme": "http"
+  },
+  "android": {
+    "allowMixedContent": true
+  },
+  "ios": {
+    "contentInset": "always"
+  },
+  "plugins": {
+    "CapacitorUpdater": {
+      "autoUpdate": false,
+      "resetWhenUpdate": true,
+      "appReadyTimeout": 10000,
+      "directUpdate": false
+    }
+  }
+}

@@ -84,6 +84,18 @@ export default defineConfig({
        * 해결되지 않는다. 이 플러그인이 겹침을 끄는 유일한 방법이다.
        */
       '@capacitor/status-bar',
+      /**
+       * 조용한 업데이트.
+       *
+       * 안드로이드는 사이드로딩한 앱이 APK를 소리 없이 설치하도록 두지 않는다. 그런데
+       * 이 앱에서 실제로 자주 바뀌는 것은 APK가 아니라 그 안의 웹 자산이고, 그건 이
+       * 플러그인이 갈아끼울 수 있다. 릴리스에 붙은 zip을 받아 다음 실행에 적용한다.
+       *
+       * 설정은 `mobile/overlay/capacitor.config.json`에 있다. 특히 `autoUpdate: false`가
+       * 중요하다 — 기본값이면 플러그인이 자기 회사 서버에 기기 정보를 물으러 간다.
+       * 점수판이 남의 서버에 말을 걸 이유는 없고, 업데이트는 우리 릴리스에서 온다.
+       */
+      '@capgo/capacitor-updater',
     ],
 
     build: 'auto',
