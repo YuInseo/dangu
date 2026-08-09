@@ -138,14 +138,8 @@ export function Lobby() {
             게임 시작
           </button>
 
-          <div className="row">
-            <Link className="secondary" href="/stats" style={{ textAlign: 'center', textDecoration: 'none' }}>
-              통계
-            </Link>
-            <Link className="secondary" href="/settings" style={{ textAlign: 'center', textDecoration: 'none' }}>
-              설정
-            </Link>
-          </div>
+          {/* 기록과 설정으로 가는 길은 아래 내비게이션이 갖고 있다. 같은 곳으로 가는
+              문이 한 화면에 둘이면, 둘 중 어느 것이 진짜인지 매번 고르게 된다. */}
 
           <div className="card">
             <h2>{account.account ? account.account.name : '계정'}</h2>
