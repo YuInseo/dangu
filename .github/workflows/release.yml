@@ -183,6 +183,16 @@ jobs:
       - name: 안드로이드 프로젝트 생성
         working-directory: .graft/mobile
         run: |
+          # 업데이터 플러그인의 버전을 못박는다.
+          #
+          # 최신 6.x는 androidx.work 2.10을 끌고 오고, 그건 compileSdk 35를 요구한다.
+          # 이 앱은 34에 머물러 있다 — 안드로이드 15의 강제 edge-to-edge 때문이고,
+          # 되돌릴 수 있는 건 Capacitor 7부터다(graft.config.ts의 targetSdk 주석).
+          # 6.13.2는 work 2.9.1을 쓰는 마지막 판이라 34에서 그대로 빌드된다.
+          #
+          # 여기서 고정하는 이유는 graft가 모르는 플러그인에 `^6.0.0`을 주기 때문이다.
+          # 한 번 적힌 값은 다음 빌드에서 건드리지 않으므로 이 줄이 끝까지 이긴다.
+          npm pkg set "dependencies.@capgo/capacitor-updater=6.13.2"
           npm install
           npx cap add android
 

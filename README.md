@@ -38,11 +38,17 @@ npx tsc --noEmit       # 타입 검사
 
 ```bash
 node ../graft/bin/graft.js build --target mobile --platform android
-cd .graft/mobile && npm install && npm run add:android   # 최초 한 번
+cd .graft/mobile
+npm pkg set "dependencies.@capgo/capacitor-updater=6.13.2"   # 아래 참고
+npm install && npm run add:android                           # 최초 한 번
 npx cap sync android
 cd android && ./gradlew assembleDebug
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
+
+업데이터 플러그인만 버전을 못박습니다. 최신 6.x는 `androidx.work` 2.10을 끌고 오고 그건
+`compileSdk 35`를 요구하는데, 이 앱은 34에 머물러 있기 때문입니다(아래 targetSdk 이야기와
+같은 이유). 6.13.2가 `work` 2.9.1을 쓰는 마지막 판입니다. CI도 같은 값을 씁니다.
 
 `.graft/mobile/`은 전부 생성물입니다 — 손으로 고치지 마세요. 안드로이드에 직접 넣을
 것이 생기면 `mobile/native/`(코틀린 플러그인)와 `mobile/native/android/inject/`
