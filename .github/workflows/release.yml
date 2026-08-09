@@ -120,15 +120,22 @@ jobs:
         working-directory: .graft/mobile/android
         run: |
           chmod +x gradlew
-          # 서명 키가 없으면 디버그로 서명된 릴리스 APK가 나온다. 설치는 되고,
-          # 스토어에는 못 올린다 — 사이드로딩 배포에는 그걸로 충분하다.
           ./gradlew assembleRelease --no-daemon
 
-      - name: APK 이름 붙이기
+      # 서명되지 않은 APK는 안드로이드가 설치를 거부한다 — 그런데 Gradle은 그걸
+      # 오류가 아니라 `app-release-unsigned.apk`라는 파일 이름으로만 알린다. 릴리스에
+      # 붙고 나서야 "설치가 안 된다"로 발견되므로, 여기서 먼저 세운다.
+      - name: 서명 확인
         id: apk
         run: |
           FOUND=$(find .graft/mobile/android -name '*.apk' -path '*release*' | head -n1)
           test -n "$FOUND" || { echo "APK를 찾지 못했습니다"; exit 1; }
+
+          if ! unzip -l "$FOUND" | grep -qiE 'META-INF/.*\.(RSA|DSA|EC)'; then
+            echo "::error::APK가 서명되지 않았습니다 ($FOUND). 안드로이드가 설치를 거부합니다."
+            echo "ANDROID_KEYSTORE_BASE64 등 서명 시크릿이 설정되어 있는지 확인하세요."
+            exit 1
+          fi
           NAME="dangu-${{ steps.version.outputs.value }}.apk"
           cp "$FOUND" "$NAME"
           echo "path=$NAME" >> "$GITHUB_OUTPUT"
