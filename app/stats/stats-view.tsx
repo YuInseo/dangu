@@ -23,8 +23,15 @@ import {
   tallyByDay,
   type Tally,
 } from '../../lib/stats';
-import { cloudChosen, copyHistory, loadHistory, removeGame, updateGame } from '../../lib/storage';
-import { deleteGame, pushGame } from '../../lib/firebase';
+import {
+  clearHistory,
+  cloudChosen,
+  copyHistory,
+  loadHistory,
+  removeGame,
+  updateGame,
+} from '../../lib/storage';
+import { deleteAllGames, deleteGame, pushGame } from '../../lib/firebase';
 import { syncDown, useAccount } from '../../lib/use-account';
 import { tap } from '../../lib/platform';
 
@@ -42,6 +49,11 @@ export function StatsView() {
   const { account } = useAccount();
   const [games, setGames] = useState<GameSummary[] | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  /** 전체 삭제의 확인 단계. 한 번 눌러 열고, 다시 눌러야 지워진다. */
+  const [wiping, setWiping] = useState(false);
+  const [busy, setBusy] = useState(false);
+  /** 클라우드 저장을 쓰는지 — 전체 삭제가 거기까지 미치는지를 미리 말해 주려고 본다. */
+  const [cloud, setCloud] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   /** 지금 고치고 있는 기록. 펼친 것과 따로 두어야 펼치기만 해서는 폼이 뜨지 않는다. */
   const [editing, setEditing] = useState<string | null>(null);
@@ -56,6 +68,7 @@ export function StatsView() {
 
   useEffect(() => {
     void loadHistory().then(setGames);
+    void cloudChosen().then(setCloud);
   }, []);
 
   // 클라우드 저장을 고른 사람에게는 계정에 있는 것까지 합쳐 본다. 폰을 바꿨을 때
@@ -262,8 +275,18 @@ export function StatsView() {
           </div>
 
           <div className="card">
-            <h2>게임 상세</h2>
-            {scope.games.map((game) => {
+            <h2>
+              게임 상세 <span className="count">{scope.games.length}</span>
+            </h2>
+            {/*
+              목록만 스크롤한다.
+
+              한 달에 수십 게임이 쌓이면 이 카드 하나가 화면 몇 개 길이가 되고, 아래에
+              있는 내보내기·삭제는 그만큼 멀어진다. 카드 안에서 굴리면 카드의 크기는
+              내용과 상관없이 일정하고, 화면 전체의 순서도 그대로 남는다.
+            */}
+            <div className="scroller">
+              {scope.games.map((game) => {
               const me = game.me ?? 'white';
               const opponent = game.players[other(me)];
               const mine = game.players[me];
@@ -349,7 +372,8 @@ export function StatsView() {
                   )}
                 </div>
               );
-            })}
+              })}
+            </div>
           </div>
         </>
       )}
@@ -368,6 +392,56 @@ export function StatsView() {
         </button>
         {copied && <p className="notice">{copied}</p>}
       </div>
+
+      {all.length > 0 && (
+        <div className="card">
+          <h2>기록 전체 삭제</h2>
+          {/*
+            두 번 눌러야 지워진다.
+
+            되돌릴 수 없는 버튼이고, 바로 위 카드에 "클립보드로 복사"가 있다 — 지우기
+            전에 꺼내 둘 수 있다는 뜻이라 그 순서가 우연이 아니다. 확인 단계에서는 몇
+            게임이 사라지는지와 클라우드까지 지워지는지를 말해 준다.
+          */}
+          {!wiping ? (
+            <>
+              <p>이 기기의 기록 {all.length}게임을 지웁니다. 되돌릴 수 없습니다.</p>
+              <button className="danger" onClick={() => setWiping(true)}>
+                전체 삭제
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="notice error">
+                {all.length}게임을 지웁니다{cloud ? ' (클라우드 사본까지)' : ''}. 되돌릴 수
+                없습니다.
+              </p>
+              <div className="row">
+                <button
+                  className="danger"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    await clearHistory();
+                    if (account && cloud) await deleteAllGames(account.uid);
+                    setGames([]);
+                    setExpanded(null);
+                    setEditing(null);
+                    setWiping(false);
+                    setBusy(false);
+                    tap();
+                  }}
+                >
+                  {busy ? '지우는 중…' : '정말 지웁니다'}
+                </button>
+                <button className="secondary" disabled={busy} onClick={() => setWiping(false)}>
+                  취소
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

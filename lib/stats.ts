@@ -130,9 +130,10 @@ export function computeStats(games: GameSummary[], now = Date.now()): Stats {
     opponents: [...opponents.values()]
       .map((entry): OpponentTally => ({ ...entry, ...settle(entry) }))
       .sort((a, b) => b.games - a.games || b.lastPlayedAt - a.lastPlayedAt),
-    // 안 친 종목도 0으로 보여 준다 — 빈 줄이 "이번 달엔 3구를 안 쳤다"는 정보다.
-    kinds: GAME_KINDS.map((info): KindTally => {
-      const entry = kinds.get(info.id) ?? { ...emptyTally(), kind: info.id, label: info.label };
+    // 친 종목만. 0게임짜리 줄은 "안 쳤다"는 정보이기 전에, 실제로 친 종목을 찾을 때
+    // 눈이 건너뛰어야 하는 줄이다 — 종목이 셋뿐이라 없어도 무엇이 빠졌는지 알 수 있다.
+    kinds: GAME_KINDS.filter((info) => kinds.has(info.id)).map((info): KindTally => {
+      const entry = kinds.get(info.id)!;
       return { ...entry, ...settle(entry) };
     }),
     recentForm: form,

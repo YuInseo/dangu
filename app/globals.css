@@ -214,6 +214,14 @@ graft-island {
   font-variant-numeric: tabular-nums;
 }
 
+/* 자기 에버와 자기 이닝. 목표 점수보다 한 단계 조용하게 — 치는 중에 계속 볼 숫자는 아니다. */
+.side .rate {
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.45;
+  font-variant-numeric: tabular-nums;
+}
+
  /*
  * 쿠션 구간의 표시.
  *
@@ -756,6 +764,33 @@ graft-island {
 
 .calendar .day.selected .dots {
   color: rgba(255, 255, 255, 0.85);
+}
+
+/*
+ * 카드 안에서 굴러가는 목록.
+ *
+ * 게임이 수십 개 쌓이면 카드 하나가 화면 몇 개 길이가 되고, 그 아래 있는 것들이 그만큼
+ * 멀어진다. 목록만 안에서 굴리면 카드 높이는 내용과 상관없이 일정하다. 높이를 화면
+ * 비율(dvh)로 잡는 이유는 폰마다 화면이 다르기 때문이고, 잘린 줄이 반쯤 보이게 두는
+ * 것은 아래에 더 있다는 뜻이 되어서다.
+ */
+.scroller {
+  max-height: 46dvh;
+  overflow-y: auto;
+  /* 목록 끝에서 계속 밀어도 페이지가 따라 움직이지 않는다. */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.25rem;
+  padding: 0 0.25rem;
+}
+
+/* 몇 개인지. 제목 옆의 작은 숫자 하나가 "굴려야 하는 목록"이라는 걸 미리 말해 준다. */
+.card h2 .count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: rgba(243, 244, 246, 0.45);
+  margin-left: 0.35rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* 기록 --------------------------------------------------------------- */

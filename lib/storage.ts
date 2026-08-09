@@ -111,6 +111,12 @@ export async function updateGame(summary: GameSummary): Promise<GameSummary[]> {
   return next;
 }
 
+/** 기기에 있는 기록을 전부 지운다. 되돌릴 수 없으므로 부르는 쪽에서 한 번 물어본다. */
+export async function clearHistory(): Promise<GameSummary[]> {
+  await writeJson(HISTORY, []);
+  return [];
+}
+
 export async function removeGame(id: string): Promise<GameSummary[]> {
   const next = (await loadHistory()).filter((entry) => entry.id !== id);
   await writeJson(HISTORY, next);
