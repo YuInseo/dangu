@@ -245,22 +245,37 @@ function PlayerSide({
         {player.name}
       </button>
 
-      {/* 목표 점수를 채우면 숫자가 0으로 돌아가고 쿠션 점수를 센다. 그래서 지금
-          보이는 숫자가 무엇인지 위에 적어 준다 — 이 한 줄이 없으면 0으로 돌아간
-          점수판이 오히려 더 헷갈린다. */}
-      {cushion && <div className="cushion">쿠션</div>}
+      {/*
+        자기 쪽의 빈 곳은 전부 +1 버튼이다.
 
-      <div className={cushion ? 'score cushion-score' : 'score'} aria-live="polite">
-        {displayScore(state, side)}
-      </div>
+        큐를 들고 한 손으로 누르는 화면에서 제일 흔한 동작이 "한 점 올리기"인데, 그걸
+        아래쪽 작은 버튼을 겨냥해야만 할 수 있게 두면 손이 많이 간다. 자기 색 판을
+        아무 데나 치면 1점 — 잘못 눌러도 가운데 되돌리기가 그대로 받는다.
+      */}
+      <button
+        className="tap"
+        onClick={() => onScore(side, 1)}
+        aria-label={`${player.name} 1점 더하기`}
+      >
+        {/* 목표 점수를 채우면 숫자가 0으로 돌아가고 쿠션 점수를 센다. 그래서 지금
+            보이는 숫자가 무엇인지 위에 적어 준다 — 이 한 줄이 없으면 0으로 돌아간
+            점수판이 오히려 더 헷갈린다. */}
+        {cushion && <div className="cushion">쿠션</div>}
 
-      <div className="target">
-        {cushion
-          ? `쿠션 ${state.lastCushion}점 중 ${cushionRemaining(state, side)}점 남음`
-          : `${player.target}점${state.lastCushion > 0 ? ` +쿠션 ${state.lastCushion}` : ''} · ${remaining(state, side)}점 남음`}
-      </div>
+        <div className={cushion ? 'score cushion-score' : 'score'} aria-live="polite">
+          {displayScore(state, side)}
+        </div>
 
-      <div className="spacer" />
+        <div className="target">
+          {cushion
+            ? `쿠션 ${state.lastCushion}점 중 ${cushionRemaining(state, side)}점 남음`
+            : `${player.target}점${state.lastCushion > 0 ? ` +쿠션 ${state.lastCushion}` : ''} · ${remaining(state, side)}점 남음`}
+        </div>
+
+        <div className="spacer" />
+
+        <div className="tap-hint">눌러서 +1</div>
+      </button>
 
       {/* 큰 것이 더하기다. 당구에서 점수는 거의 언제나 올라가고, 빼기는 잘못 눌렀을
           때만 쓴다 — 크기 차이가 그 빈도 차이를 말한다. */}
