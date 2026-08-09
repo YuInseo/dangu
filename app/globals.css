@@ -881,6 +881,106 @@ button.record {
   font-weight: 800;
 }
 
+/* 담을 것이 많은 시트는 스스로 굴러간다. 화면보다 길어지면 버튼이 아래로 잘려 나간다. */
+.sheet .inner {
+  max-height: 88dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sheet-head strong {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.sheet-head .ghost {
+  padding: 0.35rem 0.6rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sheet .box .who-name {
+  font-size: 1rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet .box .big {
+  font-size: 2.4rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+/* 이름표와 값이 한 줄씩. 값은 오른쪽에 모아 두면 숫자끼리 세로로 읽힌다. */
+.facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.88rem;
+}
+
+.facts dt {
+  color: rgba(243, 244, 246, 0.55);
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* 모달 안의 두 사람 칸은 편집 폼과 같은 모양을 쓴다. */
+.sheet .pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.sheet .box {
+  border-radius: 14px;
+  padding: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.sheet .box.white {
+  background: var(--white-bg);
+  color: var(--white-ink);
+}
+
+.sheet .box.yellow {
+  background: var(--yellow-bg);
+  color: var(--yellow-ink);
+}
+
+.sheet .box .label {
+  color: inherit;
+  opacity: 0.6;
+  margin-bottom: 0;
+}
+
 .notice {
   font-size: 0.82rem;
   padding: 0.6rem 0.75rem;

@@ -104,6 +104,9 @@ export function StatsView() {
   const stats = useMemo(() => computeStats(scope.games), [scope.games]);
   const overall = useMemo(() => computeStats(all), [all]);
 
+  /** 모달에 떠 있는 기록. 지워지거나 날짜를 옮기면 스스로 닫히도록 목록에서 찾는다. */
+  const opened = useMemo(() => all.find((game) => game.id === expanded), [all, expanded]);
+
   const shiftMonth = (delta: number) => {
     setSelected(null);
     setShowAll(false);
@@ -287,20 +290,20 @@ export function StatsView() {
             */}
             <div className="scroller">
               {scope.games.map((game) => {
-              const me = game.me ?? 'white';
-              const opponent = game.players[other(me)];
-              const mine = game.players[me];
-              const won = game.winner === me;
-              const open = expanded === game.id;
+                const me = game.me ?? 'white';
+                const opponent = game.players[other(me)];
+                const mine = game.players[me];
+                const won = game.winner === me;
 
-              return (
-                <div key={game.id}>
+                return (
                   <button
+                    key={game.id}
                     className="record"
                     style={{ width: '100%', background: 'none', textAlign: 'left', minHeight: 0 }}
                     onClick={() => {
-                      setExpanded(open ? null : game.id);
+                      setExpanded(game.id);
                       setEditing(null);
+                      tap();
                     }}
                   >
                     <span className="pill">{kindInfo(game.kind).label}</span>
@@ -319,59 +322,7 @@ export function StatsView() {
                       {mine.score}:{opponent.score}
                     </span>
                   </button>
-
-                  {open && editing === game.id && (
-                    <RecordEditor
-                      game={game}
-                      onCancel={() => setEditing(null)}
-                      onSave={async (next) => {
-                        const list = await updateGame(next);
-                        // 클라우드에도 고친 값을 올린다. 여기서 안 올리면 폰에서는
-                        // 고쳐졌는데 다른 기기에서는 옛날 점수가 계속 보인다.
-                        if (account && (await cloudChosen())) await pushGame(account.uid, next);
-                        setGames(list);
-                        setEditing(null);
-                        tap();
-                      }}
-                    />
-                  )}
-
-                  {open && editing !== game.id && (
-                    <div className="notice" style={{ marginBottom: '0.6rem' }}>
-                      {mine.name} {mine.score}/{mine.target} · {opponent.name} {opponent.score}/
-                      {opponent.target}
-                      <br />
-                      {game.inning}이닝 · {formatClock(game.elapsedMs)} · 에버{' '}
-                      {(mine.score / Math.max(1, game.inning)).toFixed(3)}
-                      {game.lastCushion ? ` · 마지막 쿠션 ${game.lastCushion}점` : ''}
-                      <br />
-                      {game.winner ? `${game.players[game.winner].name} 승리` : '무승부'}
-                      <div className="row" style={{ marginTop: '0.5rem' }}>
-                        <button
-                          className="secondary"
-                          onClick={() => {
-                            setEditing(game.id);
-                            tap();
-                          }}
-                        >
-                          수정
-                        </button>
-                        <button
-                          className="danger"
-                          onClick={async () => {
-                            const next = await removeGame(game.id);
-                            if (account) await deleteGame(account.uid, game.id);
-                            setGames(next);
-                            setExpanded(null);
-                          }}
-                        >
-                          이 기록 삭제
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
+                );
               })}
             </div>
           </div>
@@ -442,6 +393,188 @@ export function StatsView() {
           )}
         </div>
       )}
+
+      {/*
+        기록 하나는 모달로 연다.
+
+        줄 아래로 펼치던 때에는 목록이 밀려 내려가서, 열자마자 방금 누른 줄이 어디였는지
+        다시 찾아야 했다. 스크롤되는 목록 안에서는 더 그렇다. 모달은 목록을 건드리지
+        않고, 좁은 줄에 욱여넣을 수 없던 것들 — 핸디, 각자의 에버, 시작과 끝 시각 —
+        까지 담을 자리를 준다.
+      */}
+      {opened && (
+        <RecordSheet
+          game={opened}
+          editing={editing === opened.id}
+          onEdit={() => {
+            setEditing(opened.id);
+            tap();
+          }}
+          onClose={() => {
+            setExpanded(null);
+            setEditing(null);
+          }}
+          onSave={async (next) => {
+            const list = await updateGame(next);
+            // 클라우드에도 고친 값을 올린다. 여기서 안 올리면 폰에서는 고쳐졌는데
+            // 다른 기기에서는 옛날 점수가 계속 보인다.
+            if (account && cloud) await pushGame(account.uid, next);
+            setGames(list);
+            setEditing(null);
+            tap();
+          }}
+          onDelete={async () => {
+            const next = await removeGame(opened.id);
+            if (account) await deleteGame(account.uid, opened.id);
+            setGames(next);
+            setExpanded(null);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* 기록 상세 ---------------------------------------------------------- */
+
+/**
+ * 기록 하나를 자세히 보는 모달.
+ *
+ * 목록의 한 줄은 상대·시각·점수 셋만 담을 수 있다. 나머지는 여기 있다: 각자의 핸디와
+ * 에버, 몇 이닝을 얼마나 오래 쳤는지, 언제 시작해 언제 끝났는지, 쿠션 규칙이 있었는지.
+ * 고치기와 지우기도 이 안에서 한다 — 그 대상이 눈앞에 열려 있는 자리이기 때문이다.
+ */
+function RecordSheet({
+  game,
+  editing,
+  onEdit,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  game: GameSummary;
+  editing: boolean;
+  onEdit: () => void;
+  onSave: (next: GameSummary) => Promise<void>;
+  onDelete: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+
+  const me = game.me ?? 'white';
+  const started = new Date(game.startedAt);
+  const finished = game.finishedAt ? new Date(game.finishedAt) : null;
+  const innings = Math.max(1, game.inning);
+
+  const clock = (date: Date) =>
+    date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+
+  return (
+    <div
+      className="sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-label="기록 상세"
+      // 바깥을 누르면 닫힌다. 안쪽에서 올라온 클릭까지 닫아 버리지 않도록 대상을 본다.
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="inner" style={{ textAlign: 'left' }}>
+        <div className="sheet-head">
+          <span className="pill">{kindInfo(game.kind).label}</span>
+          <strong>
+            {started.toLocaleDateString('ko-KR', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+              weekday: 'short',
+            })}
+          </strong>
+          <button className="ghost" onClick={onClose} aria-label="닫기">
+            ✕
+          </button>
+        </div>
+
+        {editing ? (
+          <RecordEditor game={game} onCancel={onClose} onSave={onSave} />
+        ) : (
+          <>
+            {/* 두 사람을 점수판과 같은 색으로. 어느 쪽이 누구였는지 색이 먼저 말해 준다. */}
+            <div className="pair">
+              {(['white', 'yellow'] as Side[]).map((side) => {
+                const player = game.players[side];
+                const won = game.winner === side;
+                return (
+                  <div className={`box ${side}`} key={side}>
+                    <span className="label">
+                      {side === me ? '나' : '상대'}
+                      {won ? ' · 승' : game.winner ? ' · 패' : ''}
+                    </span>
+                    <strong className="who-name">{player.name}</strong>
+                    <div className="big">{player.score}</div>
+                    <span className="label">
+                      핸디 {player.target} · 에버 {(player.score / innings).toFixed(3)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <dl className="facts">
+              <div>
+                <dt>결과</dt>
+                <dd>{game.winner ? `${game.players[game.winner].name} 승리` : '무승부'}</dd>
+              </div>
+              <div>
+                <dt>이닝</dt>
+                <dd>{game.inning}이닝</dd>
+              </div>
+              <div>
+                <dt>친 시간</dt>
+                <dd>{formatClock(game.elapsedMs)}</dd>
+              </div>
+              <div>
+                <dt>시작 · 끝</dt>
+                <dd>
+                  {clock(started)}
+                  {finished ? ` · ${clock(finished)}` : ' · 끝나지 않음'}
+                </dd>
+              </div>
+              {game.lastCushion ? (
+                <div>
+                  <dt>마지막 쿠션</dt>
+                  <dd>{game.lastCushion}점</dd>
+                </div>
+              ) : null}
+            </dl>
+
+            {confirming ? (
+              <>
+                <p className="notice error">이 기록을 지웁니다. 되돌릴 수 없습니다.</p>
+                <div className="row">
+                  <button className="danger" onClick={() => void onDelete()}>
+                    정말 지웁니다
+                  </button>
+                  <button className="secondary" onClick={() => setConfirming(false)}>
+                    취소
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="row">
+                <button className="secondary" onClick={onEdit}>
+                  수정
+                </button>
+                <button className="danger" onClick={() => setConfirming(true)}>
+                  삭제
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
