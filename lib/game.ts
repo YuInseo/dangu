@@ -75,6 +75,14 @@ export interface GameState {
   elapsedMs: number;
   running: boolean;
   turn: Side;
+  /**
+   * 선공. 이닝의 경계를 정하는 기준이다.
+   *
+   * 예전에는 이 값을 저장하지 않고 "첫 득점을 남긴 사람"으로 되짚었다. 그러면 아무도
+   * 아직 득점하지 않은 동안 기준이 지금 차례를 따라 움직여서, 차례를 아무리 넘겨도
+   * 이닝이 올라가지 않는다. 기준은 게임이 시작될 때 정해지는 값이므로 그때 적어 둔다.
+   */
+  first: Side;
   inning: number;
   players: Record<Side, PlayerState>;
   history: ScoreEntry[];
@@ -115,6 +123,7 @@ export function createGame({
     elapsedMs: 0,
     running: true,
     turn: first,
+    first,
     inning: 1,
     players: {
       white: { name: white.name.trim() || '흰 공', target: Math.max(1, white.target), score: 0 },
@@ -157,9 +166,7 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
       const { side } = action as Extract<GameAction, { type: 'turn' }>;
       const next = side ?? other(state.turn);
       if (next === state.turn) return state;
-      // 한 바퀴 돌아 선공에게 돌아오면 이닝이 하나 올라간다. 그게 이닝의 정의다.
-      const inning = next === firstSide(state) ? state.inning + 1 : state.inning;
-      return { ...state, turn: next, inning };
+      return { ...state, ...moveTurn(state, next) };
     }
 
     case 'undo': {
@@ -240,7 +247,11 @@ function applyScore(state: GameState, side: Side, score: number, now: number): G
     players,
     // 점수를 넣은 사람이 계속 친다 — 실패해야 차례가 넘어간다. 그래서 득점은 차례를
     // 바꾸지 않고, 대신 누가 치고 있는지는 마지막에 넣은 사람으로 맞춘다.
-    turn: delta > 0 ? side : state.turn,
+    //
+    // 그 "맞추는" 일도 차례를 옮기는 것이므로 이닝을 함께 본다. 판을 눌러 점수를 올리는
+    // 지금은 상대 차례에 자기 판을 누르는 것이 차례를 넘기는 가장 흔한 방법이 되었고,
+    // 여기서 이닝을 세지 않으면 둘이 번갈아 쳐도 1이닝에 머문다.
+    ...(delta > 0 ? moveTurn(state, side) : { turn: state.turn, inning: state.inning }),
     history: [...state.history, entry],
   };
 
@@ -256,9 +267,24 @@ const clampScore = (value: number) => Math.max(0, Math.min(999, Math.round(value
 
 export const other = (side: Side): Side => (side === 'white' ? 'yellow' : 'white');
 
+/**
+ * 차례를 옮긴다. 그 이동이 이닝 경계이면 이닝도 하나 올린다.
+ *
+ * 차례가 바뀌는 길이 둘이라 한곳으로 모았다: 손으로 넘기는 것과, 상대 차례에 누군가
+ * 점수를 올려 자연히 넘어가는 것. 앞엣것만 이닝을 세던 동안 뒤엣것으로 치는 사람들의
+ * 이닝은 영영 1이었다.
+ */
+function moveTurn(state: GameState, next: Side): { turn: Side; inning: number } {
+  if (next === state.turn) return { turn: state.turn, inning: state.inning };
+  // 한 바퀴 돌아 선공에게 돌아오면 이닝이 하나 올라간다. 그게 이닝의 정의다.
+  const inning = next === firstSide(state) ? state.inning + 1 : state.inning;
+  return { turn: next, inning };
+}
+
 /** 이 게임의 선공. 첫 이닝을 연 사람이 이닝 경계를 정한다. */
 function firstSide(state: GameState): Side {
-  return state.history[0]?.turnBefore ?? state.turn;
+  // 이 값이 생기기 전에 저장된 게임에는 없다. 그때는 첫 득점이 남긴 흔적으로 되짚는다.
+  return state.first ?? state.history[0]?.turnBefore ?? state.turn;
 }
 
 /** 지금 이기고 있는 쪽. 남은 점수가 적은 쪽이고, 같으면 무승부로 흰 공을 반환하지 않는다. */
