@@ -2,7 +2,15 @@
 
 import { useEffect, useMemo, useState } from 'react';
 
-import { formatClock, kindInfo, other, type GameSummary } from '../../lib/game';
+import {
+  GAME_KINDS,
+  formatClock,
+  kindInfo,
+  other,
+  type GameKind,
+  type GameSummary,
+  type Side,
+} from '../../lib/game';
 import {
   WEEKDAYS,
   averageOf,
@@ -15,8 +23,8 @@ import {
   tallyByDay,
   type Tally,
 } from '../../lib/stats';
-import { cloudChosen, copyHistory, loadHistory, removeGame } from '../../lib/storage';
-import { deleteGame } from '../../lib/firebase';
+import { cloudChosen, copyHistory, loadHistory, removeGame, updateGame } from '../../lib/storage';
+import { deleteGame, pushGame } from '../../lib/firebase';
 import { syncDown, useAccount } from '../../lib/use-account';
 import { tap } from '../../lib/platform';
 
@@ -35,6 +43,8 @@ export function StatsView() {
   const [games, setGames] = useState<GameSummary[] | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  /** 지금 고치고 있는 기록. 펼친 것과 따로 두어야 펼치기만 해서는 폼이 뜨지 않는다. */
+  const [editing, setEditing] = useState<string | null>(null);
 
   // 보고 있는 달과, 고른 날. 달은 항상 있고 날은 없을 수 있다.
   const [cursor, setCursor] = useState(() => {
@@ -137,6 +147,7 @@ export function StatsView() {
                   setShowAll(false);
                   setSelected((current) => (current === cell.key ? null : cell.key));
                   setExpanded(null);
+                  setEditing(null);
                   tap();
                 }}
               >
@@ -264,7 +275,10 @@ export function StatsView() {
                   <button
                     className="record"
                     style={{ width: '100%', background: 'none', textAlign: 'left', minHeight: 0 }}
-                    onClick={() => setExpanded(open ? null : game.id)}
+                    onClick={() => {
+                      setExpanded(open ? null : game.id);
+                      setEditing(null);
+                    }}
                   >
                     <span className="pill">{kindInfo(game.kind).label}</span>
                     <span className="who">
@@ -283,7 +297,23 @@ export function StatsView() {
                     </span>
                   </button>
 
-                  {open && (
+                  {open && editing === game.id && (
+                    <RecordEditor
+                      game={game}
+                      onCancel={() => setEditing(null)}
+                      onSave={async (next) => {
+                        const list = await updateGame(next);
+                        // 클라우드에도 고친 값을 올린다. 여기서 안 올리면 폰에서는
+                        // 고쳐졌는데 다른 기기에서는 옛날 점수가 계속 보인다.
+                        if (account && (await cloudChosen())) await pushGame(account.uid, next);
+                        setGames(list);
+                        setEditing(null);
+                        tap();
+                      }}
+                    />
+                  )}
+
+                  {open && editing !== game.id && (
                     <div className="notice" style={{ marginBottom: '0.6rem' }}>
                       {mine.name} {mine.score}/{mine.target} · {opponent.name} {opponent.score}/
                       {opponent.target}
@@ -294,6 +324,15 @@ export function StatsView() {
                       <br />
                       {game.winner ? `${game.players[game.winner].name} 승리` : '무승부'}
                       <div className="row" style={{ marginTop: '0.5rem' }}>
+                        <button
+                          className="secondary"
+                          onClick={() => {
+                            setEditing(game.id);
+                            tap();
+                          }}
+                        >
+                          수정
+                        </button>
                         <button
                           className="danger"
                           onClick={async () => {
@@ -330,6 +369,193 @@ export function StatsView() {
         {copied && <p className="notice">{copied}</p>}
       </div>
     </div>
+  );
+}
+
+/* 기록 수정 ---------------------------------------------------------- */
+
+/**
+ * 끝난 게임 하나를 고치는 폼.
+ *
+ * 점수판은 실수를 한다 — 정확히는 사람이 한다. 한 점을 빼먹은 채로 끝냈거나, 상대
+ * 이름을 대충 적었거나, 이닝을 몇 번 덜 세었거나. 그런 판은 지우고 다시 칠 수 없으므로
+ * 고칠 수 있어야 하고, 안 그러면 틀린 숫자가 승률과 에버에 영원히 남는다.
+ *
+ * 승자를 점수에서 자동으로 다시 계산하지 않는 데는 이유가 있다. 점수를 고치는 이유가
+ * 늘 승부를 뒤집는 건 아니고(핸디가 다르면 점수가 높은 쪽이 진 판도 있다), 무엇보다
+ * 누가 이겼는지는 친 사람이 안다. 그래서 그것만은 직접 고르게 둔다.
+ */
+function RecordEditor({
+  game,
+  onSave,
+  onCancel,
+}: {
+  game: GameSummary;
+  onSave: (next: GameSummary) => Promise<void>;
+  onCancel: () => void;
+}) {
+  const me = game.me ?? 'white';
+
+  // 숫자도 문자열로 들고 있는다. 입력 중에 숫자로 바꿔 버리면 칸을 비우는 순간 0이
+  // 들어차서, 20을 30으로 고치려고 지웠을 때 "0"부터 다시 치게 된다.
+  const [draft, setDraft] = useState(() => ({
+    kind: game.kind,
+    white: {
+      name: game.players.white.name,
+      score: String(game.players.white.score),
+      target: String(game.players.white.target),
+    },
+    yellow: {
+      name: game.players.yellow.name,
+      score: String(game.players.yellow.score),
+      target: String(game.players.yellow.target),
+    },
+    inning: String(game.inning),
+    minutes: String(Math.round(game.elapsedMs / 60000)),
+    winner: (game.winner ?? '') as Side | '',
+  }));
+  const [busy, setBusy] = useState(false);
+
+  const edit = (side: Side, field: 'name' | 'score' | 'target', value: string) =>
+    setDraft((current) => ({ ...current, [side]: { ...current[side], [field]: value } }));
+
+  /** 빈 칸이나 헛소리는 고치기 전 값으로 되돌린다 — 저장 한 번으로 기록이 망가지지 않게. */
+  const number = (value: string, fallback: number, min: number) => {
+    const parsed = Number(value);
+    if (value.trim() === '' || !Number.isFinite(parsed)) return fallback;
+    return Math.max(min, Math.round(parsed));
+  };
+
+  const box = (side: Side) => {
+    const player = draft[side];
+    return (
+      <div className={`box ${side}`} key={side}>
+        <span className="label">
+          {side === 'white' ? '흰 공' : '노란 공'}
+          {side === me ? ' (나)' : ''}
+        </span>
+        <input
+          value={player.name}
+          aria-label={`${side === 'white' ? '흰 공' : '노란 공'} 이름`}
+          onChange={(event) => edit(side, 'name', event.target.value)}
+        />
+        <div className="pair">
+          <label>
+            <span className="label">점수</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={player.score}
+              onChange={(event) => edit(side, 'score', event.target.value)}
+            />
+          </label>
+          <label>
+            <span className="label">목표</span>
+            <input
+              type="number"
+              inputMode="numeric"
+              value={player.target}
+              onChange={(event) => edit(side, 'target', event.target.value)}
+            />
+          </label>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <form
+      className="editor"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (busy) return;
+        setBusy(true);
+        await onSave({
+          ...game,
+          kind: draft.kind,
+          inning: number(draft.inning, game.inning, 1),
+          elapsedMs: number(draft.minutes, Math.round(game.elapsedMs / 60000), 0) * 60000,
+          winner: draft.winner || undefined,
+          players: {
+            white: {
+              name: draft.white.name.trim() || '흰 공',
+              score: number(draft.white.score, game.players.white.score, 0),
+              target: number(draft.white.target, game.players.white.target, 1),
+            },
+            yellow: {
+              name: draft.yellow.name.trim() || '노란 공',
+              score: number(draft.yellow.score, game.players.yellow.score, 0),
+              target: number(draft.yellow.target, game.players.yellow.target, 1),
+            },
+          },
+        });
+        setBusy(false);
+      }}
+    >
+      <span className="label">종목</span>
+      <div className="choices">
+        {GAME_KINDS.map((info) => (
+          <button
+            key={info.id}
+            type="button"
+            className="choice"
+            aria-pressed={draft.kind === info.id}
+            onClick={() => setDraft((current) => ({ ...current, kind: info.id as GameKind }))}
+          >
+            {info.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="pair">{(['white', 'yellow'] as Side[]).map(box)}</div>
+
+      <div className="pair">
+        <label>
+          <span className="label">이닝</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={draft.inning}
+            onChange={(event) => setDraft((current) => ({ ...current, inning: event.target.value }))}
+          />
+        </label>
+        <label>
+          <span className="label">시간(분)</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            value={draft.minutes}
+            onChange={(event) => setDraft((current) => ({ ...current, minutes: event.target.value }))}
+          />
+        </label>
+      </div>
+
+      <span className="label">승자</span>
+      <div className="choices">
+        {([['white', draft.white.name || '흰 공'], ['yellow', draft.yellow.name || '노란 공'], ['', '무승부']] as const).map(
+          ([value, label]) => (
+            <button
+              key={value || 'draw'}
+              type="button"
+              className="choice"
+              aria-pressed={draft.winner === value}
+              onClick={() => setDraft((current) => ({ ...current, winner: value as Side | '' }))}
+            >
+              {label}
+            </button>
+          )
+        )}
+      </div>
+
+      <div className="row">
+        <button type="submit" className="primary" disabled={busy}>
+          저장
+        </button>
+        <button type="button" className="secondary" onClick={onCancel} disabled={busy}>
+          취소
+        </button>
+      </div>
+    </form>
   );
 }
 

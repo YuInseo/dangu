@@ -97,6 +97,20 @@ export async function recordGame(summary: GameSummary): Promise<GameSummary[]> {
   return next;
 }
 
+/**
+ * 이미 저장된 기록 하나를 고친다.
+ *
+ * `recordGame`과 달리 자리를 옮기지 않는다 — 8월 3일에 친 게임의 점수를 고쳤다고 해서
+ * 그게 목록 맨 위로 올라오면, 고친 사람이 자기가 무엇을 건드렸는지 잃어버린다. 목록의
+ * 순서는 친 날짜의 것이지 고친 날짜의 것이 아니다.
+ */
+export async function updateGame(summary: GameSummary): Promise<GameSummary[]> {
+  const list = await loadHistory();
+  const next = list.map((entry) => (entry.id === summary.id ? summary : entry));
+  await writeJson(HISTORY, next);
+  return next;
+}
+
 export async function removeGame(id: string): Promise<GameSummary[]> {
   const next = (await loadHistory()).filter((entry) => entry.id !== id);
   await writeJson(HISTORY, next);

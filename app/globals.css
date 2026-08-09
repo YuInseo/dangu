@@ -149,10 +149,11 @@ graft-island {
 
 /* 점수판 ------------------------------------------------------------- */
 
+/* 화면의 절반씩. 진행 버튼이 아래 푸터로 내려가면서 가운데 기둥이 없어졌다. */
 .board {
   flex: 1;
   display: grid;
-  grid-template-columns: 1fr minmax(104px, 24vw) 1fr;
+  grid-template-columns: 1fr 1fr;
   min-height: 0;
 }
 
@@ -195,8 +196,10 @@ graft-island {
   white-space: nowrap;
 }
 
+/* 기둥이 빠지면서 한 칸이 화면의 절반이 되었다. 그만큼 숫자를 키운다 — 세 자리가
+   들어가도 넘치지 않는 선이 24vw다 — 4구 핸디는 세 자리까지 간다. */
 .side .score {
-  font-size: clamp(4rem, 22vw, 9rem);
+  font-size: clamp(4rem, 24vw, 10rem);
   font-weight: 800;
   line-height: 0.95;
   font-variant-numeric: tabular-nums;
@@ -239,6 +242,42 @@ graft-island {
 /* 쿠션 구간이면서 자기 차례면, 차례 표시가 아니라 쿠션 표시가 이긴다. */
 .side.active.in-cushion {
   box-shadow: inset 0 0 0 5px var(--danger);
+}
+
+/*
+ * 판의 빈 곳 전체가 +1 버튼이다.
+ *
+ * 점수·목표·빈 자리를 통째로 하나의 버튼 안에 넣었다. 배경도 테두리도 없어서 보기에는
+ * 그냥 판이지만, 어디를 눌러도 한 점이 올라간다 — 눌린 것을 알 수 있게 누르는 동안만
+ * 옅게 어두워진다.
+ */
+.side .tap {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  color: inherit;
+  padding: 0.2rem 0.2rem 0;
+  text-align: center;
+  font: inherit;
+}
+
+/* 판 전체가 눌리는 것이라 0.97배로 줄어들면 화면이 출렁인다. */
+.side .tap:active {
+  transform: none;
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.side .tap-hint {
+  font-size: 0.72rem;
+  font-weight: 700;
+  opacity: 0.3;
+  letter-spacing: 0.02em;
+  padding-bottom: 0.15rem;
 }
 
 .side .spacer {
@@ -314,56 +353,77 @@ graft-island {
   }
 }
 
-/* 가운데 기둥 -------------------------------------------------------- */
+/* 아래 푸터 ---------------------------------------------------------- */
 
-.center {
+/*
+ * 진행 버튼 넷과 시계가 있는 줄.
+ *
+ * 예전에는 이것들이 화면 가운데를 세로로 가르는 기둥이었다. 두 사람이 각자 자기 쪽을
+ * 누른다는 배치는 그대로 두면서, 그 기둥이 가져가던 폭은 판에 돌려주려고 아래로 내렸다.
+ * 넷이 한 줄로 나란히 있으면 자리가 손에 외워지고, 화면 아래는 어차피 손이 가는 곳이다.
+ */
+.footer {
   background: var(--center-bg);
   color: var(--center-ink);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 0.5rem 0.6rem 0.6rem;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.8rem 0.45rem 1rem;
-  text-align: center;
+  gap: 0.45rem;
 }
 
-.center .clock {
-  font-size: clamp(1.1rem, 4.4vw, 1.6rem);
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
-}
-
-.center .inning {
+.footer .meta {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.7rem;
   font-size: 0.78rem;
-  opacity: 0.65;
   font-variant-numeric: tabular-nums;
+  /* 흐리게 하는 데 `opacity`를 쓰면 안에 있는 시계까지 같이 흐려진다 — 색으로 낮춘다. */
+  color: rgba(243, 244, 246, 0.6);
 }
 
-.center .stack {
-  display: flex;
-  flex-direction: column;
+.footer .meta .clock {
+  font-size: 1.3rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--center-ink);
+}
+
+.footer .stack {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: 0.4rem;
-  width: 100%;
-  margin-top: auto;
 }
 
-.center .stack button {
-  width: 100%;
-  padding: 0.6rem 0.35rem;
-  font-size: 0.82rem;
+.footer .stack button {
+  min-height: 58px;
+  padding: 0.45rem 0.25rem;
+  font-size: 0.88rem;
   font-weight: 700;
+  line-height: 1.25;
   background: rgba(255, 255, 255, 0.1);
   color: var(--center-ink);
 }
 
-.center .stack button.turn {
+.footer .stack button.turn {
   background: var(--accent);
   color: #fff;
-  padding: 0.75rem 0.35rem;
 }
 
-.center .stack button.finish {
+/* 지금 누구 차례인지는 턴 버튼이 겸해서 말해 준다. */
+.footer .stack button .sub {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer .stack button.finish {
   background: rgba(220, 38, 38, 0.9);
   color: #fff;
 }
@@ -534,6 +594,81 @@ graft-island {
 .handicap .box input {
   text-align: center;
   font-weight: 700;
+}
+
+/* 기록 수정 ---------------------------------------------------------- */
+
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+}
+
+.editor .pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.editor label {
+  display: block;
+  min-width: 0;
+}
+
+/* 두 사람의 칸을 점수판과 같은 색으로 칠한다 — 어느 쪽을 고치는 중인지 헷갈리지 않게. */
+.editor .box {
+  border-radius: 14px;
+  padding: 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.editor .box.white {
+  background: var(--white-bg);
+  color: var(--white-ink);
+}
+
+.editor .box.yellow {
+  background: var(--yellow-bg);
+  color: var(--yellow-ink);
+}
+
+/* 라벨 기본색은 어두운 배경용이라, 밝은 칸 안에서는 배경에 묻힌다. */
+.editor .box .label {
+  color: inherit;
+  opacity: 0.6;
+  margin-bottom: 0;
+}
+
+.editor .box input,
+.editor .pair input {
+  text-align: center;
+  font-weight: 700;
+  min-height: 40px;
+  padding: 0.4rem 0.3rem;
+}
+
+.editor .box input[type='text'],
+.editor .box input:not([type]) {
+  text-align: left;
+  font-weight: 600;
+}
+
+/* 저장과 취소는 한 줄에. `.primary`의 `width: 100%`가 그대로면 둘이 위아래로 갈린다. */
+.editor .row .primary {
+  width: auto;
+}
+
+.editor .choice {
+  padding: 0.6rem 0.4rem;
+  font-size: 0.85rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: block;
 }
 
  /* 달력 --------------------------------------------------------------- */
@@ -730,13 +865,31 @@ button.record {
   color: #fca5a5;
 }
 
-/* 가로 화면에서는 가운데 기둥을 조금 넓게 쓴다. */
+/*
+ * 가로 화면.
+ *
+ * 높이가 귀해지므로 푸터를 한 줄로 눕힌다 — 시계와 버튼 넷이 같은 줄에 서면 판이
+ * 가져가는 높이가 그만큼 늘어난다.
+ */
 @media (orientation: landscape) and (min-width: 720px) {
-  .board {
-    grid-template-columns: 1fr 200px 1fr;
-  }
-
   .side .score {
     font-size: clamp(5rem, 14vw, 11rem);
+  }
+
+  .footer {
+    flex-direction: row;
+    align-items: center;
+    gap: 0.8rem;
+  }
+
+  .footer .meta {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    flex: 0 0 auto;
+  }
+
+  .footer .stack {
+    flex: 1;
   }
 }
