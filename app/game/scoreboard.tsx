@@ -33,9 +33,9 @@ import { useAccount } from '../../lib/use-account';
 /**
  * 점수판.
  *
- * 화면의 절반씩이 각자의 것이고 — 왼쪽 흰 공, 오른쪽 노란 공 — 가운데 좁은 기둥에
- * 시계와 진행 버튼이 있다. 이 배치인 이유는 둘이 테이블을 사이에 두고 마주 서서
- * 각자 자기 쪽을 누르기 때문이다. 상대 점수를 올려 주려고 폰을 돌려 잡는 일이 없다.
+ * 화면의 절반씩이 각자의 것이고 — 왼쪽 흰 공, 오른쪽 노란 공 — 시계와 진행 버튼은
+ * 아래 푸터 한 줄에 있다. 이 배치인 이유는 둘이 테이블을 사이에 두고 마주 서서 각자
+ * 자기 쪽을 누르기 때문이다. 상대 점수를 올려 주려고 폰을 돌려 잡는 일이 없다.
  *
  * 상태는 `lib/game.ts`의 리듀서가 전부 가지고 있고, 여기서는 그리기와 저장만 한다.
  * 저장은 상태가 바뀔 때마다 — 앱이 언제 죽을지 모르는 게 모바일이고, 점수판이 마지막
@@ -141,46 +141,6 @@ export function Scoreboard() {
       <div className="board">
         <PlayerSide side="white" state={state} onScore={score} onTurn={() => dispatch({ type: 'turn', side: 'white' })} />
 
-        <div className="center">
-          <div className="clock" aria-label="경과 시간">
-            {formatClock(state.elapsedMs)}
-          </div>
-          <div className="inning">
-            {info.label} · {state.inning}이닝
-          </div>
-          <div className="inning">
-            에버 {average(state, 'white').toFixed(2)} / {average(state, 'yellow').toFixed(2)}
-          </div>
-
-          <div className="stack">
-            <button
-              className="turn"
-              onClick={() => {
-                dispatch({ type: 'turn' });
-                tap();
-              }}
-            >
-              턴 넘김
-              <br />
-              <span style={{ fontSize: '0.7rem', opacity: 0.85 }}>
-                {state.players[state.turn].name}
-              </span>
-            </button>
-
-            <button onClick={() => dispatch({ type: 'undo' })} disabled={state.history.length === 0}>
-              되돌리기
-            </button>
-
-            <button onClick={() => dispatch({ type: state.running ? 'pause' : 'resume' })}>
-              {state.running ? '일시정지' : '재개'}
-            </button>
-
-            <button className="finish" onClick={() => dispatch({ type: 'finish' })}>
-              종료
-            </button>
-          </div>
-        </div>
-
         <PlayerSide
           side="yellow"
           state={state}
@@ -188,6 +148,53 @@ export function Scoreboard() {
           onTurn={() => dispatch({ type: 'turn', side: 'yellow' })}
         />
       </div>
+
+      {/*
+        진행 버튼은 화면 아래 한 줄에 모여 있다.
+
+        가운데 기둥이 하던 일인데, 그러느라 두 사람의 판이 각각 화면의 3분의 1로 줄었다.
+        점수는 방 건너편에서도 읽혀야 하는 이 앱에서 그건 비싼 값이다. 아래로 내리면
+        판은 절반씩을 온전히 가져가고, 버튼은 손이 원래 가는 자리로 온다.
+      */}
+      <footer className="footer">
+        <div className="meta">
+          <span className="clock" aria-label="경과 시간">
+            {formatClock(state.elapsedMs)}
+          </span>
+          <span>
+            {info.label} · {state.inning}이닝
+          </span>
+          <span>
+            에버 {average(state, 'white').toFixed(2)} / {average(state, 'yellow').toFixed(2)}
+          </span>
+        </div>
+
+        <div className="stack">
+          <button
+            className="turn"
+            onClick={() => {
+              dispatch({ type: 'turn' });
+              tap();
+            }}
+          >
+            턴 넘김
+            <br />
+            <span className="sub">{state.players[state.turn].name}</span>
+          </button>
+
+          <button onClick={() => dispatch({ type: 'undo' })} disabled={state.history.length === 0}>
+            되돌리기
+          </button>
+
+          <button onClick={() => dispatch({ type: state.running ? 'pause' : 'resume' })}>
+            {state.running ? '일시정지' : '재개'}
+          </button>
+
+          <button className="finish" onClick={() => dispatch({ type: 'finish' })}>
+            종료
+          </button>
+        </div>
+      </footer>
 
       {state.finishedAt && (
         <ResultSheet
