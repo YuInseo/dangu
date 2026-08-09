@@ -6,11 +6,23 @@ on:
   push:
     tags:
       - 'v*'
-  # 태그 없이 한 번 돌려 보고 싶을 때. 이때는 릴리스를 만들지 않고 APK만 남긴다.
+    # 브랜치에 밀어도 APK가 나온다. 릴리스는 만들지 않고 아티팩트로만 남는다.
+    #
+    # 태그는 되돌릴 수 없는 발표다 — 앱의 업데이트 버튼이 곧바로 그걸 집어 든다.
+    # 그래서 "실기기에 한번 올려 보는 것"과 "내보내는 것"을 갈라 둔다. 이쪽이 앞엣것이다.
+    branches:
+      - '**'
+  # 태그 없이 손으로 한 번 돌려 보고 싶을 때.
   workflow_dispatch:
 
 permissions:
   contents: write
+
+# 같은 브랜치에 연달아 밀면 앞의 빌드는 버린다. 안드로이드 빌드는 10분씩 걸리고,
+# 두 커밋 전의 APK를 기다릴 이유는 없다. 태그는 ref가 각각 달라 서로 취소하지 않는다.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   android:
