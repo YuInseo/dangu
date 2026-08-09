@@ -3,37 +3,58 @@
 import Link from 'graft/link';
 import { useEffect, useState } from 'react';
 
-import { prepareShell } from '../lib/platform';
-import { checkForUpdate, type UpdateCheck } from '../lib/update';
+import { isNativeApp, prepareShell } from '../lib/platform';
+import { confirmBundle, stageWebBundle } from '../lib/live-update';
+import { checkForUpdate, needsApk, prefetchApk, type UpdateCheck } from '../lib/update';
 
 /**
  * 모든 화면 위에 있는 줄: 제목, 업데이트, 설정.
  *
- * 업데이트 버튼이 설정 옆에 있는 이유는 스토어를 거치지 않고 배포하기 때문이다.
- * 새 버전이 있으면 버튼이 초록색 배지로 바뀌므로, 눌러보기 전에 알 수 있다. 확인은
- * 화면이 뜰 때 조용히 한 번만 한다 — 실패해도 아무 말도 하지 않는다. 점수판을 켠
- * 사람이 지금 알고 싶은 건 업데이트가 아니라 점수다.
+ * 업데이트는 대개 여기서 조용히 끝난다. 새 웹 번들이 있으면 아무 말 없이 받아 두고,
+ * 다음에 앱을 켤 때 새 화면이 뜬다 — 누를 것도, 기다릴 것도 없다. 배지가 켜지는 건
+ * 앱 껍데기까지 바뀌어서 안드로이드 설치 화면을 한 번 거쳐야 할 때뿐이다. 그때도
+ * APK는 이미 받아 둔 뒤라 누르면 곧바로 설치 화면이다.
+ *
+ * 실패는 전부 조용하다. 점수판을 켠 사람이 지금 알고 싶은 건 업데이트가 아니라 점수다.
  */
 export function TopBar({ title, back }: { title: string; back?: string }) {
   const [update, setUpdate] = useState<UpdateCheck | null>(null);
+  const [apk, setApk] = useState(false);
 
   // 상단 줄은 모든 화면에 있으므로, 셸 초기화를 여기서 한 번 부르면 어느 화면으로
   // 들어와도 상태 표시줄이 제자리를 잡는다.
   useEffect(() => {
     void prepareShell();
+    // 이 실행이 멀쩡하다는 신호. 늦으면 새 번들이 되돌려지므로 다른 무엇보다 먼저 보낸다.
+    void confirmBundle();
   }, []);
 
   useEffect(() => {
     let cancelled = false;
-    void checkForUpdate().then((result) => {
-      if (!cancelled) setUpdate(result);
-    });
+
+    void (async () => {
+      const result = await checkForUpdate();
+      if (cancelled) return;
+      setUpdate(result);
+      if (result.state !== 'available') return;
+
+      // 화면은 조용히 갈아끼운다. 다음 실행에 적용되므로 지금 치는 게임은 건드리지 않는다.
+      void stageWebBundle(result.release);
+
+      // 껍데기까지 바뀐 릴리스에서만 APK를 미리 받는다. 4MB는 당구장 3G에서 공짜가 아니다.
+      const native = await needsApk(result.release);
+      if (cancelled || !native) return;
+      setApk(true);
+      void prefetchApk(result.release);
+    })();
+
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const available = update?.state === 'available';
+  // 웹에서는 갈아끼울 껍데기가 없으므로, 새 버전이 있다는 사실 자체가 알릴 거리다.
+  const available = update?.state === 'available' && (apk || !isNativeApp());
 
   return (
     <header className="topbar">

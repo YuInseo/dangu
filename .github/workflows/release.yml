@@ -142,9 +142,22 @@ jobs:
             RELEASE=no
           fi
 
+          # 네이티브 껍데기의 지문.
+          #
+          # 앱은 이 값으로 "이번 릴리스가 APK까지 갈아야 하는 것인지"를 안다. 웹 자산은
+          # 여기에 넣지 않는다 — 그건 매번 바뀌고, 매번 바뀌는 값으로는 아무것도 구분할
+          # 수 없다. 껍데기를 정하는 것은 graft.config.ts와 mobile/ 아래의 파일들뿐이다.
+          NATIVE_KEY=$(
+            {
+              sha256sum graft.config.ts
+              find mobile -type f 2>/dev/null | sort | xargs -r sha256sum
+            } | sha256sum | cut -c1-12
+          )
+
           echo "value=$VALUE" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "native_key=$NATIVE_KEY" >> "$GITHUB_OUTPUT"
           echo "### $VALUE ${TAG:+($TAG)} · 릴리스: $RELEASE" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 의존성 설치
@@ -226,6 +239,22 @@ jobs:
           name: apk
           path: ${{ steps.apk.outputs.path }}
 
+      # 릴리스에 APK 말고 두 개가 더 붙는다.
+      #
+      #   www-<버전>.zip   앱이 조용히 받아 다음 실행에 적용하는 웹 자산. 대부분의
+      #                    업데이트가 이 파일 하나로 끝난다 — 설치 화면도, 누를 것도 없다.
+      #   native-<지문>.txt 껍데기의 지문. 파일을 받지 않고 이름만 보고 알 수 있게 이름에
+      #                    적는다. 앱은 자기 지문과 비교해 APK가 필요한지를 정한다.
+      - name: 웹 번들과 지문 만들기
+        if: steps.version.outputs.release == 'yes'
+        run: |
+          set -eu
+          # zip의 뿌리에 index.html이 있어야 한다. 한 겹 감싸면 플러그인이 빈 화면을 연다.
+          (cd .graft/mobile/www && zip -qr "$GITHUB_WORKSPACE/www-${{ steps.version.outputs.value }}.zip" .)
+          printf '%s\n' "${{ steps.version.outputs.native_key }}" \
+            > "native-${{ steps.version.outputs.native_key }}.txt"
+          ls -la www-*.zip native-*.txt
+
       # 브랜치 빌드도 받을 수 있는 주소를 갖는다.
       #
       # 아티팩트는 로그인한 사람만 받을 수 있는 zip이라, 폰에서 설치해 보려면 PC를 한 번
@@ -260,4 +289,7 @@ jobs:
           name: v${{ steps.version.outputs.value }}
           # 앱의 업데이트 카드가 이 본문을 그대로 보여 준다.
           generate_release_notes: true
-          files: ${{ steps.apk.outputs.path }}
+          files: |
+            ${{ steps.apk.outputs.path }}
+            www-${{ steps.version.outputs.value }}.zip
+            native-${{ steps.version.outputs.native_key }}.txt

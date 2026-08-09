@@ -20,10 +20,12 @@ import {
   checkForUpdate,
   currentVersion,
   installUpdate,
+  needsApk,
   platformLine,
   type InstallProgress,
   type UpdateCheck,
 } from '../../lib/update';
+import { stageWebBundle, type StageResult } from '../../lib/live-update';
 import { syncDown, syncUp, useAccount } from '../../lib/use-account';
 
 /**
@@ -318,8 +320,17 @@ function FirebaseCard() {
 
 /* 업데이트 ----------------------------------------------------------- */
 
+/**
+ * 업데이트 카드.
+ *
+ * 여기서 사용자가 할 일은 대개 없다. 웹 번들은 앱이 켜질 때 이미 받아 두었고 다음
+ * 실행에 적용된다 — 이 카드는 그 사실을 알려 줄 뿐이다. 버튼이 필요한 경우는 하나,
+ * 앱 껍데기까지 바뀌어서 안드로이드 설치 화면을 거쳐야 할 때다.
+ */
 function UpdateCard() {
   const [check, setCheck] = useState<UpdateCheck | null>(null);
+  const [stage, setStage] = useState<StageResult | null>(null);
+  const [apk, setApk] = useState(false);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -327,7 +338,12 @@ function UpdateCard() {
   const run = async () => {
     setBusy(true);
     setMessage(null);
-    setCheck(await checkForUpdate());
+    const result = await checkForUpdate();
+    setCheck(result);
+    if (result.state === 'available') {
+      setStage(await stageWebBundle(result.release));
+      setApk(await needsApk(result.release));
+    }
     setBusy(false);
   };
 
@@ -355,35 +371,48 @@ function UpdateCard() {
       {available && (
         <>
           <p>
-            새 버전 <strong>v{available.version}</strong>이 있습니다. 현재 v{currentVersion()}.
+            새 버전 <strong>v{available.version}</strong>. 현재 v{currentVersion()}.
           </p>
           {available.release.notes && (
             <p className="notice" style={{ whiteSpace: 'pre-wrap' }}>
               {available.release.notes.slice(0, 400)}
             </p>
           )}
-          <button
-            className="primary"
-            disabled={busy}
-            onClick={async () => {
-              setBusy(true);
-              setMessage(null);
-              const result = await installUpdate(available.release, setProgress);
-              setBusy(false);
-              setProgress(null);
-              setMessage(
-                result.ok
-                  ? result.via === 'installer'
-                    ? '설치 화면이 열립니다. "설치"를 누르면 끝납니다.'
-                    : '브라우저에서 내려받는 중입니다. 알림을 눌러 설치하세요.'
-                  : result.reason
-              );
-            }}
-          >
-            {busy && progress
-              ? `받는 중 ${Math.round((progress.downloaded / Math.max(1, progress.total)) * 100)}%`
-              : `v${available.version} 설치`}
-          </button>
+
+          {stage?.state === 'ready' && (
+            <p className="notice">받아 두었습니다. 앱을 다시 켜면 새 버전으로 시작합니다.</p>
+          )}
+
+          {apk && (
+            <>
+              <p style={{ fontSize: '0.82rem' }}>
+                이번 버전은 앱 껍데기까지 바뀌어서 설치가 한 번 필요합니다. 파일은 이미 받아
+                두었으므로 누르면 곧바로 설치 화면입니다.
+              </p>
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setMessage(null);
+                  const result = await installUpdate(available.release, setProgress);
+                  setBusy(false);
+                  setProgress(null);
+                  setMessage(
+                    result.ok
+                      ? result.via === 'installer'
+                        ? '설치 화면이 열립니다. "설치"를 누르면 끝납니다.'
+                        : '브라우저에서 내려받는 중입니다. 알림을 눌러 설치하세요.'
+                      : result.reason
+                  );
+                }}
+              >
+                {busy && progress
+                  ? `받는 중 ${Math.round((progress.downloaded / Math.max(1, progress.total)) * 100)}%`
+                  : `v${available.version} 설치`}
+              </button>
+            </>
+          )}
         </>
       )}
 
@@ -394,8 +423,8 @@ function UpdateCard() {
       {message && <p className="notice">{message}</p>}
 
       <p style={{ fontSize: '0.78rem' }}>
-        처음 설치할 때는 "출처를 알 수 없는 앱" 설치 허용이 한 번 필요합니다. 안드로이드가 그 화면을
-        직접 띄웁니다.
+        새 버전은 앱이 켜질 때 알아서 받아 두고 다음 실행에 적용됩니다. 앱 껍데기가 바뀔 때만
+        안드로이드 설치 화면이 한 번 뜨는데, 그건 시스템이 요구하는 것이라 건너뛸 수 없습니다.
       </p>
     </div>
   );
