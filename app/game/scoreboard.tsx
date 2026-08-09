@@ -262,10 +262,18 @@ function PlayerSide({
         onClick={() => onScore(side, 1)}
         aria-label={`${player.name} 1점 더하기`}
       >
-        {/* 목표 점수를 채우면 숫자가 0으로 돌아가고 쿠션 점수를 센다. 그래서 지금
-            보이는 숫자가 무엇인지 위에 적어 준다 — 이 한 줄이 없으면 0으로 돌아간
-            점수판이 오히려 더 헷갈린다. */}
-        {cushion && <div className="cushion">쿠션</div>}
+        {/*
+          목표 점수를 채우면 숫자가 0으로 돌아가고 쿠션 점수를 센다. 그래서 지금 보이는
+          숫자가 무엇인지 위에 적어 준다 — 이 한 줄이 없으면 0으로 돌아간 점수판이
+          오히려 더 헷갈린다.
+
+          쿠션 구간이 아닐 때도 자리는 남겨 둔다. 한쪽에만 이 딱지가 붙으면 그쪽 점수만
+          아래로 밀려서, 마주 보는 두 숫자의 높이가 어긋난다. 점수판에서 두 숫자는
+          같은 줄에 있어야 한눈에 비교된다.
+        */}
+        <div className="cushion" data-empty={!cushion} aria-hidden={!cushion}>
+          쿠션
+        </div>
 
         <div className={cushion ? 'score cushion-score' : 'score'} aria-live="polite">
           {displayScore(state, side)}

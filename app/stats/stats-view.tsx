@@ -466,6 +466,7 @@ function RecordSheet({
   const started = new Date(game.startedAt);
   const finished = game.finishedAt ? new Date(game.finishedAt) : null;
   const innings = Math.max(1, game.inning);
+  const cushion = game.lastCushion ?? 0;
 
   const clock = (date: Date) =>
     date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
@@ -506,6 +507,9 @@ function RecordSheet({
               {(['white', 'yellow'] as Side[]).map((side) => {
                 const player = game.players[side];
                 const won = game.winner === side;
+                // 목표를 넘긴 점수가 곧 쿠션으로 친 점수다. 규칙에 걸린 만큼까지만 센다 —
+                // 이기는 순간 게임이 끝나므로 그 위로 올라갈 자리는 없다.
+                const made = Math.min(cushion, Math.max(0, player.score - player.target));
                 return (
                   <div className={`box ${side}`} key={side}>
                     <span className="label">
@@ -517,6 +521,11 @@ function RecordSheet({
                     <span className="label">
                       핸디 {player.target} · 에버 {(player.score / innings).toFixed(3)}
                     </span>
+                    {cushion > 0 && (
+                      <span className="label">
+                        쿠션 {made}/{cushion}점
+                      </span>
+                    )}
                   </div>
                 );
               })}
