@@ -379,6 +379,7 @@ function ResultSheet({
   discarded: boolean;
 }) {
   const winner = state.winner ? state.players[state.winner] : null;
+  const [asking, setAsking] = useState(false);
 
   return (
     <div className="sheet" role="dialog" aria-modal="true">
@@ -408,11 +409,47 @@ function ResultSheet({
         {discarded ? (
           <p className="notice">이 판은 기록하지 않았습니다.</p>
         ) : (
-          <button className="ghost" onClick={() => void onDiscard()}>
+          <button className="ghost" onClick={() => setAsking(true)}>
             기록 안 함
           </button>
         )}
       </div>
+
+      {/*
+        한 번 더 묻는다.
+
+        결과 시트는 게임이 끝나자마자 손이 가는 자리이고, 그 아래에 "한 판 더"가 있다.
+        되돌릴 수 없는 버튼을 그 옆에 그냥 두면 잘못 눌린 판이 조용히 사라진다.
+      */}
+      {asking && (
+        <div
+          className="confirm"
+          role="dialog"
+          aria-modal="true"
+          onClick={(event) => {
+            if (event.target === event.currentTarget) setAsking(false);
+          }}
+        >
+          <div className="box">
+            <strong>이 판을 기록에서 뺄까요?</strong>
+            <p>승률과 에버에서 빠집니다. 되돌릴 수 없습니다.</p>
+            <div className="row">
+              <button
+                className="danger"
+                onClick={async () => {
+                  setAsking(false);
+                  await onDiscard();
+                }}
+              >
+                기록 안 함
+              </button>
+              <button className="secondary" onClick={() => setAsking(false)}>
+                취소
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
