@@ -314,10 +314,26 @@ export function formatClock(ms: number): string {
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${pad(minutes)}:${pad(seconds)}`;
 }
 
-/** 한 게임의 평균 애버리지 — 당구장에서 실제로 보는 숫자. */
+/**
+ * 이 사람이 지금까지 친 이닝 수.
+ *
+ * 이닝 번호는 판 전체에 하나지만, 그 안에서 두 사람이 친 횟수는 같지 않다. 선공이
+ * 3이닝을 시작해 아직 치고 있으면 후공은 2이닝만 친 것이고, 그 상태에서 둘을 같은
+ * 수로 나누면 후공의 에버가 실제보다 낮게 나온다. 당구장에서 에버는 자기가 친 이닝으로
+ * 나눈 값이므로, 여기서 각자의 몫을 센다.
+ */
+export function innings(state: GameState, side: Side): number {
+  const first = firstSide(state);
+  if (side === first) return state.inning;
+  // 후공은 선공이 이번 이닝을 아직 넘기지 않았으면 한 이닝 적다.
+  return Math.max(0, state.turn === first ? state.inning - 1 : state.inning);
+}
+
+/** 한 게임의 평균 애버리지 — 당구장에서 실제로 보는 숫자. 자기가 친 이닝으로 나눈다. */
 export function average(state: GameState, side: Side): number {
-  if (state.inning === 0) return 0;
-  return state.players[side].score / state.inning;
+  const played = innings(state, side);
+  if (played === 0) return 0;
+  return state.players[side].score / played;
 }
 
 /** 저장·전송용으로 줄인 형태. 히스토리 전체를 클라우드에 넣을 이유는 없다. */

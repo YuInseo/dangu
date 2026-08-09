@@ -9,6 +9,7 @@ import {
   cushionRemaining,
   displayScore,
   formatClock,
+  innings,
   kindInfo,
   needsCushion,
   other,
@@ -161,12 +162,9 @@ export function Scoreboard() {
           <span className="clock" aria-label="경과 시간">
             {formatClock(state.elapsedMs)}
           </span>
-          <span>
-            {info.label} · {state.inning}이닝
-          </span>
-          <span>
-            에버 {average(state, 'white').toFixed(2)} / {average(state, 'yellow').toFixed(2)}
-          </span>
+          {/* 에버와 이닝은 각자의 판으로 옮겼다 — 사람마다 다른 숫자라 한 줄에 몰아
+              적으면 어느 쪽이 자기 것인지 매번 읽어야 한다. */}
+          <span>{info.label}</span>
         </div>
 
         <div className="stack">
@@ -277,6 +275,12 @@ function PlayerSide({
           {cushion
             ? `쿠션 ${state.lastCushion}점 중 ${cushionRemaining(state, side)}점 남음`
             : `${player.target}점${state.lastCushion > 0 ? ` +쿠션 ${state.lastCushion}` : ''} · ${remaining(state, side)}점 남음`}
+        </div>
+
+        {/* 에버는 자기가 친 이닝으로 나눈 값이라 사람마다 다르다. 그래서 가운데 한 줄에
+            둘을 몰아 적는 대신 각자의 판에 적는다 — 자기 숫자를 자기 쪽에서 본다. */}
+        <div className="rate">
+          에버 {average(state, side).toFixed(2)} · {innings(state, side)}이닝
         </div>
 
         <div className="spacer" />

@@ -283,6 +283,40 @@ export async function fetchGames(uid: string, max = 100): Promise<GameSummary[]>
   }
 }
 
+/**
+ * 클라우드에 있는 이 사람의 기록을 전부 지운다. 지운 개수를 돌려준다.
+ *
+ * 배치 하나에 담을 수 있는 쓰기는 500개까지라 나눠서 보낸다. 기기 쪽 상한(50개)보다
+ * 훨씬 많이 쌓일 수 있는 곳이라, 한 번에 다 넣으면 조용히 실패하는 크기가 된다.
+ */
+export async function deleteAllGames(uid: string): Promise<number> {
+  const instance = await firebase();
+  if (!instance) return 0;
+  try {
+    const { collection, getDocs, writeBatch } = await import('firebase/firestore');
+    const snapshot = await getDocs(collection(instance.db, 'users', uid, 'games'));
+
+    let batch = writeBatch(instance.db);
+    let pending = 0;
+    let removed = 0;
+
+    for (const entry of snapshot.docs) {
+      batch.delete(entry.ref);
+      pending++;
+      removed++;
+      if (pending === 450) {
+        await batch.commit();
+        batch = writeBatch(instance.db);
+        pending = 0;
+      }
+    }
+    if (pending > 0) await batch.commit();
+    return removed;
+  } catch {
+    return 0;
+  }
+}
+
 export async function deleteGame(uid: string, id: string): Promise<boolean> {
   const instance = await firebase();
   if (!instance) return false;

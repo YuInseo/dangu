@@ -214,6 +214,14 @@ graft-island {
   font-variant-numeric: tabular-nums;
 }
 
+/* 자기 에버와 자기 이닝. 목표 점수보다 한 단계 조용하게 — 치는 중에 계속 볼 숫자는 아니다. */
+.side .rate {
+  font-size: 0.8rem;
+  font-weight: 600;
+  opacity: 0.45;
+  font-variant-numeric: tabular-nums;
+}
+
  /*
  * 쿠션 구간의 표시.
  *
@@ -758,6 +766,33 @@ graft-island {
   color: rgba(255, 255, 255, 0.85);
 }
 
+/*
+ * 카드 안에서 굴러가는 목록.
+ *
+ * 게임이 수십 개 쌓이면 카드 하나가 화면 몇 개 길이가 되고, 그 아래 있는 것들이 그만큼
+ * 멀어진다. 목록만 안에서 굴리면 카드 높이는 내용과 상관없이 일정하다. 높이를 화면
+ * 비율(dvh)로 잡는 이유는 폰마다 화면이 다르기 때문이고, 잘린 줄이 반쯤 보이게 두는
+ * 것은 아래에 더 있다는 뜻이 되어서다.
+ */
+.scroller {
+  max-height: 46dvh;
+  overflow-y: auto;
+  /* 목록 끝에서 계속 밀어도 페이지가 따라 움직이지 않는다. */
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  margin: 0 -0.25rem;
+  padding: 0 0.25rem;
+}
+
+/* 몇 개인지. 제목 옆의 작은 숫자 하나가 "굴려야 하는 목록"이라는 걸 미리 말해 준다. */
+.card h2 .count {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: rgba(243, 244, 246, 0.45);
+  margin-left: 0.35rem;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 기록 --------------------------------------------------------------- */
 
 .record {
@@ -844,6 +879,106 @@ button.record {
 .sheet .winner {
   font-size: 1.6rem;
   font-weight: 800;
+}
+
+/* 담을 것이 많은 시트는 스스로 굴러간다. 화면보다 길어지면 버튼이 아래로 잘려 나간다. */
+.sheet .inner {
+  max-height: 88dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sheet-head strong {
+  flex: 1;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.sheet-head .ghost {
+  padding: 0.35rem 0.6rem;
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sheet .box .who-name {
+  font-size: 1rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sheet .box .big {
+  font-size: 2.4rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+/* 이름표와 값이 한 줄씩. 값은 오른쪽에 모아 두면 숫자끼리 세로로 읽힌다. */
+.facts {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.facts > div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  font-size: 0.88rem;
+}
+
+.facts dt {
+  color: rgba(243, 244, 246, 0.55);
+}
+
+.facts dd {
+  margin: 0;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* 모달 안의 두 사람 칸은 편집 폼과 같은 모양을 쓴다. */
+.sheet .pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem;
+}
+
+.sheet .box {
+  border-radius: 14px;
+  padding: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.sheet .box.white {
+  background: var(--white-bg);
+  color: var(--white-ink);
+}
+
+.sheet .box.yellow {
+  background: var(--yellow-bg);
+  color: var(--yellow-ink);
+}
+
+.sheet .box .label {
+  color: inherit;
+  opacity: 0.6;
+  margin-bottom: 0;
 }
 
 .notice {

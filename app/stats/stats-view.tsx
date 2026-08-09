@@ -23,8 +23,15 @@ import {
   tallyByDay,
   type Tally,
 } from '../../lib/stats';
-import { cloudChosen, copyHistory, loadHistory, removeGame, updateGame } from '../../lib/storage';
-import { deleteGame, pushGame } from '../../lib/firebase';
+import {
+  clearHistory,
+  cloudChosen,
+  copyHistory,
+  loadHistory,
+  removeGame,
+  updateGame,
+} from '../../lib/storage';
+import { deleteAllGames, deleteGame, pushGame } from '../../lib/firebase';
 import { syncDown, useAccount } from '../../lib/use-account';
 import { tap } from '../../lib/platform';
 
@@ -42,6 +49,11 @@ export function StatsView() {
   const { account } = useAccount();
   const [games, setGames] = useState<GameSummary[] | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  /** 전체 삭제의 확인 단계. 한 번 눌러 열고, 다시 눌러야 지워진다. */
+  const [wiping, setWiping] = useState(false);
+  const [busy, setBusy] = useState(false);
+  /** 클라우드 저장을 쓰는지 — 전체 삭제가 거기까지 미치는지를 미리 말해 주려고 본다. */
+  const [cloud, setCloud] = useState(false);
   const [expanded, setExpanded] = useState<string | null>(null);
   /** 지금 고치고 있는 기록. 펼친 것과 따로 두어야 펼치기만 해서는 폼이 뜨지 않는다. */
   const [editing, setEditing] = useState<string | null>(null);
@@ -56,6 +68,7 @@ export function StatsView() {
 
   useEffect(() => {
     void loadHistory().then(setGames);
+    void cloudChosen().then(setCloud);
   }, []);
 
   // 클라우드 저장을 고른 사람에게는 계정에 있는 것까지 합쳐 본다. 폰을 바꿨을 때
@@ -90,6 +103,9 @@ export function StatsView() {
 
   const stats = useMemo(() => computeStats(scope.games), [scope.games]);
   const overall = useMemo(() => computeStats(all), [all]);
+
+  /** 모달에 떠 있는 기록. 지워지거나 날짜를 옮기면 스스로 닫히도록 목록에서 찾는다. */
+  const opened = useMemo(() => all.find((game) => game.id === expanded), [all, expanded]);
 
   const shiftMonth = (delta: number) => {
     setSelected(null);
@@ -262,22 +278,32 @@ export function StatsView() {
           </div>
 
           <div className="card">
-            <h2>게임 상세</h2>
-            {scope.games.map((game) => {
-              const me = game.me ?? 'white';
-              const opponent = game.players[other(me)];
-              const mine = game.players[me];
-              const won = game.winner === me;
-              const open = expanded === game.id;
+            <h2>
+              게임 상세 <span className="count">{scope.games.length}</span>
+            </h2>
+            {/*
+              목록만 스크롤한다.
 
-              return (
-                <div key={game.id}>
+              한 달에 수십 게임이 쌓이면 이 카드 하나가 화면 몇 개 길이가 되고, 아래에
+              있는 내보내기·삭제는 그만큼 멀어진다. 카드 안에서 굴리면 카드의 크기는
+              내용과 상관없이 일정하고, 화면 전체의 순서도 그대로 남는다.
+            */}
+            <div className="scroller">
+              {scope.games.map((game) => {
+                const me = game.me ?? 'white';
+                const opponent = game.players[other(me)];
+                const mine = game.players[me];
+                const won = game.winner === me;
+
+                return (
                   <button
+                    key={game.id}
                     className="record"
                     style={{ width: '100%', background: 'none', textAlign: 'left', minHeight: 0 }}
                     onClick={() => {
-                      setExpanded(open ? null : game.id);
+                      setExpanded(game.id);
                       setEditing(null);
+                      tap();
                     }}
                   >
                     <span className="pill">{kindInfo(game.kind).label}</span>
@@ -296,60 +322,9 @@ export function StatsView() {
                       {mine.score}:{opponent.score}
                     </span>
                   </button>
-
-                  {open && editing === game.id && (
-                    <RecordEditor
-                      game={game}
-                      onCancel={() => setEditing(null)}
-                      onSave={async (next) => {
-                        const list = await updateGame(next);
-                        // 클라우드에도 고친 값을 올린다. 여기서 안 올리면 폰에서는
-                        // 고쳐졌는데 다른 기기에서는 옛날 점수가 계속 보인다.
-                        if (account && (await cloudChosen())) await pushGame(account.uid, next);
-                        setGames(list);
-                        setEditing(null);
-                        tap();
-                      }}
-                    />
-                  )}
-
-                  {open && editing !== game.id && (
-                    <div className="notice" style={{ marginBottom: '0.6rem' }}>
-                      {mine.name} {mine.score}/{mine.target} · {opponent.name} {opponent.score}/
-                      {opponent.target}
-                      <br />
-                      {game.inning}이닝 · {formatClock(game.elapsedMs)} · 에버{' '}
-                      {(mine.score / Math.max(1, game.inning)).toFixed(3)}
-                      {game.lastCushion ? ` · 마지막 쿠션 ${game.lastCushion}점` : ''}
-                      <br />
-                      {game.winner ? `${game.players[game.winner].name} 승리` : '무승부'}
-                      <div className="row" style={{ marginTop: '0.5rem' }}>
-                        <button
-                          className="secondary"
-                          onClick={() => {
-                            setEditing(game.id);
-                            tap();
-                          }}
-                        >
-                          수정
-                        </button>
-                        <button
-                          className="danger"
-                          onClick={async () => {
-                            const next = await removeGame(game.id);
-                            if (account) await deleteGame(account.uid, game.id);
-                            setGames(next);
-                            setExpanded(null);
-                          }}
-                        >
-                          이 기록 삭제
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+            </div>
           </div>
         </>
       )}
@@ -367,6 +342,238 @@ export function StatsView() {
           클립보드로 복사
         </button>
         {copied && <p className="notice">{copied}</p>}
+      </div>
+
+      {all.length > 0 && (
+        <div className="card">
+          <h2>기록 전체 삭제</h2>
+          {/*
+            두 번 눌러야 지워진다.
+
+            되돌릴 수 없는 버튼이고, 바로 위 카드에 "클립보드로 복사"가 있다 — 지우기
+            전에 꺼내 둘 수 있다는 뜻이라 그 순서가 우연이 아니다. 확인 단계에서는 몇
+            게임이 사라지는지와 클라우드까지 지워지는지를 말해 준다.
+          */}
+          {!wiping ? (
+            <>
+              <p>이 기기의 기록 {all.length}게임을 지웁니다. 되돌릴 수 없습니다.</p>
+              <button className="danger" onClick={() => setWiping(true)}>
+                전체 삭제
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="notice error">
+                {all.length}게임을 지웁니다{cloud ? ' (클라우드 사본까지)' : ''}. 되돌릴 수
+                없습니다.
+              </p>
+              <div className="row">
+                <button
+                  className="danger"
+                  disabled={busy}
+                  onClick={async () => {
+                    setBusy(true);
+                    await clearHistory();
+                    if (account && cloud) await deleteAllGames(account.uid);
+                    setGames([]);
+                    setExpanded(null);
+                    setEditing(null);
+                    setWiping(false);
+                    setBusy(false);
+                    tap();
+                  }}
+                >
+                  {busy ? '지우는 중…' : '정말 지웁니다'}
+                </button>
+                <button className="secondary" disabled={busy} onClick={() => setWiping(false)}>
+                  취소
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/*
+        기록 하나는 모달로 연다.
+
+        줄 아래로 펼치던 때에는 목록이 밀려 내려가서, 열자마자 방금 누른 줄이 어디였는지
+        다시 찾아야 했다. 스크롤되는 목록 안에서는 더 그렇다. 모달은 목록을 건드리지
+        않고, 좁은 줄에 욱여넣을 수 없던 것들 — 핸디, 각자의 에버, 시작과 끝 시각 —
+        까지 담을 자리를 준다.
+      */}
+      {opened && (
+        <RecordSheet
+          game={opened}
+          editing={editing === opened.id}
+          onEdit={() => {
+            setEditing(opened.id);
+            tap();
+          }}
+          onClose={() => {
+            setExpanded(null);
+            setEditing(null);
+          }}
+          onSave={async (next) => {
+            const list = await updateGame(next);
+            // 클라우드에도 고친 값을 올린다. 여기서 안 올리면 폰에서는 고쳐졌는데
+            // 다른 기기에서는 옛날 점수가 계속 보인다.
+            if (account && cloud) await pushGame(account.uid, next);
+            setGames(list);
+            setEditing(null);
+            tap();
+          }}
+          onDelete={async () => {
+            const next = await removeGame(opened.id);
+            if (account) await deleteGame(account.uid, opened.id);
+            setGames(next);
+            setExpanded(null);
+            setEditing(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/* 기록 상세 ---------------------------------------------------------- */
+
+/**
+ * 기록 하나를 자세히 보는 모달.
+ *
+ * 목록의 한 줄은 상대·시각·점수 셋만 담을 수 있다. 나머지는 여기 있다: 각자의 핸디와
+ * 에버, 몇 이닝을 얼마나 오래 쳤는지, 언제 시작해 언제 끝났는지, 쿠션 규칙이 있었는지.
+ * 고치기와 지우기도 이 안에서 한다 — 그 대상이 눈앞에 열려 있는 자리이기 때문이다.
+ */
+function RecordSheet({
+  game,
+  editing,
+  onEdit,
+  onSave,
+  onDelete,
+  onClose,
+}: {
+  game: GameSummary;
+  editing: boolean;
+  onEdit: () => void;
+  onSave: (next: GameSummary) => Promise<void>;
+  onDelete: () => Promise<void>;
+  onClose: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+
+  const me = game.me ?? 'white';
+  const started = new Date(game.startedAt);
+  const finished = game.finishedAt ? new Date(game.finishedAt) : null;
+  const innings = Math.max(1, game.inning);
+
+  const clock = (date: Date) =>
+    date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+
+  return (
+    <div
+      className="sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-label="기록 상세"
+      // 바깥을 누르면 닫힌다. 안쪽에서 올라온 클릭까지 닫아 버리지 않도록 대상을 본다.
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="inner" style={{ textAlign: 'left' }}>
+        <div className="sheet-head">
+          <span className="pill">{kindInfo(game.kind).label}</span>
+          <strong>
+            {started.toLocaleDateString('ko-KR', {
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+              weekday: 'short',
+            })}
+          </strong>
+          <button className="ghost" onClick={onClose} aria-label="닫기">
+            ✕
+          </button>
+        </div>
+
+        {editing ? (
+          <RecordEditor game={game} onCancel={onClose} onSave={onSave} />
+        ) : (
+          <>
+            {/* 두 사람을 점수판과 같은 색으로. 어느 쪽이 누구였는지 색이 먼저 말해 준다. */}
+            <div className="pair">
+              {(['white', 'yellow'] as Side[]).map((side) => {
+                const player = game.players[side];
+                const won = game.winner === side;
+                return (
+                  <div className={`box ${side}`} key={side}>
+                    <span className="label">
+                      {side === me ? '나' : '상대'}
+                      {won ? ' · 승' : game.winner ? ' · 패' : ''}
+                    </span>
+                    <strong className="who-name">{player.name}</strong>
+                    <div className="big">{player.score}</div>
+                    <span className="label">
+                      핸디 {player.target} · 에버 {(player.score / innings).toFixed(3)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            <dl className="facts">
+              <div>
+                <dt>결과</dt>
+                <dd>{game.winner ? `${game.players[game.winner].name} 승리` : '무승부'}</dd>
+              </div>
+              <div>
+                <dt>이닝</dt>
+                <dd>{game.inning}이닝</dd>
+              </div>
+              <div>
+                <dt>친 시간</dt>
+                <dd>{formatClock(game.elapsedMs)}</dd>
+              </div>
+              <div>
+                <dt>시작 · 끝</dt>
+                <dd>
+                  {clock(started)}
+                  {finished ? ` · ${clock(finished)}` : ' · 끝나지 않음'}
+                </dd>
+              </div>
+              {game.lastCushion ? (
+                <div>
+                  <dt>마지막 쿠션</dt>
+                  <dd>{game.lastCushion}점</dd>
+                </div>
+              ) : null}
+            </dl>
+
+            {confirming ? (
+              <>
+                <p className="notice error">이 기록을 지웁니다. 되돌릴 수 없습니다.</p>
+                <div className="row">
+                  <button className="danger" onClick={() => void onDelete()}>
+                    정말 지웁니다
+                  </button>
+                  <button className="secondary" onClick={() => setConfirming(false)}>
+                    취소
+                  </button>
+                </div>
+              </>
+            ) : (
+              <div className="row">
+                <button className="secondary" onClick={onEdit}>
+                  수정
+                </button>
+                <button className="danger" onClick={() => setConfirming(true)}>
+                  삭제
+                </button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
