@@ -1,19 +1,29 @@
 name: release
 
-# 태그를 밀면 APK가 만들어지고 릴리스에 붙는다. 앱 안의 업데이트 버튼이 보는 게
-# 바로 이 릴리스이므로, 태그 이름(v1.2.3)이 곧 앱이 아는 자기 버전이 된다.
+# APK를 만들고, 내보낼 것이면 릴리스까지 만든다.
+#
+# 길이 셋이고, 무엇이 나오는지가 각각 다르다.
+#
+#   기본 브랜치에 푸시  → 판올림한 새 버전으로 릴리스 (앱 업데이트 버튼이 본다)
+#   그 밖의 브랜치      → `ci` 프리릴리스 (시험용, 업데이트 버튼은 못 본다)
+#   태그 v1.2.3 푸시    → 그 태그 그대로 릴리스
+#
+# 태그를 손으로 밀 필요가 없어진 게 요점이다. 판올림·태그·릴리스는 아래 "버전 결정"이
+# 정하고 CI가 만든다 — 사람이 기억해서 맞춰야 하는 자리가 하나 줄었다.
 on:
   push:
     tags:
       - 'v*'
-    # 브랜치에 밀어도 APK가 나온다. 릴리스는 만들지 않고 아티팩트로만 남는다.
-    #
-    # 태그는 되돌릴 수 없는 발표다 — 앱의 업데이트 버튼이 곧바로 그걸 집어 든다.
-    # 그래서 "실기기에 한번 올려 보는 것"과 "내보내는 것"을 갈라 둔다. 이쪽이 앞엣것이다.
     branches:
       - '**'
-  # 태그 없이 손으로 한 번 돌려 보고 싶을 때.
+  # 손으로 돌릴 때. 판올림 폭을 고를 수 있는 유일한 길이라 minor·major는 여기로 낸다.
   workflow_dispatch:
+    inputs:
+      bump:
+        description: '판올림 폭 (none이면 릴리스 없이 빌드만)'
+        type: choice
+        default: none
+        options: [none, patch, minor, major]
 
 permissions:
   contents: write
@@ -51,7 +61,11 @@ jobs:
       FRAMEWORK_REPO: YuInseo/graft
 
     steps:
+      # 태그를 전부 가져온다 — 다음 버전이 "지금까지의 가장 큰 태그 + 1"이라, 얕게
+      # 받으면 판올림의 근거가 없다.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # 프레임워크는 아직 npm에 없으므로 저장소에서 가져와 파일 의존으로 설치한다.
       # 로컬에서는 워크스페이스가 같은 일을 하므로, 앱의 package.json은 건드리지
@@ -74,15 +88,64 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      # 이 빌드가 무슨 버전이고, 릴리스로 나갈 것인지.
+      #
+      # 다음 버전은 저장소에 이미 있는 태그에서 온다. 파일에 적어 두고 사람이 올리는
+      # 방식이었다면 "버전 올리는 걸 깜빡한 커밋"이 반드시 생기고, 그러면 앱이 자기
+      # 버전을 틀리게 안다. 가장 큰 태그에 1을 더하는 쪽은 깜빡할 자리가 없다.
       - name: 버전 결정
         id: version
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          BUMP_INPUT: ${{ inputs.bump }}
         run: |
-          # 태그에서 v를 떼면 앱이 표시하고 비교할 버전이 된다.
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
-            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=0.0.0-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          set -eu
+          BUMP="${BUMP_INPUT:-}"
+
+          # 기본 브랜치에 들어온 것은 내보낼 것으로 본다. 문서만 고친 커밋까지 판을
+          # 올리는 게 싫을 때를 위해 커밋 메시지에 [skip release]를 두면 빠진다.
+          if [ "$GITHUB_EVENT_NAME" = "push" ] && [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
+            BUMP="${BUMP:-patch}"
           fi
+          if git log -1 --pretty=%B | grep -qiF '[skip release]'; then
+            BUMP=none
+          fi
+
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            # 손으로 민 태그. 이름이 곧 버전이다.
+            VALUE="${GITHUB_REF_NAME#v}"
+            TAG="$GITHUB_REF_NAME"
+            RELEASE=yes
+          elif [ -n "$BUMP" ] && [ "$BUMP" != "none" ]; then
+            git fetch --tags --force --quiet
+            # `sort -V`라야 1.0.10이 1.0.9보다 뒤에 온다. 문자열 정렬이면 열 번째
+            # 패치에서 버전이 거꾸로 가고, 그때부터 업데이트가 영영 안 뜬다.
+            LAST=$(git tag -l 'v*' | sed 's/^v//' | sort -V | tail -n1)
+            LAST=${LAST:-0.0.0}
+            MAJOR=${LAST%%.*}
+            REST=${LAST#*.}
+            MINOR=${REST%%.*}
+            PATCH=${REST#*.}
+            PATCH=${PATCH%%[!0-9]*}
+            case "$BUMP" in
+              major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
+              minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
+              *)     PATCH=$((PATCH + 1)) ;;
+            esac
+            VALUE="$MAJOR.$MINOR.$PATCH"
+            TAG="v$VALUE"
+            RELEASE=yes
+          else
+            # 시험용 빌드. 릴리스 버전과 섞이지 않는 이름을 준다.
+            VALUE="0.0.0-ci.${GITHUB_RUN_NUMBER}"
+            TAG=""
+            RELEASE=no
+          fi
+
+          echo "value=$VALUE" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
+          echo "### $VALUE ${TAG:+($TAG)} · 릴리스: $RELEASE" >> "$GITHUB_STEP_SUMMARY"
 
       - name: 의존성 설치
         run: |
@@ -148,9 +211,9 @@ jobs:
             echo "ANDROID_KEYSTORE_BASE64 등 서명 시크릿이 설정되어 있는지 확인하세요."
             exit 1
           fi
-          # 태그 빌드는 버전이 파일 이름에 남는다. 개발 빌드는 이름을 고정한다 —
-          # 아래 `ci` 릴리스가 매번 같은 이름의 자산을 덮어써야 옛 APK가 쌓이지 않는다.
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+          # 릴리스로 나가는 APK는 버전이 파일 이름에 남는다. 시험용 빌드는 이름을
+          # 고정한다 — `ci` 릴리스가 매번 같은 이름을 덮어써야 옛 APK가 쌓이지 않는다.
+          if [ "${{ steps.version.outputs.release }}" = "yes" ]; then
             NAME="billiard-${{ steps.version.outputs.value }}.apk"
           else
             NAME="billiard-ci.apk"
@@ -170,7 +233,7 @@ jobs:
       # 업데이트 버튼은 이걸 보지 않는다 — `/releases/latest`는 프리릴리스를 빼고 답하고,
       # 앱은 그 엔드포인트만 묻는다. 시험용 빌드가 남에게 "새 버전"으로 뜨는 일이 없다.
       - name: 개발 빌드 올리기
-        if: github.ref_type != 'tag'
+        if: steps.version.outputs.release != 'yes'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ci
@@ -184,11 +247,16 @@ jobs:
           make_latest: false
           files: ${{ steps.apk.outputs.path }}
 
+      # 태그가 아직 없으면 이 단계가 만든다 — 손으로 밀 필요가 없는 이유가 여기다.
+      #
+      # 그렇게 생긴 태그가 이 워크플로를 다시 부르지는 않는다. GITHUB_TOKEN으로 일어난
+      # 일은 새 워크플로를 깨우지 않는 게 Actions의 규칙이고, 그 덕에 릴리스가 자기
+      # 자신을 다시 부르는 고리가 생기지 않는다.
       - name: 릴리스 만들기
-        if: github.ref_type == 'tag'
+        if: steps.version.outputs.release == 'yes'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
           name: v${{ steps.version.outputs.value }}
           # 앱의 업데이트 카드가 이 본문을 그대로 보여 준다.
           generate_release_notes: true
