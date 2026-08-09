@@ -1,5 +1,6 @@
 import { Scoreboard } from './scoreboard';
 import { TopBar } from '../topbar';
+import { NavBar } from '../navbar';
 
 export const metadata = { title: '점수판' };
 
@@ -14,6 +15,7 @@ export default function GamePage() {
     <div className="app">
       <TopBar title="점수판" back="/" />
       <Scoreboard />
+      <NavBar />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { Lobby } from './lobby';
 import { TopBar } from './topbar';
+import { NavBar } from './navbar';
 
 export const metadata = { title: '당구 점수판' };
 
@@ -15,6 +16,7 @@ export default function HomePage() {
     <div className="app">
       <TopBar title="당구 점수판" />
       <Lobby />
+      <NavBar />
     </div>
   );
 }

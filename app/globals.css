@@ -93,8 +93,16 @@ graft-island {
 
 /* 앱 껍데기 ---------------------------------------------------------- */
 
+/*
+ * 화면 한 장.
+ *
+ * 높이를 화면에 맞춘다(`min-height`가 아니라 `height`). 아래 내비게이션이 생기면서
+ * 이 차이가 중요해졌다 — 늘어날 수 있는 높이였을 때는 내용이 길면 `.app`이 함께
+ * 늘어나 내비게이션이 화면 밖으로 밀려났다. 높이를 못박으면 안에서 `.page`가 굴러가고
+ * 내비게이션은 늘 제자리에 있다.
+ */
 .app {
-  min-height: 100dvh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   padding-top: var(--safe-top);
@@ -363,6 +371,78 @@ graft-island {
   .side .manual {
     flex-direction: row;
     align-items: center;
+  }
+}
+
+/* 하단 내비게이션 ---------------------------------------------------- */
+
+/*
+ * 화면 아래 세 칸.
+ *
+ * 흐름 안에 놓인 보통의 요소다 — 화면에 붙여 띄우지 않는다. 그러면 스크롤되는 화면의
+ * 마지막 줄이 이 줄 뒤로 숨고, 기록의 마지막 게임이나 설정의 마지막 항목이 가려진다.
+ * 자리를 차지하는 대신 아무것도 가리지 않는 쪽을 골랐다.
+ */
+.navbar {
+  display: flex;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--center-bg);
+}
+
+.navbar .tab {
+  flex: 1;
+  /* 아래의 표시선이 이 칸을 기준으로 놓이게 한다. */
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.15rem;
+  padding: 0.45rem 0.25rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-decoration: none;
+  color: rgba(243, 244, 246, 0.45);
+  /* 손가락이 닿는 칸이므로 글자 높이가 아니라 손 높이로 잡는다. */
+  min-height: 52px;
+}
+
+.navbar .tab .icon {
+  font-size: 1.15rem;
+  line-height: 1;
+}
+
+.navbar .tab.on {
+  color: var(--center-ink);
+}
+
+/* 지금 어느 화면인지. 색만으로는 약해서 칸 위에 선을 하나 얹는다. */
+.navbar .tab.on::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1.8rem;
+  height: 3px;
+  border-radius: 0 0 999px 999px;
+  background: var(--accent);
+}
+
+.navbar .tab:active {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* 가로 화면에서는 높이가 귀하다. 아이콘과 글자를 한 줄로 눕힌다. */
+@media (orientation: landscape) and (min-width: 720px) {
+  .navbar .tab {
+    flex-direction: row;
+    gap: 0.4rem;
+    min-height: 42px;
+  }
+
+  .navbar .tab.on::before {
+    display: none;
   }
 }
 

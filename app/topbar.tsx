@@ -89,9 +89,9 @@ export function TopBar({ title, back }: { title: string; back?: string }) {
       >
         {label}
       </Link>
-      <Link className="icon-button" href="/settings" aria-label="설정">
-        설정
-      </Link>
+      {/* 설정으로 가는 길은 아래 내비게이션이 갖고 있다. 여기 남겨 두면 같은 곳으로 가는
+          문이 한 화면에 둘이 된다. 업데이트는 길이 아니라 상태라서 위에 남는다 — 새
+          버전이 있는지는 어느 화면에서든 보여야 한다. */}
     </header>
   );
 }
