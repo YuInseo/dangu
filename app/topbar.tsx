@@ -20,6 +20,8 @@ import { checkForUpdate, needsApk, prefetchApk, type UpdateCheck } from '../lib/
 export function TopBar({ title, back }: { title: string; back?: string }) {
   const [update, setUpdate] = useState<UpdateCheck | null>(null);
   const [apk, setApk] = useState(false);
+  /** 받아 두었고 다음 실행에 적용될 버전. 있으면 "다시 켜면 됩니다"를 띄운다. */
+  const [ready, setReady] = useState<string | null>(null);
 
   // 상단 줄은 모든 화면에 있으므로, 셸 초기화를 여기서 한 번 부르면 어느 화면으로
   // 들어와도 상태 표시줄이 제자리를 잡는다.
@@ -39,7 +41,12 @@ export function TopBar({ title, back }: { title: string; back?: string }) {
       if (result.state !== 'available') return;
 
       // 화면은 조용히 갈아끼운다. 다음 실행에 적용되므로 지금 치는 게임은 건드리지 않는다.
-      void stageWebBundle(result.release);
+      //
+      // 받아 둔 뒤에는 그 사실을 알려 준다. 조용한 것과 아무 말도 안 하는 것은 다르다 —
+      // 새 버전이 왔는데 화면이 그대로면, 다시 켜면 된다는 걸 알 방법이 없다.
+      void stageWebBundle(result.release).then((staged) => {
+        if (!cancelled && staged.state === 'ready') setReady(staged.version);
+      });
 
       // 껍데기까지 바뀐 릴리스에서만 APK를 미리 받는다. 4MB는 당구장 3G에서 공짜가 아니다.
       const native = await needsApk(result.release);
@@ -56,6 +63,11 @@ export function TopBar({ title, back }: { title: string; back?: string }) {
   // 웹에서는 갈아끼울 껍데기가 없으므로, 새 버전이 있다는 사실 자체가 알릴 거리다.
   const available = update?.state === 'available' && (apk || !isNativeApp());
 
+  // 받아 둔 것이 있으면 그게 먼저다. 사용자가 할 일이 "설치"가 아니라 "다시 켜기"라는
+  // 것을 알려 주는 쪽이, 새 버전이 있다는 사실보다 쓸모 있다.
+  const label = ready ? `재시작 ${ready}` : available ? `업데이트 ${update.version}` : '업데이트';
+  const lit = Boolean(ready) || available;
+
   return (
     <header className="topbar">
       {back && (
@@ -65,11 +77,17 @@ export function TopBar({ title, back }: { title: string; back?: string }) {
       )}
       <h1>{title}</h1>
       <Link
-        className={available ? 'icon-button badge' : 'icon-button'}
+        className={lit ? 'icon-button badge' : 'icon-button'}
         href="/settings#update"
-        aria-label={available ? `업데이트 있음 v${update.version}` : '업데이트 확인'}
+        aria-label={
+          ready
+            ? `v${ready} 준비됨. 앱을 다시 켜면 적용됩니다`
+            : available
+              ? `업데이트 있음 v${update.version}`
+              : '업데이트 확인'
+        }
       >
-        {available ? `업데이트 ${update.version}` : '업데이트'}
+        {label}
       </Link>
       <Link className="icon-button" href="/settings" aria-label="설정">
         설정

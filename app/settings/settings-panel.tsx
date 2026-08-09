@@ -179,6 +179,29 @@ export function SettingsPanel() {
             onChange={(event) => update({ keepAwake: event.target.checked })}
           />
         </label>
+
+        {/*
+          샷 클락.
+          3쿠션 공식이 40초라 그걸 가운데 두었다. 기본은 끔 — 동호회에서 치는 사람에게
+          시간 제한은 있으면 재미있는 것이지 없으면 안 되는 것이 아니다.
+        */}
+        <span className="label">한 차례에 주는 시간</span>
+        <div className="choices">
+          {[0, 30, 40, 60].map((seconds) => (
+            <button
+              key={seconds}
+              className="choice"
+              aria-pressed={(settings.turnSeconds ?? 0) === seconds}
+              onClick={() => update({ turnSeconds: seconds })}
+            >
+              {seconds === 0 ? '끄기' : `${seconds}초`}
+            </button>
+          ))}
+        </div>
+        <p style={{ fontSize: '0.78rem' }}>
+          켜면 점수판 아래에 남은 시간이 막대로 흐릅니다. 초록에서 노랑을 지나 빨강이 되고,
+          다 쓰면 한 번 울립니다. 일시정지하면 같이 멈춥니다.
+        </p>
       </div>
 
       <div className="card">
@@ -380,7 +403,12 @@ function UpdateCard() {
           )}
 
           {stage?.state === 'ready' && (
-            <p className="notice">받아 두었습니다. 앱을 다시 켜면 새 버전으로 시작합니다.</p>
+            <p className="notice">
+              <strong>v{stage.version}을 받아 두었습니다.</strong>
+              <br />
+              앱을 완전히 닫았다가 다시 켜면 적용됩니다 — 화면만 나갔다 오는 것으로는 바뀌지
+              않습니다.
+            </p>
           )}
 
           {apk && (
