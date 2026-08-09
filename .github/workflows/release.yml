@@ -75,37 +75,6 @@ jobs:
           repository: ${{ env.FRAMEWORK_REPO }}
           path: .framework
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      # Capacitor가 만든 안드로이드 프로젝트를 Gradle이 빌드한다. JDK 17은
-      # 프레임워크가 모든 모듈에 강제하는 바이트코드 수준과 같은 값이다.
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - uses: android-actions/setup-android@v3
-
-      # Gradle이 쓰는 것들을 다음 빌드로 넘긴다.
-      #
-      # 빌드 시간의 대부분이 컴파일이 아니라 내려받기였다: Gradle 배포판 130MB에,
-      # AGP와 androidx 의존성 전부를 매번 처음부터 받아 왔다. 안드로이드 프로젝트는
-      # 빌드마다 새로 생성되지만 이 캐시들은 홈 디렉터리에 있어 그와 상관없이 남는다.
-      #
-      # 키에 run_id를 넣어 매번 새로 저장하고, restore-keys로 가장 최근 것을 가져온다.
-      # Gradle 캐시는 쌓이면서 스스로 정리하는 종류라 이 방식이 가장 잘 맞는다.
-      - name: Gradle 캐시
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ github.run_id }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
       # 이 빌드가 무슨 버전이고, 릴리스로 나갈 것인지.
       #
       # 다음 버전은 저장소에 이미 있는 태그에서 온다. 파일에 적어 두고 사람이 올리는
@@ -116,6 +85,7 @@ jobs:
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           BUMP_INPUT: ${{ inputs.bump }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -eu
           BUMP="${BUMP_INPUT:-}"
@@ -172,11 +142,70 @@ jobs:
             } | sha256sum | cut -c1-12
           )
 
+          # APK를 지을 것인지.
+          #
+          # 이 앱에서 바뀌는 것은 거의 언제나 웹 자산이고, 그때 APK는 지난번과 같은
+          # 껍데기다. 그런데 그 껍데기를 짓는 데 빌드 시간의 대부분이 든다. 지문이
+          # 최신 릴리스의 것과 같으면 지을 이유가 없으므로 건너뛴다.
+          #
+          # 내보내는 빌드는 예외 없이 짓는다. 릴리스에 붙는 APK는 처음 까는 사람이
+          # 받는 것이라, 그 안의 화면이 오래된 채로 나가면 안 된다.
+          APK=build
+          if [ "$RELEASE" != "yes" ]; then
+            LATEST=$(
+              curl -sS -H "authorization: Bearer $GITHUB_TOKEN" \
+                   -H "accept: application/vnd.github+json" \
+                   "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/releases/latest" 2>/dev/null \
+                | jq -r '.assets[]?.name | select(startswith("native-"))' \
+                | sed 's/^native-//; s/\.txt$//' | head -n1
+            ) || LATEST=""
+            if [ -n "$LATEST" ] && [ "$LATEST" = "$NATIVE_KEY" ]; then
+              APK=skip
+            fi
+          fi
+
           echo "value=$VALUE" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           echo "release=$RELEASE" >> "$GITHUB_OUTPUT"
           echo "native_key=$NATIVE_KEY" >> "$GITHUB_OUTPUT"
-          echo "### $VALUE ${TAG:+($TAG)} · 릴리스: $RELEASE" >> "$GITHUB_STEP_SUMMARY"
+          echo "apk=$APK" >> "$GITHUB_OUTPUT"
+          echo "### $VALUE ${TAG:+($TAG)} · 릴리스: $RELEASE · APK: $APK" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # 안드로이드 도구는 APK를 지을 때만 차린다. 차리는 데만 25초가 드는데, 웹 자산만
+      # 바뀐 빌드는 그 도구를 한 번도 쓰지 않는다.
+      #
+      # JDK 17은 프레임워크가 모든 모듈에 강제하는 바이트코드 수준과 같은 값이다.
+      - uses: actions/setup-java@v4
+        if: steps.version.outputs.apk == 'build'
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        if: steps.version.outputs.apk == 'build'
+
+      # Gradle이 쓰는 것들을 다음 빌드로 넘긴다.
+      #
+      # 빌드 시간의 대부분이 컴파일이 아니라 내려받기였다: Gradle 배포판 130MB에,
+      # AGP와 androidx 의존성 전부를 매번 처음부터 받아 왔다. 안드로이드 프로젝트는
+      # 빌드마다 새로 생성되지만 이 캐시들은 홈 디렉터리에 있어 그와 상관없이 남는다.
+      #
+      # 키에 run_id를 넣어 매번 새로 저장하고, restore-keys로 가장 최근 것을 가져온다.
+      # Gradle 캐시는 쌓이면서 스스로 정리하는 종류라 이 방식이 가장 잘 맞는다.
+      - name: Gradle 캐시
+        if: steps.version.outputs.apk == 'build'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
 
       - name: 의존성 설치
         run: |
@@ -199,6 +228,7 @@ jobs:
           printf '%s' "$GOOGLE_SERVICES_JSON" > mobile/overlay/android/app/google-services.json
 
       - name: 안드로이드 프로젝트 생성
+        if: steps.version.outputs.apk == 'build'
         working-directory: .graft/mobile
         run: |
           # 업데이터 플러그인의 버전을 못박는다.
@@ -217,22 +247,25 @@ jobs:
       # 프로젝트가 생긴 뒤 한 번 더 빌드한다: 권한·오버레이·네이티브 코드는 생성된
       # 프로젝트가 있어야 그 안에 쓰이고, 첫 빌드 때는 아직 없었다.
       - name: 권한·오버레이 적용
+        if: steps.version.outputs.apk == 'build'
         env:
           GRAFT_PUBLIC_APP_VERSION: ${{ steps.version.outputs.value }}
         run: node .framework/graft/bin/graft.js build --target mobile --platform android
 
       - name: 웹 자산 동기화
+        if: steps.version.outputs.apk == 'build'
         working-directory: .graft/mobile
         run: npx cap sync android
 
       # 서명 키는 저장소에 두지 않는다. 시크릿에 base64로 넣고 여기서만 되살린다.
       - name: 업로드 키 복원
-        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        if: steps.version.outputs.apk == 'build' && env.ANDROID_KEYSTORE_BASE64 != ''
         run: |
           echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
           echo "GRAFT_ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
 
       - name: APK 빌드
+        if: steps.version.outputs.apk == 'build'
         working-directory: .graft/mobile/android
         env:
           # 러너에는 메모리가 넉넉한데 Gradle의 기본값은 그걸 모른다.
@@ -248,6 +281,7 @@ jobs:
       # 오류가 아니라 `app-release-unsigned.apk`라는 파일 이름으로만 알린다. 릴리스에
       # 붙고 나서야 "설치가 안 된다"로 발견되므로, 여기서 먼저 세운다.
       - name: 서명 확인
+        if: steps.version.outputs.apk == 'build'
         id: apk
         run: |
           FOUND=$(find .graft/mobile/android -name '*.apk' -path '*release*' | head -n1)
@@ -269,6 +303,7 @@ jobs:
           echo "path=$NAME" >> "$GITHUB_OUTPUT"
 
       - uses: actions/upload-artifact@v4
+        if: steps.version.outputs.apk == 'build'
         with:
           name: apk
           path: ${{ steps.apk.outputs.path }}
@@ -280,14 +315,20 @@ jobs:
       #   native-<지문>.txt 껍데기의 지문. 파일을 받지 않고 이름만 보고 알 수 있게 이름에
       #                    적는다. 앱은 자기 지문과 비교해 APK가 필요한지를 정한다.
       - name: 웹 번들과 지문 만들기
-        if: steps.version.outputs.release == 'yes'
         run: |
           set -eu
+          # 웹 번들은 어느 빌드에서나 만든다. APK를 건너뛴 빌드에서는 이게 결과물의
+          # 전부이고, 그때도 "지어지긴 하는가"를 확인할 물건이 있어야 한다.
+          if [ "${{ steps.version.outputs.release }}" = "yes" ]; then
+            ZIP="www-${{ steps.version.outputs.value }}.zip"
+          else
+            ZIP="www-ci.zip"
+          fi
           # zip의 뿌리에 index.html이 있어야 한다. 한 겹 감싸면 플러그인이 빈 화면을 연다.
-          (cd .graft/mobile/www && zip -qr "$GITHUB_WORKSPACE/www-${{ steps.version.outputs.value }}.zip" .)
+          (cd .graft/mobile/www && zip -qr "$GITHUB_WORKSPACE/$ZIP" .)
           printf '%s\n' "${{ steps.version.outputs.native_key }}" \
             > "native-${{ steps.version.outputs.native_key }}.txt"
-          ls -la www-*.zip native-*.txt
+          ls -la "$ZIP" native-*.txt
 
       # 브랜치 빌드도 받을 수 있는 주소를 갖는다.
       #
@@ -305,10 +346,19 @@ jobs:
             브랜치 `${{ github.ref_name }}`의 최신 빌드입니다. (`${{ github.sha }}`)
 
             정식 버전이 아닙니다 — 앱의 업데이트 버튼은 이 빌드를 보지 않습니다.
-            새 빌드가 올라올 때마다 이 자리의 APK가 교체됩니다.
+            새 빌드가 올라올 때마다 이 자리의 파일이 교체됩니다.
+
+            APK: `${{ steps.version.outputs.apk }}`
+            (`skip`이면 네이티브가 지난 릴리스와 같아 짓지 않았고, 여기 있는 APK는
+            그때 것입니다. 웹 자산은 `www-ci.zip`에 늘 최신으로 올라갑니다.)
           prerelease: true
           make_latest: false
-          files: ${{ steps.apk.outputs.path }}
+          # 짓지 않은 파일은 그냥 빠진다(`fail_on_unmatched_files` 기본값이 false다).
+          # APK를 건너뛴 빌드에서는 지난번 APK가 이 자리에 그대로 남는다 — 시험용으로
+          # 깔 물건이 사라지지 않는다는 뜻이라, 그게 맞는 동작이다.
+          files: |
+            billiard-ci.apk
+            www-ci.zip
 
       # 태그가 아직 없으면 이 단계가 만든다 — 손으로 밀 필요가 없는 이유가 여기다.
       #
