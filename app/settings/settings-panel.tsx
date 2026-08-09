@@ -380,7 +380,12 @@ function UpdateCard() {
           )}
 
           {stage?.state === 'ready' && (
-            <p className="notice">받아 두었습니다. 앱을 다시 켜면 새 버전으로 시작합니다.</p>
+            <p className="notice">
+              <strong>v{stage.version}을 받아 두었습니다.</strong>
+              <br />
+              앱을 완전히 닫았다가 다시 켜면 적용됩니다 — 화면만 나갔다 오는 것으로는 바뀌지
+              않습니다.
+            </p>
           )}
 
           {apk && (
