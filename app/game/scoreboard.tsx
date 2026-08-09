@@ -16,6 +16,7 @@ import {
   reduce,
   remaining,
   summarize,
+  turnElapsed,
   type GameState,
   type Side,
 } from '../../lib/game';
@@ -54,6 +55,10 @@ export function Scoreboard() {
   const started = useRef(false);
   /** 진행 중인 저장. 지우기 전에 이게 끝나기를 기다린다. */
   const storing = useRef<Promise<void> | null>(null);
+  /** 한 차례에 주는 시간(ms). 0이면 샷 클락을 쓰지 않는다. */
+  const [limit, setLimit] = useState(0);
+  /** 시간이 다 됐다고 울린 차례. 같은 차례에 두 번 울리지 않으려고 기억한다. */
+  const buzzed = useRef<number | null>(null);
 
   /* 불러오기 ------------------------------------------------------- */
 
@@ -85,6 +90,24 @@ export function Scoreboard() {
     const timer = setInterval(() => dispatch({ type: 'tick', ms: 1000 }), 1000);
     return () => clearInterval(timer);
   }, [state?.running, state?.finishedAt]);
+
+  /* 샷 클락 ---------------------------------------------------------- */
+
+  useEffect(() => {
+    void loadSettings().then((settings) =>
+      setLimit(Math.max(0, Math.round(settings.turnSeconds ?? 0)) * 1000)
+    );
+  }, []);
+
+  // 시간을 다 쓰면 한 번 울린다. 큐를 들고 테이블을 보고 있는 사람에게 화면의 색만으로는
+  // 닿지 않는다. `turnAt`으로 기억해 두어 한 차례에 한 번만 울린다.
+  useEffect(() => {
+    if (!state || !limit || state.finishedAt || !state.running) return;
+    if (turnElapsed(state) < limit) return;
+    if (buzzed.current === state.turnAt) return;
+    buzzed.current = state.turnAt;
+    tap('heavy');
+  }, [state?.elapsedMs, state?.turnAt, state?.running, state?.finishedAt, limit]);
 
   /* 화면 꺼짐 방지 -------------------------------------------------- */
 
@@ -166,6 +189,15 @@ export function Scoreboard() {
         판은 절반씩을 온전히 가져가고, 버튼은 손이 원래 가는 자리로 온다.
       */}
       <footer className="footer">
+        {/*
+          샷 클락. 지금 치는 사람에게 남은 시간이다.
+
+          숫자가 아니라 막대인 이유는 이걸 보는 사람이 큐를 들고 테이블 위를 보고 있기
+          때문이다. 곁눈질로 알 수 있어야 하고, 그때 읽히는 것은 자리와 색이지 숫자가
+          아니다. 초록에서 노랑을 지나 빨강으로 가는 동안 남은 시간이 줄어든다.
+        */}
+        {limit > 0 && !state.finishedAt && <ShotClock spent={turnElapsed(state)} limit={limit} />}
+
         <div className="meta">
           <span className="clock" aria-label="경과 시간">
             {formatClock(state.elapsedMs)}
@@ -360,6 +392,35 @@ function PlayerSide({
         <button type="submit">더하기</button>
       </form>
     </section>
+  );
+}
+
+/* 샷 클락 ------------------------------------------------------------- */
+
+/**
+ * 지금 차례에 남은 시간을 색과 길이로 보여 주는 막대.
+ *
+ * 초록 → 노랑 → 빨강. 경계를 60%와 85%에 둔 것은, 노랑이 "슬슬 쳐야 한다"가 아니라
+ * "이제 정말 쳐야 한다"의 자리에 있어야 하기 때문이다. 너무 일찍 노래지면 아무도 안
+ * 본다. 시간을 다 쓰면 막대가 가득 찬 빨강으로 남고 남은 초는 0으로 멈춘다 — 넘긴
+ * 시간을 음수로 세는 것은 점수판이 할 일이 아니고, 벌점은 사람이 정한다.
+ */
+function ShotClock({ spent, limit }: { spent: number; limit: number }) {
+  const ratio = Math.min(1, spent / limit);
+  const left = Math.max(0, Math.ceil((limit - spent) / 1000));
+  const stage = ratio >= 0.85 ? 'over' : ratio >= 0.6 ? 'warn' : 'fine';
+
+  return (
+    <div
+      className={`shot ${stage}`}
+      role="timer"
+      aria-label={`이번 차례 남은 시간 ${left}초`}
+    >
+      <div className="bar">
+        <div className="fill" style={{ width: `${ratio * 100}%` }} />
+      </div>
+      <span className="left">{left}</span>
+    </div>
   );
 }
 

@@ -83,6 +83,14 @@ export interface GameState {
    * 이닝이 올라가지 않는다. 기준은 게임이 시작될 때 정해지는 값이므로 그때 적어 둔다.
    */
   first: Side;
+  /**
+   * 지금 차례가 시작된 시점 — 벽시계가 아니라 `elapsedMs` 위의 눈금이다.
+   *
+   * 벽시계로 재면 일시정지한 동안에도 시간이 흐른다. 담배 한 대 피우고 오면 샷 클락이
+   * 이미 빨간색인 점수판은 아무 쓸모가 없다. 게임 시계를 기준으로 재면 멈춘 동안은
+   * 함께 멈춘다.
+   */
+  turnAt: number;
   inning: number;
   players: Record<Side, PlayerState>;
   history: ScoreEntry[];
@@ -124,6 +132,7 @@ export function createGame({
     running: true,
     turn: first,
     first,
+    turnAt: 0,
     inning: 1,
     players: {
       white: { name: white.name.trim() || '흰 공', target: Math.max(1, white.target), score: 0 },
@@ -180,6 +189,9 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
         },
         turn: last.turnBefore,
         inning: last.inningBefore,
+        // 되돌린 뒤의 샷 클락은 지금부터 다시 센다. 되돌리기는 잘못 누른 것을 고치는
+        // 동작이고, 그 사이에 흐른 시간을 누구의 것으로 볼지는 정할 방법이 없다.
+        turnAt: state.elapsedMs,
         history: state.history.slice(0, -1),
         // 되돌린 게 끝내기 득점이었다면 게임은 다시 진행 중이 된다.
         finishedAt: undefined,
@@ -274,12 +286,18 @@ export const other = (side: Side): Side => (side === 'white' ? 'yellow' : 'white
  * 점수를 올려 자연히 넘어가는 것. 앞엣것만 이닝을 세던 동안 뒤엣것으로 치는 사람들의
  * 이닝은 영영 1이었다.
  */
-function moveTurn(state: GameState, next: Side): { turn: Side; inning: number } {
-  if (next === state.turn) return { turn: state.turn, inning: state.inning };
+function moveTurn(state: GameState, next: Side): { turn: Side; inning: number; turnAt: number } {
+  if (next === state.turn) {
+    return { turn: state.turn, inning: state.inning, turnAt: state.turnAt ?? 0 };
+  }
   // 한 바퀴 돌아 선공에게 돌아오면 이닝이 하나 올라간다. 그게 이닝의 정의다.
   const inning = next === firstSide(state) ? state.inning + 1 : state.inning;
-  return { turn: next, inning };
+  // 차례가 바뀌면 그 사람의 시간은 0부터다.
+  return { turn: next, inning, turnAt: state.elapsedMs };
 }
+
+/** 지금 차례가 시작된 뒤로 흐른 시간(ms). */
+export const turnElapsed = (state: GameState) => Math.max(0, state.elapsedMs - (state.turnAt ?? 0));
 
 /** 이 게임의 선공. 첫 이닝을 연 사람이 이닝 경계를 정한다. */
 function firstSide(state: GameState): Side {

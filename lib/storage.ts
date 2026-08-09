@@ -36,6 +36,13 @@ export interface AppSettings {
   lastCushion: number;
   haptics: boolean;
   keepAwake: boolean;
+  /**
+   * 한 차례에 주는 시간(초). 0이면 안 쓴다.
+   *
+   * 3쿠션의 공식 샷 클락이 40초라 그걸 기본으로 둔다. 동호회에서는 더 넉넉하게 잡는
+   * 일이 흔하므로 고를 수 있게 했다.
+   */
+  turnSeconds: number;
   sync: SyncMode;
 }
 
@@ -46,6 +53,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastCushion: 0,
   haptics: true,
   keepAwake: true,
+  turnSeconds: 0,
   sync: 'local',
 };
 
