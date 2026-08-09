@@ -88,6 +88,24 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      # Gradle이 쓰는 것들을 다음 빌드로 넘긴다.
+      #
+      # 빌드 시간의 대부분이 컴파일이 아니라 내려받기였다: Gradle 배포판 130MB에,
+      # AGP와 androidx 의존성 전부를 매번 처음부터 받아 왔다. 안드로이드 프로젝트는
+      # 빌드마다 새로 생성되지만 이 캐시들은 홈 디렉터리에 있어 그와 상관없이 남는다.
+      #
+      # 키에 run_id를 넣어 매번 새로 저장하고, restore-keys로 가장 최근 것을 가져온다.
+      # Gradle 캐시는 쌓이면서 스스로 정리하는 종류라 이 방식이 가장 잘 맞는다.
+      - name: Gradle 캐시
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
       # 이 빌드가 무슨 버전이고, 릴리스로 나갈 것인지.
       #
       # 다음 버전은 저장소에 이미 있는 태그에서 온다. 파일에 적어 두고 사람이 올리는
@@ -216,9 +234,15 @@ jobs:
 
       - name: APK 빌드
         working-directory: .graft/mobile/android
+        env:
+          # 러너에는 메모리가 넉넉한데 Gradle의 기본값은 그걸 모른다.
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          # --parallel: 모듈이 여덟 개다(앱, capacitor, 플러그인 셋, cordova…). 서로
+          #             기다릴 이유가 없는 것들을 동시에 짓는다.
+          # --build-cache: 웹 자산만 바뀐 빌드에서 네이티브 모듈은 지난번 결과 그대로다.
+          ./gradlew assembleRelease --no-daemon --parallel --build-cache
 
       # 서명되지 않은 APK는 안드로이드가 설치를 거부한다 — 그런데 Gradle은 그걸
       # 오류가 아니라 `app-release-unsigned.apk`라는 파일 이름으로만 알린다. 릴리스에
