@@ -1,0 +1,17 @@
+node_modules/
+.graft/
+# CI가 프레임워크를 여기로 체크아웃합니다.
+.framework/
+.env.local
+.env*.local
+
+# 생성물. `node scripts/make-icons.mjs`로 다시 만들 수 있지만, 앱 아이콘은 빌드마다
+# 같아야 하므로 커밋해 둡니다 — 아래 두 줄은 그래서 주석입니다.
+# public/icon-192.png
+# public/icon-512.png
+
+# 서명 키와 구글 설정은 저장소에 두지 않습니다. CI에서는 시크릿으로 들어갑니다.
+*.keystore
+*.jks
+google-services.json
+mobile/overlay/android/app/google-services.json

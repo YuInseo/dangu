@@ -1,0 +1,21 @@
+rules_version = '2';
+
+/*
+ * 이 앱이 Firestore에 두는 것은 한 사람의 게임 기록뿐이다.
+ *
+ * 그래서 규칙도 한 줄로 요약된다: 자기 문서만, 로그인한 사람만. 웹 Firebase 설정값이
+ * 앱 번들에 그대로 들어 있어도 괜찮은 이유가 이것이다 — 그 값들은 "어느 프로젝트인지"를
+ * 말할 뿐이고, 누가 무엇을 읽을 수 있는지는 여기서 정해진다.
+ */
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{uid}/games/{gameId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // 그 밖의 모든 경로는 닫힌다. 나중에 컬렉션이 늘어나도 기본이 거절이어야 한다.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

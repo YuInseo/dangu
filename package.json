@@ -1,0 +1,21 @@
+{
+  "name": "dangu",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "당구 점수판 — 4구, 3구, 포켓볼. 한 코드로 웹과 안드로이드 앱.",
+  "scripts": {
+    "dev": "graft dev --port 3200",
+    "build": "graft build",
+    "build:mobile": "graft build --target mobile --platform android",
+    "start": "graft start --port 3200",
+    "routes": "graft routes",
+    "doctor": "graft doctor"
+  },
+  "dependencies": {
+    "firebase": "^12.17.1",
+    "graft": "*",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  }
+}

@@ -1,0 +1,114 @@
+import { defineConfig } from 'graft';
+
+/**
+ * 당구 점수판 — 설정 전부.
+ *
+ * 웹과 안드로이드 앱이 같은 소스에서 나온다. 여기 있는 건 웹으로 표현할 수 없는 것들뿐이고,
+ * 이름·아이콘·테마는 `app/manifest.ts`에서 온다.
+ */
+export default defineConfig({
+  /**
+   * 앱 버전.
+   *
+   * 인앱 업데이트가 이 값과 GitHub 릴리스의 태그를 비교한다. 릴리스 워크플로가 태그에서
+   * `GRAFT_PUBLIC_APP_VERSION`을 넣어 빌드하므로, CI에서 나온 APK는 항상 자기 태그를 안다.
+   */
+  version: '1.0.0',
+
+  reactStrictMode: true,
+  // 점수판은 전부 클라이언트 상태다. 서버가 캐시할 만한 게 없다.
+  cacheComponents: false,
+
+  /**
+   * 클라이언트 번들에 그대로 박히는 값들.
+   *
+   * 여기 있는 것과 `.env.local`의 `GRAFT_PUBLIC_*`은 둘 다 공개된다 — Firebase 웹 설정은
+   * 원래 공개해도 되는 값이고(보안은 Firestore 규칙이 담당한다), 저장소 이름도 마찬가지다.
+   */
+  env: {
+    // 릴리스를 확인할 저장소. 아래 GITHUB_REPO를 본인 것으로 바꾸면 업데이트 버튼이 살아난다.
+    GRAFT_PUBLIC_GITHUB_REPO: process.env.GRAFT_PUBLIC_GITHUB_REPO ?? '',
+    // CI가 태그에서 채운다. 로컬에서는 개발 빌드임이 드러나는 값이 정직하다.
+    GRAFT_PUBLIC_APP_VERSION: process.env.GRAFT_PUBLIC_APP_VERSION ?? '0.0.0-dev',
+
+    /**
+     * Firebase 웹 설정. `.env.local`에 넣으면 여기로 흘러들어온다.
+     *
+     * 비어 있어도 앱은 완전히 동작한다 — 로그인과 클라우드 저장만 꺼진다. 키를 여기
+     * 한 번에 나열해 두는 이유는 빈 문자열이라도 정의는 되어야 하기 때문이다.
+     */
+    GRAFT_PUBLIC_FIREBASE_API_KEY: process.env.GRAFT_PUBLIC_FIREBASE_API_KEY ?? '',
+    GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN: process.env.GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
+    GRAFT_PUBLIC_FIREBASE_PROJECT_ID: process.env.GRAFT_PUBLIC_FIREBASE_PROJECT_ID ?? '',
+    GRAFT_PUBLIC_FIREBASE_APP_ID: process.env.GRAFT_PUBLIC_FIREBASE_APP_ID ?? '',
+    GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET: process.env.GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '',
+    GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: process.env.GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
+  },
+
+  /**
+   * §E4 — 안드로이드 패키징.
+   *
+   * `enabled`면 평범한 `graft build`가 네이티브 페이로드까지 만든다. 웹과 앱이 서로
+   * 뒤처질 수 없다는 뜻이라, 점수판 로직이 두 벌이 되지 않는다.
+   */
+  mobile: {
+    enabled: true,
+    appId: 'com.dangu.score',
+    appName: '당구 점수판',
+    // 당구장은 지하가 많다. 네트워크 없이도 게임은 끝까지 돌아가야 한다.
+    offline: true,
+
+    /**
+     * 진동만 선언한다. 점수를 누를 때 손끝 피드백이 있어야 화면을 보지 않고도 눌렀는지 안다.
+     * 카메라·위치 같은 건 쓰지 않으므로 선언하지 않는다 — 선언하지 않은 권한은 매니페스트에
+     * 들어가지 않고, 스토어 심사에서 설명할 것도 없다.
+     */
+    capabilities: ['vibration', 'network'],
+
+    /**
+     * 구글 로그인은 기기 권한이 아니라 서비스 SDK라서 capability로 매핑할 수 없다.
+     * 이름을 직접 적는 자리가 여기다.
+     *
+     * 안드로이드 WebView 안에서는 구글 OAuth 팝업이 막혀 있다(`disallowed_useragent`).
+     * 그래서 앱에서는 이 플러그인이 네이티브 로그인 창을 띄우고, 받은 idToken을 그대로
+     * Firebase에 넘긴다. 웹에서는 팝업을 쓴다. 호출부는 `lib/auth.ts` 한 곳뿐이다.
+     */
+    plugins: [
+      '@capacitor-firebase/authentication',
+      /**
+       * 상태 표시줄.
+       *
+       * targetSdk 35부터 안드로이드는 앱을 edge-to-edge로 그린다 — WebView가 상태
+       * 표시줄 *아래*가 아니라 그 자리까지 채우고, 시계와 앱 제목이 겹친다. WebView는
+       * 상태 표시줄 높이를 `env(safe-area-inset-top)`으로 알려 주지 않으므로 CSS만으로는
+       * 해결되지 않는다. 이 플러그인이 겹침을 끄는 유일한 방법이다.
+       */
+      '@capacitor/status-bar',
+    ],
+
+    build: 'auto',
+    android: {
+      /**
+       * 34에 머무는 이유는 하나다.
+       *
+       * 안드로이드 15는 targetSdk 35인 앱을 강제로 edge-to-edge로 그린다 — WebView가
+       * 상태 표시줄 자리까지 차지해서 앱 제목이 시계 위에 겹치고, StatusBar 플러그인의
+       * `setOverlaysWebView(false)`는 그 버전에서 무시된다. 제대로 대응하려면 시스템
+       * 인셋을 WebView에 넘겨 주는 플러그인이 필요한데, 그건 Capacitor 7부터다.
+       *
+       * 이 앱은 GitHub 릴리스로 사이드로딩하므로 Play의 targetSdk 기한에 매이지 않는다.
+       * Play에 올릴 때가 오면 Capacitor를 7로 올리고 35로 되돌리면 된다.
+       */
+      targetSdk: 34,
+      // 사이드로딩으로 배포한다: GitHub 릴리스에 올린 APK를 앱이 직접 받는다.
+      // Play 스토어에 올릴 때가 오면 'aab'로 바꾸면 된다.
+      format: 'apk',
+      keystore: {
+        fileEnv: 'GRAFT_ANDROID_KEYSTORE',
+        aliasEnv: 'GRAFT_ANDROID_KEY_ALIAS',
+        storePasswordEnv: 'GRAFT_ANDROID_KEYSTORE_PASSWORD',
+        keyPasswordEnv: 'GRAFT_ANDROID_KEY_PASSWORD',
+      },
+    },
+  },
+});

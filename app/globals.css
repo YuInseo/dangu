@@ -1,0 +1,742 @@
+/*
+ * 당구장 조명 아래에서 보이는 화면.
+ *
+ * 규칙 두 개로 거의 다 설명된다. 첫째, 점수는 방 건너편에서도 읽혀야 하므로 화면에서
+ * 제일 큰 것이 점수다. 둘째, 큐를 든 손으로 누르는 버튼이라 작으면 안 된다 — 어떤
+ * 버튼도 44px보다 작지 않다.
+ */
+
+:root {
+  --white-bg: #f7f7f4;
+  --white-ink: #16181d;
+  --yellow-bg: #ffd43a;
+  --yellow-ink: #2a2000;
+  --center-bg: #0f1115;
+  --center-ink: #f3f4f6;
+  --muted: rgba(0, 0, 0, 0.45);
+  --line: rgba(0, 0, 0, 0.12);
+  --accent: #16a34a;
+  --danger: #dc2626;
+  --radius: 14px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--center-bg);
+  color: var(--center-ink);
+  /* 점수판에서 텍스트 선택은 실수로만 일어난다. 길게 누르면 점수 대신 파란 블록이 뜬다. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border: 0;
+  border-radius: var(--radius);
+  min-height: 44px;
+  transition: transform 0.06s ease, filter 0.12s ease;
+}
+
+button:active {
+  transform: scale(0.97);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+input {
+  font: inherit;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  padding: 0.65rem 0.75rem;
+  background: #fff;
+  color: #16181d;
+  min-height: 44px;
+  width: 100%;
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 3px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+/*
+ * 아일랜드 껍데기는 레이아웃에서 빠진다.
+ *
+ * 클라이언트 컴포넌트는 `<graft-island>` 안에 하이드레이트되는데, 그건 기본이 블록
+ * 박스라서 `.app`의 flex 자식이 되어 버린다 — 그러면 `.board`의 `flex: 1`은 아무것도
+ * 늘리지 못하고 점수판이 화면 위쪽에 눌려 붙는다. `display: contents`면 껍데기는
+ * 표시 트리에서 사라지고 안의 요소가 그대로 flex 자식이 된다.
+ */
+graft-island {
+  display: contents;
+}
+
+/* 앱 껍데기 ---------------------------------------------------------- */
+
+.app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--safe-top);
+  padding-bottom: var(--safe-bottom);
+}
+
+ /*
+ * 상단 줄은 스크롤해도 붙어 있는다.
+ *
+ * 통계처럼 긴 화면에서 설정·업데이트·뒤로가기를 쓰려고 맨 위까지 다시 올라가야 하는
+ * 건 손이 많이 간다. 배경이 이미 불투명하므로 sticky 한 줄이면 끝이고, 결과 시트는
+ * z-index가 더 높아 그 위를 덮는다.
+ */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.9rem;
+  background: var(--center-bg);
+  color: var(--center-ink);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.topbar h1 {
+  font-size: 1.05rem;
+  margin: 0;
+  letter-spacing: -0.01em;
+  flex: 1;
+  font-weight: 700;
+}
+
+.icon-button {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--center-ink);
+  padding: 0.5rem 0.8rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.icon-button.badge {
+  background: var(--accent);
+  color: #fff;
+}
+
+/* 점수판 ------------------------------------------------------------- */
+
+.board {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr minmax(104px, 24vw) 1fr;
+  min-height: 0;
+}
+
+.side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 0.6rem 1rem;
+  min-width: 0;
+}
+
+.side.white {
+  background: var(--white-bg);
+  color: var(--white-ink);
+}
+
+.side.yellow {
+  background: var(--yellow-bg);
+  color: var(--yellow-ink);
+}
+
+/* 지금 치는 사람. 색만으로는 밝은 조명 아래에서 구분이 안 되므로 안쪽 테두리까지 준다. */
+.side.active {
+  box-shadow: inset 0 0 0 4px var(--accent);
+}
+
+.side .name {
+  font-size: 1.05rem;
+  font-weight: 700;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: center;
+  padding: 0.25rem 0.4rem;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.side .score {
+  font-size: clamp(4rem, 22vw, 9rem);
+  font-weight: 800;
+  line-height: 0.95;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  margin: 0.2rem 0 0;
+}
+
+.side .target {
+  font-size: 0.9rem;
+  font-weight: 600;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+ /*
+ * 쿠션 구간의 표시.
+ *
+ * 숫자가 0으로 돌아가는 화면이라, 그 숫자가 무엇인지 말해 주는 라벨이 숫자만큼
+ * 중요하다. 빨간 배지 + 판 전체의 붉은 테두리로 "지금은 다른 구간"이라는 걸
+ * 방 건너편에서도 알 수 있게 한다.
+ */
+.side .cushion {
+  font-size: 0.95rem;
+  font-weight: 900;
+  padding: 0.2rem 0.9rem;
+  border-radius: 999px;
+  background: var(--danger);
+  color: #fff;
+  letter-spacing: 0.08em;
+}
+
+.side .score.cushion-score {
+  color: var(--danger);
+}
+
+.side.in-cushion {
+  box-shadow: inset 0 0 0 5px var(--danger);
+}
+
+/* 쿠션 구간이면서 자기 차례면, 차례 표시가 아니라 쿠션 표시가 이긴다. */
+.side.active.in-cushion {
+  box-shadow: inset 0 0 0 5px var(--danger);
+}
+
+.side .spacer {
+  flex: 1;
+  min-height: 0.25rem;
+}
+
+.pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.pad button {
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.pad .plus {
+  font-size: 1.5rem;
+  padding: 0.9rem 0;
+  background: rgba(0, 0, 0, 0.86);
+  color: #fff;
+}
+
+.side.yellow .pad .plus {
+  background: #1c1400;
+}
+
+.pad .minus {
+  font-size: 1.05rem;
+  padding: 0.55rem 0;
+  background: rgba(0, 0, 0, 0.08);
+  color: inherit;
+}
+
+ /*
+ * 직접 입력은 세로로 쌓는다.
+ *
+ * 세로 폰에서 한 칸은 130px 남짓이라, 입력창과 버튼을 한 줄에 두면 입력창에 글자
+ * 한 자가 겨우 들어간다. 위아래로 두면 둘 다 손가락으로 누를 만한 크기가 된다.
+ */
+.side .manual {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  width: 100%;
+}
+
+.side .manual input {
+  text-align: center;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-height: 40px;
+  padding: 0.4rem 0.3rem;
+}
+
+.side .manual button {
+  background: rgba(0, 0, 0, 0.86);
+  color: #fff;
+  padding: 0.45rem 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  white-space: nowrap;
+  min-height: 40px;
+}
+
+@media (orientation: landscape) and (min-width: 720px) {
+  .side .manual {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+/* 가운데 기둥 -------------------------------------------------------- */
+
+.center {
+  background: var(--center-bg);
+  color: var(--center-ink);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.8rem 0.45rem 1rem;
+  text-align: center;
+}
+
+.center .clock {
+  font-size: clamp(1.1rem, 4.4vw, 1.6rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.center .inning {
+  font-size: 0.78rem;
+  opacity: 0.65;
+  font-variant-numeric: tabular-nums;
+}
+
+.center .stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  width: 100%;
+  margin-top: auto;
+}
+
+.center .stack button {
+  width: 100%;
+  padding: 0.6rem 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--center-ink);
+}
+
+.center .stack button.turn {
+  background: var(--accent);
+  color: #fff;
+  padding: 0.75rem 0.35rem;
+}
+
+.center .stack button.finish {
+  background: rgba(220, 38, 38, 0.9);
+  color: #fff;
+}
+
+/* 페이지(로비·설정·기록) --------------------------------------------- */
+
+.page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1rem 1rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  max-width: 640px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.card {
+  background: #171a20;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.card h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.card p {
+  margin: 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: rgba(243, 244, 246, 0.7);
+}
+
+.label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: rgba(243, 244, 246, 0.65);
+  display: block;
+  margin-bottom: 0.35rem;
+}
+
+.primary {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+  font-size: 1.05rem;
+  padding: 1rem;
+  width: 100%;
+}
+
+.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--center-ink);
+  font-weight: 700;
+  padding: 0.75rem 1rem;
+}
+
+.ghost {
+  background: transparent;
+  color: rgba(243, 244, 246, 0.75);
+  font-weight: 600;
+  padding: 0.6rem 0.5rem;
+  text-decoration: none;
+  display: inline-block;
+}
+
+.danger {
+  background: rgba(220, 38, 38, 0.15);
+  color: #fca5a5;
+  font-weight: 700;
+  padding: 0.7rem 1rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.row > * {
+  flex: 1 1 auto;
+}
+
+.choices {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+
+.choice {
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--center-ink);
+  padding: 0.85rem 0.5rem;
+  font-weight: 700;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  align-items: center;
+}
+
+.choice small {
+  font-weight: 500;
+  font-size: 0.7rem;
+  opacity: 0.6;
+  line-height: 1.3;
+  text-align: center;
+}
+
+.choice[aria-pressed='true'] {
+  background: var(--accent);
+  color: #fff;
+}
+
+.choice[aria-pressed='true'] small {
+  opacity: 0.85;
+}
+
+/* 핸디 조절 ---------------------------------------------------------- */
+
+.handicap {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+
+.handicap .box {
+  border-radius: 14px;
+  padding: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.handicap .box.white {
+  background: var(--white-bg);
+  color: var(--white-ink);
+}
+
+.handicap .box.yellow {
+  background: var(--yellow-bg);
+  color: var(--yellow-ink);
+}
+
+.handicap .box .value {
+  font-size: 2rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.handicap .box .row button {
+  background: rgba(0, 0, 0, 0.1);
+  color: inherit;
+  font-weight: 800;
+  padding: 0.45rem 0;
+  min-width: 44px;
+}
+
+.handicap .box input {
+  text-align: center;
+  font-weight: 700;
+}
+
+ /* 달력 --------------------------------------------------------------- */
+
+.calendar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 1.05rem;
+}
+
+.calendar-nav {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--center-ink);
+  font-size: 1.3rem;
+  font-weight: 800;
+  line-height: 1;
+  padding: 0.3rem 1.1rem;
+  min-width: 56px;
+}
+
+.calendar {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.25rem;
+}
+
+.calendar .weekday {
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: rgba(243, 244, 246, 0.45);
+  padding-bottom: 0.15rem;
+}
+
+/* 날짜 칸은 정사각형에 가깝게. 손가락으로 누르는 격자라 44px 규칙이 여기도 적용된다. */
+.calendar .day {
+  aspect-ratio: 1;
+  min-height: 44px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(243, 244, 246, 0.75);
+  font-variant-numeric: tabular-nums;
+  padding: 0;
+}
+
+.calendar .day.empty {
+  background: none;
+}
+
+.calendar .day .n {
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+/* 친 날은 배경으로 먼저 보이고, 몇 게임인지는 점(또는 숫자)으로 붙는다. */
+.calendar .day.played {
+  background: rgba(22, 163, 74, 0.22);
+  color: var(--center-ink);
+}
+
+.calendar .day .dots {
+  font-size: 0.6rem;
+  line-height: 1;
+  letter-spacing: 0.06em;
+  color: #4ade80;
+  font-weight: 800;
+}
+
+/* 오늘은 테두리로, 고른 날은 채움으로 — 둘이 겹쳐도 구분된다. */
+.calendar .day.today {
+  box-shadow: inset 0 0 0 2px rgba(243, 244, 246, 0.35);
+}
+
+.calendar .day.selected {
+  background: var(--accent);
+  color: #fff;
+}
+
+.calendar .day.selected .dots {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+/* 기록 --------------------------------------------------------------- */
+
+.record {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.record:last-child {
+  border-bottom: 0;
+}
+
+.record .who {
+  flex: 1;
+  min-width: 0;
+}
+
+ /*
+ * 누를 수 있는 기록 줄.
+ *
+ * `<button>`은 색을 상속하지 않는다 — 브라우저 기본값인 검정이 들어가서, 어두운
+ * 카드 위에서 상대 이름이 배경과 같은 색이 되어 사라진다. 글자색을 명시하는 이 한
+ * 줄이 없으면 목록이 비어 보인다.
+ */
+button.record {
+  color: var(--center-ink);
+  font: inherit;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.record .who strong {
+  display: block;
+  font-size: 0.95rem;
+  color: var(--center-ink);
+}
+
+.record .who span {
+  font-size: 0.78rem;
+  color: rgba(243, 244, 246, 0.55);
+}
+
+.record .result {
+  font-variant-numeric: tabular-nums;
+  font-weight: 800;
+  font-size: 1.05rem;
+}
+
+.pill {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 결과 시트 ---------------------------------------------------------- */
+
+.sheet {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 6, 9, 0.72);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 1rem;
+  z-index: 20;
+}
+
+.sheet .inner {
+  background: #171a20;
+  border-radius: 22px;
+  padding: 1.25rem;
+  width: 100%;
+  max-width: 480px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  text-align: center;
+}
+
+.sheet .winner {
+  font-size: 1.6rem;
+  font-weight: 800;
+}
+
+.notice {
+  font-size: 0.82rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(243, 244, 246, 0.8);
+  line-height: 1.45;
+}
+
+.notice.warn {
+  background: rgba(234, 179, 8, 0.14);
+  color: #fde68a;
+}
+
+.notice.error {
+  background: rgba(220, 38, 38, 0.15);
+  color: #fca5a5;
+}
+
+/* 가로 화면에서는 가운데 기둥을 조금 넓게 쓴다. */
+@media (orientation: landscape) and (min-width: 720px) {
+  .board {
+    grid-template-columns: 1fr 200px 1fr;
+  }
+
+  .side .score {
+    font-size: clamp(5rem, 14vw, 11rem);
+  }
+}

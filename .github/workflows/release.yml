@@ -1,0 +1,149 @@
+name: release
+
+# 태그를 밀면 APK가 만들어지고 릴리스에 붙는다. 앱 안의 업데이트 버튼이 보는 게
+# 바로 이 릴리스이므로, 태그 이름(v1.2.3)이 곧 앱이 아는 자기 버전이 된다.
+on:
+  push:
+    tags:
+      - 'v*'
+  # 태그 없이 한 번 돌려 보고 싶을 때. 이때는 릴리스를 만들지 않고 APK만 남긴다.
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+
+    # 시크릿을 job 환경변수로 한 번에 올린다.
+    #
+    # `if:` 조건에서는 `secrets` 컨텍스트를 쓸 수 없다 — 워크플로가 아예 파싱되지
+    # 않는다. 그래서 여기서 env로 옮기고, 아래 단계들은 `env.X != ''`로 판단한다.
+    env:
+      GRAFT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+      GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+      GRAFT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+      GRAFT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+      GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+      GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      GRAFT_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      GRAFT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      GRAFT_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      # 앱이 릴리스를 확인할 저장소. 포크에서도 자기 저장소를 보게 된다.
+      GRAFT_PUBLIC_GITHUB_REPO: ${{ github.repository }}
+      # 프레임워크를 어디서 가져올지. npm에 올라가면 이 두 단계는 사라지고
+      # package.json의 버전 하나로 대체된다.
+      FRAMEWORK_REPO: YuInseo/graft
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 프레임워크는 아직 npm에 없으므로 저장소에서 가져와 파일 의존으로 설치한다.
+      # 로컬에서는 워크스페이스가 같은 일을 하므로, 앱의 package.json은 건드리지
+      # 않고 CI에서만 경로를 바꿔 끼운다.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ env.FRAMEWORK_REPO }}
+          path: .framework
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Capacitor가 만든 안드로이드 프로젝트를 Gradle이 빌드한다. JDK 17은
+      # 프레임워크가 모든 모듈에 강제하는 바이트코드 수준과 같은 값이다.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 버전 결정
+        id: version
+        run: |
+          # 태그에서 v를 떼면 앱이 표시하고 비교할 버전이 된다.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "value=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=0.0.0-ci.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: 의존성 설치
+        run: |
+          npm pkg set dependencies.graft="file:.framework/graft"
+          npm install --no-audit --no-fund
+
+      - name: 웹·모바일 페이로드 빌드
+        env:
+          # 앱이 자기 버전을 아는 유일한 경로. 이 값이 태그와 다르면 업데이트 버튼이
+          # 방금 설치한 버전을 계속 "새 버전"이라고 부른다.
+          GRAFT_PUBLIC_APP_VERSION: ${{ steps.version.outputs.value }}
+        run: node .framework/graft/bin/graft.js build --target mobile --platform android
+
+      # 네이티브 구글 로그인은 이 파일이 있어야 동작한다. 없으면 로그인만 꺼진 채로
+      # 앱은 정상 빌드된다 — 그래서 시크릿이 없다고 워크플로를 세우지 않는다.
+      - name: google-services.json 배치
+        if: env.GOOGLE_SERVICES_JSON != ''
+        run: |
+          mkdir -p mobile/overlay/android/app
+          printf '%s' "$GOOGLE_SERVICES_JSON" > mobile/overlay/android/app/google-services.json
+
+      - name: 안드로이드 프로젝트 생성
+        working-directory: .graft/mobile
+        run: |
+          npm install
+          npx cap add android
+
+      # 프로젝트가 생긴 뒤 한 번 더 빌드한다: 권한·오버레이·네이티브 코드는 생성된
+      # 프로젝트가 있어야 그 안에 쓰이고, 첫 빌드 때는 아직 없었다.
+      - name: 권한·오버레이 적용
+        env:
+          GRAFT_PUBLIC_APP_VERSION: ${{ steps.version.outputs.value }}
+        run: node .framework/graft/bin/graft.js build --target mobile --platform android
+
+      - name: 웹 자산 동기화
+        working-directory: .graft/mobile
+        run: npx cap sync android
+
+      # 서명 키는 저장소에 두지 않는다. 시크릿에 base64로 넣고 여기서만 되살린다.
+      - name: 업로드 키 복원
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "GRAFT_ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: APK 빌드
+        working-directory: .graft/mobile/android
+        run: |
+          chmod +x gradlew
+          # 서명 키가 없으면 디버그로 서명된 릴리스 APK가 나온다. 설치는 되고,
+          # 스토어에는 못 올린다 — 사이드로딩 배포에는 그걸로 충분하다.
+          ./gradlew assembleRelease --no-daemon
+
+      - name: APK 이름 붙이기
+        id: apk
+        run: |
+          FOUND=$(find .graft/mobile/android -name '*.apk' -path '*release*' | head -n1)
+          test -n "$FOUND" || { echo "APK를 찾지 못했습니다"; exit 1; }
+          NAME="dangu-${{ steps.version.outputs.value }}.apk"
+          cp "$FOUND" "$NAME"
+          echo "path=$NAME" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: ${{ steps.apk.outputs.path }}
+
+      - name: 릴리스 만들기
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: v${{ steps.version.outputs.value }}
+          # 앱의 업데이트 카드가 이 본문을 그대로 보여 준다.
+          generate_release_notes: true
+          files: ${{ steps.apk.outputs.path }}
