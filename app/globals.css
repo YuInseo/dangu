@@ -886,6 +886,46 @@ button.record {
   font-weight: 800;
 }
 
+/*
+ * 되돌릴 수 없는 것을 한 번 더 묻는 창.
+ *
+ * 시트 위에 뜬다. 화면 가운데인 것은 의도다 — 아래쪽은 방금 누른 버튼들이 있는 자리라,
+ * 묻는 창을 거기 두면 그 자리를 계속 누르던 손이 그대로 한 번 더 누른다.
+ */
+.confirm {
+  position: fixed;
+  inset: 0;
+  background: rgba(5, 6, 9, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+  z-index: 30;
+}
+
+.confirm .box {
+  background: #171a20;
+  border-radius: 20px;
+  padding: 1.25rem;
+  width: 100%;
+  max-width: 360px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  text-align: center;
+}
+
+.confirm .box strong {
+  font-size: 1.1rem;
+  font-weight: 800;
+}
+
+.confirm .box p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: rgba(243, 244, 246, 0.6);
+}
+
 /* 담을 것이 많은 시트는 스스로 굴러간다. 화면보다 길어지면 버튼이 아래로 잘려 나간다. */
 .sheet .inner {
   max-height: 88dvh;
