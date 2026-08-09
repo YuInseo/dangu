@@ -148,7 +148,13 @@ jobs:
             echo "ANDROID_KEYSTORE_BASE64 등 서명 시크릿이 설정되어 있는지 확인하세요."
             exit 1
           fi
-          NAME="billiard-${{ steps.version.outputs.value }}.apk"
+          # 태그 빌드는 버전이 파일 이름에 남는다. 개발 빌드는 이름을 고정한다 —
+          # 아래 `ci` 릴리스가 매번 같은 이름의 자산을 덮어써야 옛 APK가 쌓이지 않는다.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            NAME="billiard-${{ steps.version.outputs.value }}.apk"
+          else
+            NAME="billiard-ci.apk"
+          fi
           cp "$FOUND" "$NAME"
           echo "path=$NAME" >> "$GITHUB_OUTPUT"
 
@@ -156,6 +162,27 @@ jobs:
         with:
           name: apk
           path: ${{ steps.apk.outputs.path }}
+
+      # 브랜치 빌드도 받을 수 있는 주소를 갖는다.
+      #
+      # 아티팩트는 로그인한 사람만 받을 수 있는 zip이라, 폰에서 설치해 보려면 PC를 한 번
+      # 거쳐야 한다. 프리릴리스로 올리면 링크 하나로 폰에서 바로 받힌다. 그러면서도
+      # 업데이트 버튼은 이걸 보지 않는다 — `/releases/latest`는 프리릴리스를 빼고 답하고,
+      # 앱은 그 엔드포인트만 묻는다. 시험용 빌드가 남에게 "새 버전"으로 뜨는 일이 없다.
+      - name: 개발 빌드 올리기
+        if: github.ref_type != 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ci
+          name: 개발 빌드 ${{ steps.version.outputs.value }}
+          body: |
+            브랜치 `${{ github.ref_name }}`의 최신 빌드입니다. (`${{ github.sha }}`)
+
+            정식 버전이 아닙니다 — 앱의 업데이트 버튼은 이 빌드를 보지 않습니다.
+            새 빌드가 올라올 때마다 이 자리의 APK가 교체됩니다.
+          prerelease: true
+          make_latest: false
+          files: ${{ steps.apk.outputs.path }}
 
       - name: 릴리스 만들기
         if: github.ref_type == 'tag'
