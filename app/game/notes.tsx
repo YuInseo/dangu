@@ -68,6 +68,7 @@ const BALLS: { id: Ball['c']; label: string; fill: string; edge: string; max: nu
 ];
 
 const limitOf = (color: Ball['c']) => BALLS.find((entry) => entry.id === color)?.max ?? 1;
+const ballFill = (color: Ball['c']) => BALLS.find((entry) => entry.id === color)?.fill ?? '#fff';
 
 /**
  * 펜촉.
@@ -138,10 +139,13 @@ export function NotePages({
 
   const [areaEraser, setAreaEraser] = useState(false);
   const [markOnly, setMarkOnly] = useState(false);
+  const [eraseThick, setEraseThick] = useState(40);
 
   const [ballColor, setBallColor] = useState<Ball['c']>('w');
   /** 당점을 찍고 있는 공의 자리. `null`이면 창이 닫혀 있다. */
   const [tipAt, setTipAt] = useState<number | null>(null);
+  /** 판을 화면 가득 펼쳤는지. 폰을 세워 든 채로 보려면 당구대도 세워야 한다. */
+  const [full, setFull] = useState(false);
 
   /** 되돌린 획들. 저장하지 않는다 — 노트를 다시 열 때까지 남을 성질의 것이 아니다. */
   const [undone, setUndone] = useState<Stroke[]>([]);
@@ -196,7 +200,7 @@ export function NotePages({
   const nibOf = NIBS.find((entry) => entry.id === nib) ?? NIBS[1];
 
   return (
-    <div className="notes-body">
+    <div className={`notes-body${full ? ' full' : ''}`}>
       {/* 장 고르기와, 그 옆의 더하기·지우기. 동작은 탭이 아니므로 홈 밖에 선다. */}
       <div className="tabs-row">
         {pages.length > 0 && (
@@ -245,7 +249,7 @@ export function NotePages({
             글 도구를 들면 글칸이 위로 올라와 손가락을 받고, 그리는 도구를 들면 그림이
             위로 올라온다. 보이는 것은 늘 셋 다이고, 무엇을 만지는지만 도구가 정한다.
           */}
-          <div className={`paper${current.plain ? '' : ' table'}`} data-tool={tool}>
+          <div className={`paper${current.plain ? '' : ' table'}${full ? ' tall' : ''}`} data-tool={tool}>
             <textarea
               className="note-text"
               value={current.text ?? ''}
@@ -269,6 +273,7 @@ export function NotePages({
               straight={straight}
               areaEraser={areaEraser}
               markOnly={markOnly}
+              eraseRadius={0.018 + (eraseThick / 100) * 0.085}
               onDraw={(stroke) => {
                 setStrokes([...strokes, stroke]);
                 setUndone([]);
@@ -279,12 +284,48 @@ export function NotePages({
               }}
               onBalls={setBalls}
               onTip={setTipAt}
+              rotate={full}
             />
+
+            {/*
+              판을 화면 가득.
+
+              폰을 세워 든 채로 당구대를 보려면 대를 세워야 한다 — 당구 게임들이 세로
+              화면에서 다 그렇게 한다. 좌표는 그대로 두고 보이는 방향만 돌리므로, 펼쳐서
+              그린 선이 접었을 때 같은 자리에 있다.
+            */}
+            <button
+              className="expand"
+              onClick={() => setFull((was) => !was)}
+              aria-label={full ? '판 접기' : '판 펼치기'}
+            >
+              {full ? '✕' : '⤢'}
+            </button>
 
             <span className="page-no">
               {index + 1}/{pages.length}
             </span>
           </div>
+
+          {/*
+            찍어 둔 당점을 말로.
+
+            판 위의 공에 남는 점은 "여기 뭔가 찍혀 있다"까지만 말한다. 그게 위인지
+            아래인지, 반 팁인지 끝인지는 점의 자리를 눈으로 재야 알 수 있는데, 그 재는
+            일을 화면이 대신 해 준다.
+          */}
+          {balls.some((ball) => ball.t) && (
+            <div className="tips">
+              {balls.map((ball, i) =>
+                ball.t ? (
+                  <button key={i} className="tip-line" onClick={() => setTipAt(i)}>
+                    <span className="dot-ball small" style={{ background: ballFill(ball.c) }} />
+                    {BALLS.find((entry) => entry.id === ball.c)?.label} · {describeTip(ball.t)}
+                  </button>
+                ) : null
+              )}
+            </div>
+          )}
 
           {/*
             당점.
@@ -387,6 +428,8 @@ export function NotePages({
 
           {open && tool === 'eraser' && (
             <Popup title="손글씨 지우개" onClose={() => setOpen(false)}>
+              <Slider value={eraseThick} onChange={setEraseThick} label="지우개 굵기" />
+              <hr className="pop-line" />
               <Radio label="획 지우개" on={!areaEraser} onPick={() => setAreaEraser(false)} />
               <Radio label="영역 지우개" on={areaEraser} onPick={() => setAreaEraser(true)} />
               <Toggle label="형광펜만 지우기" on={markOnly} onChange={setMarkOnly} />
@@ -819,6 +862,8 @@ function Sketch({
   straight,
   areaEraser,
   markOnly,
+  eraseRadius,
+  rotate,
   onDraw,
   onErase,
   onBalls,
@@ -835,6 +880,8 @@ function Sketch({
   straight: boolean;
   areaEraser: boolean;
   markOnly: boolean;
+  eraseRadius: number;
+  rotate: boolean;
   onDraw: (stroke: Ink) => void;
   onErase: (keep: Stroke[]) => void;
   onBalls: (balls: Ball[]) => void;
@@ -851,8 +898,21 @@ function Sketch({
   /** 방금 두드린 공과 그 시각. 같은 공을 곧바로 또 두드리면 당점 창을 연다. */
   const tapped = useRef<{ at: number; time: number }>({ at: -1, time: 0 });
 
-  /** 공의 반지름 — 칸 너비에 대한 비율. 진짜 비율(2.2%)보다 조금 크게 그려야 손에 잡힌다. */
+  /** 공의 반지름 — 판의 긴 변에 대한 비율. 진짜 비율(2.2%)보다 조금 크게 그려야 손에 잡힌다. */
   const RADIUS = 0.032;
+
+  /*
+   * 펼친 판은 세로로 선다.
+   *
+   * 폰을 세워 든 채로 당구대를 보려면 대를 세워야 한다. 그런데 저장된 좌표까지 돌려
+   * 버리면 접었을 때 그림이 눕는다 — 그래서 좌표는 그대로 두고 그리는 순간과 손가락을
+   * 받는 순간에만 돌린다. 판의 (x, y)가 세운 화면에서는 (1 - y, x)다.
+   */
+  const view = useCallback(
+    (nx: number, ny: number, w: number, h: number): [number, number] =>
+      rotate ? [(1 - ny) * w, nx * h] : [nx * w, ny * h],
+    [rotate]
+  );
 
   const paint = useCallback(() => {
     const element = canvas.current;
@@ -881,12 +941,14 @@ function Sketch({
       context.lineCap = ink.h ? 'butt' : 'round';
       context.lineWidth = Math.max(1, ink.w * box.width);
       context.beginPath();
-      context.moveTo(ink.p[0] * box.width, ink.p[1] * box.height);
+      const [mx, my] = view(ink.p[0], ink.p[1], box.width, box.height);
+      context.moveTo(mx, my);
       for (let i = 2; i < ink.p.length; i += 2) {
-        context.lineTo(ink.p[i] * box.width, ink.p[i + 1] * box.height);
+        const [lx, ly] = view(ink.p[i], ink.p[i + 1], box.width, box.height);
+        context.lineTo(lx, ly);
       }
       // 점 하나만 찍은 획도 보이게 — 길이가 0인 선은 아무것도 남기지 않는다.
-      if (ink.p.length === 2) context.lineTo(ink.p[0] * box.width + 0.1, ink.p[1] * box.height);
+      if (ink.p.length === 2) context.lineTo(mx + 0.1, my);
       context.stroke();
     }
     context.globalAlpha = 1;
@@ -898,11 +960,11 @@ function Sketch({
      * 얹어 두는데, 그 한 점이 공을 동그란 물체로 보이게 한다 — 납작한 원과 공의 차이는
      * 대개 그 반사광 하나다.
      */
-    const radius = RADIUS * box.width;
+    // 반지름은 판의 긴 변을 따른다 — 세워 놓으면 긴 변이 세로가 된다.
+    const radius = RADIUS * Math.max(box.width, box.height);
     for (const ball of kept.current) {
       const spec = BALLS.find((entry) => entry.id === ball.c) ?? BALLS[0];
-      const x = ball.x * box.width;
-      const y = ball.y * box.height;
+      const [x, y] = view(ball.x, ball.y, box.width, box.height);
 
       context.beginPath();
       context.arc(x, y, radius, 0, Math.PI * 2);
@@ -919,13 +981,16 @@ function Sketch({
 
       // 당점을 찍어 둔 공에는 그 자리에 점을 남긴다 — 판을 보면 어디를 치는지 바로 보이게.
       if (ball.t) {
+        // 당점도 함께 돌아야 공 위의 같은 자리에 남는다.
+        const tx = rotate ? -ball.t.y : ball.t.x;
+        const ty = rotate ? ball.t.x : ball.t.y;
         context.beginPath();
-        context.arc(x + ball.t.x * radius * 0.8, y + ball.t.y * radius * 0.8, radius * 0.22, 0, Math.PI * 2);
+        context.arc(x + tx * radius * 0.8, y + ty * radius * 0.8, radius * 0.22, 0, Math.PI * 2);
         context.fillStyle = 'rgba(17, 24, 39, 0.85)';
         context.fill();
       }
     }
-  }, []);
+  }, [view, rotate]);
 
   useEffect(() => {
     paint();
@@ -936,16 +1001,16 @@ function Sketch({
 
   const point = (event: React.PointerEvent<HTMLCanvasElement>): [number, number] => {
     const box = event.currentTarget.getBoundingClientRect();
-    return [
-      Math.min(1, Math.max(0, (event.clientX - box.left) / box.width)),
-      Math.min(1, Math.max(0, (event.clientY - box.top) / box.height)),
-    ];
+    const px = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
+    const py = Math.min(1, Math.max(0, (event.clientY - box.top) / box.height));
+    // 세워 놓은 화면에서는 손가락의 자리도 되돌려 읽는다 — `view`의 반대다.
+    return rotate ? [py, 1 - px] : [px, py];
   };
 
   const erase = (x: number, y: number) => {
     const keep = areaEraser
-      ? eraseArea(all.current, x, y, markOnly)
-      : eraseStrokes(all.current, x, y, markOnly);
+      ? eraseArea(all.current, x, y, markOnly, eraseRadius)
+      : eraseStrokes(all.current, x, y, markOnly, eraseRadius);
     const changed = keep.length !== all.current.length || keep.some((entry, i) => entry !== all.current[i]);
     if (changed) {
       all.current = keep;
@@ -963,10 +1028,11 @@ function Sketch({
      * 뜻이고, 공은 형광펜이 아니다.
      */
     if (markOnly) return;
-    const reach = RADIUS + 0.02;
+    const reach = RADIUS + eraseRadius * 0.5;
+    const squash = 9 / 16; // 판의 짧은 변 / 긴 변 — 거리를 재기 전에 세로를 그만큼 눕힌다
     const balls = kept.current.filter((ball) => {
       const dx = ball.x - x;
-      const dy = (ball.y - y) * 0.5625; // 칸이 16:9라 세로 한 칸이 가로 한 칸보다 짧다
+      const dy = (ball.y - y) * squash;
       return dx * dx + dy * dy > reach * reach;
     });
     if (balls.length !== kept.current.length) {
@@ -995,7 +1061,7 @@ function Sketch({
            * 갈리는 것이 도구를 갈아 드는 것보다 짧다.
            */
           const box = event.currentTarget.getBoundingClientRect();
-          const ratio = box.height / box.width;
+          const ratio = rotate ? box.width / box.height : box.height / box.width;
           const hit = kept.current.findIndex((ball) => {
             const dx = ball.x - x;
             const dy = (ball.y - y) * ratio;
@@ -1087,11 +1153,17 @@ function Sketch({
 /* 획 다루기 ----------------------------------------------------------- */
 
 /** 지우개가 닿은 획을 통째로 버린다. 손글씨 앱의 "획 지우개". */
-function eraseStrokes(strokes: Stroke[], x: number, y: number, markOnly: boolean): Stroke[] {
+function eraseStrokes(
+  strokes: Stroke[],
+  x: number,
+  y: number,
+  markOnly: boolean,
+  near: number
+): Stroke[] {
   return strokes.filter((stroke) => {
     const ink = inkOf(stroke);
     if (markOnly && !ink.h) return true;
-    return !touches(ink, x, y);
+    return !touches(ink, x, y, near);
   });
 }
 
@@ -1102,13 +1174,18 @@ function eraseStrokes(strokes: Stroke[], x: number, y: number, markOnly: boolean
  * 지우면 두 획이 되는 것이 맞다: 그러지 않으면 다음에 그 획의 다른 끝을 지울 때 이미
  * 지운 부분이 함께 살아 돌아온다.
  */
-function eraseArea(strokes: Stroke[], x: number, y: number, markOnly: boolean): Stroke[] {
-  const near = 0.045;
+function eraseArea(
+  strokes: Stroke[],
+  x: number,
+  y: number,
+  markOnly: boolean,
+  near: number
+): Stroke[] {
   const next: Stroke[] = [];
 
   for (const stroke of strokes) {
     const ink = inkOf(stroke);
-    if ((markOnly && !ink.h) || !touches(ink, x, y)) {
+    if ((markOnly && !ink.h) || !touches(ink, x, y, near)) {
       next.push(stroke);
       continue;
     }
@@ -1130,9 +1207,8 @@ function eraseArea(strokes: Stroke[], x: number, y: number, markOnly: boolean): 
   return next;
 }
 
-/** 획이 이 자리에 닿는지. 칸이 4:3이라 세로 거리를 눕혀야 지우개가 원으로 동작한다. */
-function touches(ink: Ink, x: number, y: number): boolean {
-  const near = 0.045;
+/** 획이 이 자리에 닿는지. 칸이 16:9라 세로 거리를 눕혀야 지우개가 원으로 동작한다. */
+function touches(ink: Ink, x: number, y: number, near: number): boolean {
   for (let i = 0; i < ink.p.length; i += 2) {
     const dx = ink.p[i] - x;
     const dy = (ink.p[i + 1] - y) * 0.75;

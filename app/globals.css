@@ -2378,3 +2378,79 @@ button.record {
   box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
   pointer-events: none;
 }
+
+/* 펼친 판 --------------------------------------------------------- */
+
+/*
+ * 판을 화면 가득.
+ *
+ * 폰을 세워 든 채로 당구대를 보려면 대를 세워야 한다 — 당구 게임들이 세로 화면에서
+ * 다 그렇게 한다. 시트 위를 통째로 덮되 도구 줄은 그대로 아래에 남는다: 펼친 김에
+ * 크게 그리는 것이 이 화면의 목적이지, 구경만 하려는 것이 아니다.
+ */
+.notes-body.full {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  padding: 0.6rem 0.7rem calc(0.6rem + var(--safe-bottom));
+  padding-top: calc(0.6rem + var(--safe-top));
+  background: #0b0d11;
+}
+
+.notes-body.full .paper {
+  flex: 1;
+  aspect-ratio: auto;
+  min-height: 0;
+}
+
+/* 세운 당구대. 다이아가 위아래가 아니라 좌우 레일에 선다. */
+.paper.table.tall {
+  background:
+    radial-gradient(circle 2px, rgba(233, 216, 182, 0.75) 98%, transparent 100%) 7px 50% / 14px 12.5%
+      repeat-y,
+    radial-gradient(circle 2px, rgba(233, 216, 182, 0.75) 98%, transparent 100%) calc(100% - 7px) 50% /
+      14px 12.5% repeat-y,
+    #0d6b3f;
+}
+
+/* 펼치기·접기. 판의 모서리에 붙어 그림을 가리지 않는다. */
+.paper .expand {
+  position: absolute;
+  z-index: 3;
+  top: 0.4rem;
+  right: 0.4rem;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(5, 7, 10, 0.45);
+  color: rgba(243, 244, 246, 0.85);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+/* 찍어 둔 당점을 말로. 누르면 그 공의 당점 창이 다시 열린다. */
+.tips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.tip-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 32px;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  color: rgba(243, 244, 246, 0.85);
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+
+.dot-ball.small {
+  width: 16px;
+  height: 16px;
+}
