@@ -74,7 +74,10 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 **콘솔에서 아직 해야 하는 것** — 코드로는 할 수 없는 것들입니다:
 
-1. **Authentication → Sign-in method → Google**을 켭니다.
+1. **Authentication → Sign-in method**에서 **Google**과 **이메일/비밀번호**를 켭니다.
+   이메일 쪽이 필요한 이유는 앱 안에서입니다 — 구글 로그인은 네이티브 창을 띄우고 그
+   창은 APK 안의 설정을 읽으므로, 새 APK를 깔기 전에는 켜지지 않습니다. 이메일 로그인은
+   전부 자바스크립트라 조용한 웹 업데이트만으로 그 자리에서 동작합니다.
 2. **Firestore Database**를 만들고 규칙에 `firestore.rules`의 `users/{uid}/games/{gameId}`
    블록을 넣습니다. ⚠️ 이 프로젝트를 다른 앱과 함께 쓰고 있다면 파일을 통째로 붙여넣지
    마세요 — 맨 아래 `match /{document=**} { allow read, write: if false; }`가 그 앱의

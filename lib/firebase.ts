@@ -233,8 +233,75 @@ export async function signInWithGoogle(): Promise<SignInResult> {
         reason: '이 도메인이 Firebase 인증에 등록되어 있지 않습니다. 콘솔의 승인된 도메인에 추가하세요.',
       };
     }
+    /*
+     * 앱 안의 구글 로그인은 APK에 들어 있는 설정을 읽는다. 그 설정이 없는 판으로
+     * 설치된 앱에서는 네이티브 쪽이 "기본 앱이 없다"거나 리소스를 못 찾았다고 던지는데,
+     * 그 문장을 그대로 보여 주면 읽는 사람이 할 수 있는 일이 없다. 여기서는 할 수 있는
+     * 일을 말한다 — 바로 아래에 그 자리에서 되는 로그인이 있다.
+     */
+    if (isNativeApp() && /FirebaseApp|default_web_client_id|NotFoundException|12500|DEVELOPER_ERROR|10:/i.test(String(error?.message ?? ''))) {
+      return {
+        ok: false,
+        reason:
+          '이 앱 버전에는 구글 로그인에 필요한 설정이 없습니다. 아래 이메일 로그인을 쓰거나, 새 APK를 설치하세요.',
+      };
+    }
     return { ok: false, reason: error?.message ?? '로그인에 실패했습니다.' };
   }
+}
+
+/**
+ * 이메일과 비밀번호로.
+ *
+ * 구글 로그인이 앱 안에서 하려면 네이티브 창이 필요하고, 네이티브 창은 APK 안의 설정을
+ * 읽는다 — 즉 APK를 새로 깔아야 켜진다. 이 경로는 전부 자바스크립트라서 웹 번들만
+ * 바뀌어도 그 자리에서 동작한다. 조용한 업데이트로 갈 수 있는 유일한 로그인이다.
+ *
+ * 계정을 만드는 것과 들어가는 것을 버튼 하나로 합치지 않았다. Firebase가 이메일
+ * 열거 보호를 켜 두면 "없는 계정"과 "틀린 비밀번호"가 같은 오류(`invalid-credential`)로
+ * 오기 때문에, 코드가 둘을 구분해서 알아서 가입시키는 것이 불가능하다. 구분할 수 없는
+ * 것을 짐작해서 계정을 만드는 것보다 어느 쪽인지 사람이 말하게 하는 편이 낫다.
+ */
+export async function signInWithEmail(
+  email: string,
+  password: string,
+  create: boolean
+): Promise<SignInResult> {
+  const instance = await firebase();
+  if (!instance) {
+    return { ok: false, reason: 'Firebase가 설정되지 않았습니다.' };
+  }
+
+  const auth = await import('firebase/auth');
+  try {
+    const signedIn = create
+      ? await auth.createUserWithEmailAndPassword(instance.auth, email.trim(), password)
+      : await auth.signInWithEmailAndPassword(instance.auth, email.trim(), password);
+    return { ok: true, account: toAccount(signedIn.user) };
+  } catch (error: any) {
+    return { ok: false, reason: emailReason(String(error?.code ?? ''), error?.message) };
+  }
+}
+
+/** Firebase의 오류 코드를 사람 말로. 그대로 보여 주면 영어 코드 한 줄이 남는다. */
+function emailReason(code: string, fallback?: string): string {
+  if (code.includes('invalid-email')) return '이메일 주소 형식이 아닙니다.';
+  if (code.includes('missing-password') || code.includes('weak-password')) {
+    return '비밀번호는 6자 이상이어야 합니다.';
+  }
+  if (code.includes('email-already-in-use')) {
+    return '이미 있는 계정입니다. 가입 대신 로그인을 누르세요.';
+  }
+  // 이메일 열거 보호가 켜져 있으면 없는 계정과 틀린 비밀번호가 같은 코드로 온다.
+  if (code.includes('invalid-credential') || code.includes('wrong-password') || code.includes('user-not-found')) {
+    return '이메일이나 비밀번호가 맞지 않습니다. 처음이라면 가입을 누르세요.';
+  }
+  if (code.includes('operation-not-allowed')) {
+    return 'Firebase 콘솔에서 이메일/비밀번호 로그인을 켜야 합니다.';
+  }
+  if (code.includes('too-many-requests')) return '잠시 뒤에 다시 시도하세요.';
+  if (code.includes('network')) return '네트워크에 연결되어 있지 않습니다.';
+  return fallback ?? '로그인에 실패했습니다.';
 }
 
 export async function signOut(): Promise<void> {
