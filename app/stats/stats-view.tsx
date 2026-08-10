@@ -757,6 +757,9 @@ function RecordNotes({
       first.current = false;
       return;
     }
+    // 아무것도 없던 노트가 여전히 아무것도 없으면 저장할 것이 없다 — 열어 보기만 해도
+    // 기록이 다시 쓰이는 일을 막는다.
+    if (!keptNotes(draft) && !game.notes?.length) return;
     const timer = setTimeout(() => void save.current(draft), 600);
     return () => clearTimeout(timer);
   }, [draft]);

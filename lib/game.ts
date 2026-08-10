@@ -164,11 +164,19 @@ export const inkOf = (stroke: Stroke): Ink =>
  * 값싸게 맞춰 주는 쪽이 되돌리기 쉽다.
  */
 export function readNotes(pages: readonly any[] | undefined): NotePage[] {
-  return (pages ?? []).map((page) => ({
-    id: String(page?.id ?? `n-${Math.random().toString(36).slice(2, 8)}`),
-    text: typeof page?.text === 'string' ? page.text : undefined,
-    strokes: Array.isArray(page?.strokes) ? (page.strokes as Stroke[]) : undefined,
-  }));
+  return (pages ?? []).map((page) => {
+    /*
+     * 없는 값은 키를 만들지 않는다.
+     *
+     * `{ text: undefined }`는 "없다"가 아니라 "undefined라는 값이 있다"이다. 이 객체는
+     * 아일랜드 props로 직렬화되는데, 그 검사기는 값을 하나씩 훑다가 undefined를 만나면
+     * 거기서 죽는다 — 그러면 노트 화면이 통째로 사라진다. 실제로 그렇게 사라졌었다.
+     */
+    const next: NotePage = { id: String(page?.id ?? `n-${Math.random().toString(36).slice(2, 8)}`) };
+    if (typeof page?.text === 'string') next.text = page.text;
+    if (Array.isArray(page?.strokes)) next.strokes = page.strokes as Stroke[];
+    return next;
+  });
 }
 
 export interface NewGameOptions {
