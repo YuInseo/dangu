@@ -126,6 +126,22 @@ export interface NotePage {
   id: string;
   text?: string;
   strokes?: Stroke[];
+  /** 판 위에 놓은 공들. 배치를 그리는 것이 이 노트의 절반이다. */
+  balls?: Ball[];
+  /** 당구대 대신 빈 종이로 볼지. 기본은 당구대다 — 여기 적히는 것의 대부분이 배치다. */
+  plain?: boolean;
+}
+
+/**
+ * 판 위의 공 하나.
+ *
+ * 색은 한 글자다(`w` 흰, `y` 노랑, `r` 빨강) — 획과 같은 이유로, 한 장에 여럿이고 그대로
+ * JSON이 된다. 자리는 획과 같은 0~1 좌표라 어떤 화면에서도 같은 배치가 나온다.
+ */
+export interface Ball {
+  c: 'w' | 'y' | 'r';
+  x: number;
+  y: number;
 }
 
 /**
@@ -175,6 +191,8 @@ export function readNotes(pages: readonly any[] | undefined): NotePage[] {
     const next: NotePage = { id: String(page?.id ?? `n-${Math.random().toString(36).slice(2, 8)}`) };
     if (typeof page?.text === 'string') next.text = page.text;
     if (Array.isArray(page?.strokes)) next.strokes = page.strokes as Stroke[];
+    if (Array.isArray(page?.balls)) next.balls = page.balls as Ball[];
+    if (page?.plain === true) next.plain = true;
     return next;
   });
 }
@@ -622,7 +640,10 @@ export const summarize = (state: GameState): GameSummary => ({
 /** 빈 장은 버린다. 열어만 보고 아무것도 안 한 판까지 노트가 있는 판으로 남을 이유는 없다. */
 export function keptNotes(pages: NotePage[] | undefined): NotePage[] | undefined {
   const kept = (pages ?? []).filter(
-    (page) => (page.text ?? '').trim().length > 0 || (page.strokes ?? []).length > 0
+    (page) =>
+      (page.text ?? '').trim().length > 0 ||
+      (page.strokes ?? []).length > 0 ||
+      (page.balls ?? []).length > 0
   );
   return kept.length ? kept : undefined;
 }
