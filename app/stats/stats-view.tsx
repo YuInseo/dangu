@@ -500,7 +500,12 @@ function RecordSheet({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <div className="inner" style={{ textAlign: 'left' }}>
+      {/*
+        `detail`은 넓은 화면에서 두 칸으로 눕히기 위한 표시다. 고치는 중에는 붙이지
+        않는다 — 편집 폼은 한 줄짜리 입력이 세로로 쌓이는 모양이라 두 칸으로 갈라놓으면
+        오히려 읽는 순서가 꼬인다.
+      */}
+      <div className={`inner detail${editing ? ' editing' : ''}`} style={{ textAlign: 'left' }}>
         <div className="sheet-head">
           <span className="pill">{kindInfo(game.kind).label}</span>
           <strong>
