@@ -2315,3 +2315,66 @@ button.record {
 .notes-body > * {
   flex: 0 0 auto;
 }
+
+/* 당점 -------------------------------------------------------------- */
+
+.tip-box {
+  max-width: 22rem;
+  align-items: center;
+}
+
+/* 가운데로 모은 상자 안에서도 버튼 줄은 폭을 다 쓴다 — 안 그러면 둘이 세로로 쌓인다. */
+.tip-box .row {
+  width: 100%;
+}
+
+/*
+ * 크게 띄운 공.
+ *
+ * 십자선과 두 개의 원은 당점표에서 그대로 가져왔다. "왼쪽 세 시" "아래 반 팁" 하고
+ * 말할 때 머릿속에 있는 그림이고, 그게 없으면 찍은 점이 가운데에서 얼마나 벗어난
+ * 것인지 눈으로 잴 수가 없다.
+ */
+.tip-pad {
+  position: relative;
+  width: min(62vw, 15rem);
+  aspect-ratio: 1;
+  border-radius: 999px;
+  touch-action: none;
+  box-shadow: inset -6px -8px 18px rgba(0, 0, 0, 0.35), inset 6px 8px 14px rgba(255, 255, 255, 0.4),
+    0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.tip-pad .cross {
+  position: absolute;
+  inset: 8%;
+  background:
+    linear-gradient(rgba(17, 24, 39, 0.35), rgba(17, 24, 39, 0.35)) 50% 0 / 1px 100% no-repeat,
+    linear-gradient(rgba(17, 24, 39, 0.35), rgba(17, 24, 39, 0.35)) 0 50% / 100% 1px no-repeat;
+}
+
+.tip-pad .ring {
+  position: absolute;
+  border: 1px solid rgba(17, 24, 39, 0.25);
+  border-radius: 999px;
+}
+
+.tip-pad .ring.mid {
+  inset: 33%;
+}
+
+.tip-pad .ring.out {
+  inset: 12%;
+}
+
+/* 찍은 자리. 큐 끝이 닿는 만큼의 크기다. */
+.tip-pad .tip-dot {
+  position: absolute;
+  width: 22%;
+  height: 22%;
+  transform: translate(-50%, -50%);
+  border-radius: 999px;
+  background: rgba(17, 24, 39, 0.85);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.6);
+  pointer-events: none;
+}
