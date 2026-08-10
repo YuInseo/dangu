@@ -114,20 +114,60 @@ export interface GameState {
 /**
  * 노트 한 장.
  *
- * 한 장은 글이거나 그림이지 둘 다가 아니다. 한 장 안에 칸을 나누면 폰 화면에서 둘 다
- * 좁아지는데, 실제로 쓸 때는 대개 한 장에 하나다 — 이 판의 규칙을 적은 장, 자리를
- * 그린 장.
+ * 한 장에 글과 그림이 같이 있다. 처음에는 장마다 글이거나 그림이게 했는데, 실제로
+ * 적는 것은 "순서를 적고 그 옆에 자리를 그리는" 식이라 둘을 갈라 두면 한 이야기가 두
+ * 장으로 찢어진다. 삼성 노트가 그렇게 하는 이유이기도 하다.
  *
  * 그림은 점의 목록으로 남긴다. 화면 이미지로 저장하면 폰마다 크기가 다른 만큼 다시
  * 그릴 수 없고, 한 장이 수십 KB라 기록 오십 판이면 저장소를 넘긴다. 좌표는 0~1로
- * 정규화해서 어떤 크기에도 같은 그림이 나오게 한다.
+ * 정규화해서 어떤 크기에도 같은 그림이 나온다.
  */
-export type NotePage =
-  | { id: string; kind: 'text'; text: string }
-  | { id: string; kind: 'draw'; strokes: Stroke[] };
+export interface NotePage {
+  id: string;
+  text?: string;
+  strokes?: Stroke[];
+}
 
-/** 한 번 그은 선. `[x, y, x, y, …]`로 눕혀 둔다 — 점마다 객체를 만들면 JSON이 세 배가 된다. */
-export type Stroke = number[];
+/**
+ * 한 번 그은 선.
+ *
+ * 이름이 한 글자씩인 것은 이게 그대로 JSON이 되기 때문이다 — 한 장에 획이 수백 개고,
+ * `points`/`color`/`width`로 적으면 그 이름들이 그림보다 무겁다.
+ *
+ * `number[]`도 받는다. 색과 두께가 생기기 전에 그린 그림들이 그 모양이고, 남의 기록을
+ * 우리 사정으로 버릴 수는 없다 — 읽을 때 기본 펜으로 친다.
+ */
+export interface Ink {
+  /** 점들. `[x, y, x, y, …]`, 0~1로 정규화. */
+  p: number[];
+  /** 색. */
+  c: string;
+  /** 두께 — 칸의 너비에 대한 비율이라 화면 크기가 달라도 굵기가 같다. */
+  w: number;
+  /** 형광펜이면 참. 반투명하게 그리고 글씨 위에 얹힌다. */
+  h?: boolean;
+}
+
+export type Stroke = number[] | Ink;
+
+/** 예전 모양(`number[]`)을 지금 모양으로. 읽는 쪽 어디서나 이걸 거친다. */
+export const inkOf = (stroke: Stroke): Ink =>
+  Array.isArray(stroke) ? { p: stroke, c: '#f3f4f6', w: 0.006 } : stroke;
+
+/**
+ * 저장된 노트를 지금 모양으로 맞춘다.
+ *
+ * 예전에는 장이 `{kind:'text'}`거나 `{kind:'draw'}`였다. 그 기록도 그대로 열려야 하므로
+ * 읽는 자리에서 한 번 옮긴다 — 저장된 데이터를 통째로 고치는 이사보다, 읽을 때마다
+ * 값싸게 맞춰 주는 쪽이 되돌리기 쉽다.
+ */
+export function readNotes(pages: readonly any[] | undefined): NotePage[] {
+  return (pages ?? []).map((page) => ({
+    id: String(page?.id ?? `n-${Math.random().toString(36).slice(2, 8)}`),
+    text: typeof page?.text === 'string' ? page.text : undefined,
+    strokes: Array.isArray(page?.strokes) ? (page.strokes as Stroke[]) : undefined,
+  }));
+}
 
 export interface NewGameOptions {
   kind: GameKind;
@@ -571,8 +611,8 @@ export const summarize = (state: GameState): GameSummary => ({
 
 /** 빈 장은 버린다. 열어만 보고 아무것도 안 한 판까지 노트가 있는 판으로 남을 이유는 없다. */
 export function keptNotes(pages: NotePage[] | undefined): NotePage[] | undefined {
-  const kept = (pages ?? []).filter((page) =>
-    page.kind === 'text' ? page.text.trim().length > 0 : page.strokes.length > 0
+  const kept = (pages ?? []).filter(
+    (page) => (page.text ?? '').trim().length > 0 || (page.strokes ?? []).length > 0
   );
   return kept.length ? kept : undefined;
 }
