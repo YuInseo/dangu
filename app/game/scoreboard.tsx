@@ -19,9 +19,11 @@ import {
   summarize,
   turnElapsed,
   type GameState,
+  type NotePage,
   type Side,
 } from '../../lib/game';
 import { keepAwake, tap } from '../../lib/platform';
+import { Notes } from './notes';
 import {
   clearCurrentGame,
   cloudChosen,
@@ -53,6 +55,8 @@ export function Scoreboard() {
   const started = useRef(false);
   /** 진행 중인 저장. 점수판을 떠나기 전에 이게 끝나기를 기다린다. */
   const storing = useRef<Promise<void> | null>(null);
+  /** 노트를 열어 두었는지. 게임은 그대로 돌아간다 — 시계도, 저장도. */
+  const [noting, setNoting] = useState(false);
   /** 한 차례에 주는 시간(ms). 0이면 샷 클락을 쓰지 않는다. */
   const [limit, setLimit] = useState(0);
   /** 시간이 다 됐다고 울린 차례. 같은 차례에 두 번 울리지 않으려고 기억한다. */
@@ -137,8 +141,12 @@ export function Scoreboard() {
   }, [state?.finishedAt, saved, account]);
 
   // 게임 중 뒤로가기는 앱을 닫는 게 아니라 로비로 간다. 게임은 저장되어 있으므로
-  // 로비의 "이어하기"로 그대로 돌아올 수 있다.
-  useHardwareBack(() => router.push('/'));
+  // 로비의 "이어하기"로 그대로 돌아올 수 있다. 다만 노트가 열려 있으면 그것부터
+  // 닫는다 — 안드로이드에서 뒤로가기는 "지금 위에 뜬 것"을 닫는 버튼이다.
+  useHardwareBack(() => {
+    if (noting) setNoting(false);
+    else router.push('/');
+  });
 
   const score = useCallback(
     (side: Side, delta: number) => {
@@ -204,6 +212,15 @@ export function Scoreboard() {
               적으면 어느 쪽이 자기 것인지 매번 읽어야 한다. */}
           <span>{info.label}</span>
 
+          {/*
+            노트는 여기 있다.
+            아래 네 버튼은 치는 동안 손이 가는 자리라 다섯 번째를 끼워 넣으면 넷이 다
+            좁아진다. 노트는 한 판에 몇 번 열지 않는 것이므로 시계 줄이 맞다.
+          */}
+          <button className="note-open" onClick={() => setNoting(true)}>
+            노트{state.notes?.length ? ` ${state.notes.length}` : ''}
+          </button>
+
           {/* 여기서부터는 이닝이 끝날 때마다 승부가 갈릴 수 있다. 치는 사람이 그걸
               모르고 있으면 안 되므로 크게 말해 준다. */}
           {inDecider(state) && (
@@ -239,6 +256,14 @@ export function Scoreboard() {
           </button>
         </div>
       </footer>
+
+      {noting && (
+        <Notes
+          pages={state.notes ?? []}
+          onChange={(pages: NotePage[]) => dispatch({ type: 'notes', pages })}
+          onClose={() => setNoting(false)}
+        />
+      )}
 
       {state.finishedAt && (
         <ResultSheet

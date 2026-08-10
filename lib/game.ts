@@ -107,7 +107,27 @@ export interface GameState {
   history: ScoreEntry[];
   finishedAt?: number;
   winner?: Side;
+  /** 이 판에 남긴 메모와 그림. 없으면 없는 대로 — 예전 기록에는 이 값이 없다. */
+  notes?: NotePage[];
 }
+
+/**
+ * 노트 한 장.
+ *
+ * 한 장은 글이거나 그림이지 둘 다가 아니다. 한 장 안에 칸을 나누면 폰 화면에서 둘 다
+ * 좁아지는데, 실제로 쓸 때는 대개 한 장에 하나다 — 이 판의 규칙을 적은 장, 자리를
+ * 그린 장.
+ *
+ * 그림은 점의 목록으로 남긴다. 화면 이미지로 저장하면 폰마다 크기가 다른 만큼 다시
+ * 그릴 수 없고, 한 장이 수십 KB라 기록 오십 판이면 저장소를 넘긴다. 좌표는 0~1로
+ * 정규화해서 어떤 크기에도 같은 그림이 나오게 한다.
+ */
+export type NotePage =
+  | { id: string; kind: 'text'; text: string }
+  | { id: string; kind: 'draw'; strokes: Stroke[] };
+
+/** 한 번 그은 선. `[x, y, x, y, …]`로 눕혀 둔다 — 점마다 객체를 만들면 JSON이 세 배가 된다. */
+export type Stroke = number[];
 
 export interface NewGameOptions {
   kind: GameKind;
@@ -168,7 +188,8 @@ export type GameAction =
   | { type: 'finish'; now?: number }
   | { type: 'rename'; side: Side; name: string }
   | { type: 'setTarget'; side: Side; target: number }
-  | { type: 'setLastCushion'; value: number };
+  | { type: 'setLastCushion'; value: number }
+  | { type: 'notes'; pages: NotePage[] };
 
 export function reduce(state: GameState, action: GameState | GameAction): GameState {
   switch ((action as GameAction).type) {
@@ -249,6 +270,18 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
     case 'setLastCushion': {
       const { value } = action as Extract<GameAction, { type: 'setLastCushion' }>;
       return { ...state, lastCushion: Math.max(0, Math.round(value)) };
+    }
+
+    /*
+     * 노트는 통째로 갈아 끼운다.
+     *
+     * 한 획을 그을 때마다 리듀서가 도는 것이 아니라, 노트 화면이 자기 상태를 들고 있다가
+     * 손을 뗄 때 지금의 전부를 넘긴다. 그림 한 장이 획 수백 개인데 그걸 한 획씩 여기로
+     * 흘리면 그때마다 게임 전체가 저장된다 — 점수판이 그림 때문에 느려질 이유는 없다.
+     */
+    case 'notes': {
+      const { pages } = action as Extract<GameAction, { type: 'notes' }>;
+      return { ...state, notes: pages };
     }
 
     default:
@@ -512,6 +545,13 @@ export interface GameSummary {
    * 숫자 스물몇 개면 담긴다 — 남길 값과 버릴 값이 여기서 갈린다.
    */
   runs?: Record<Side, number[]>;
+  /**
+   * 이 판에 남긴 노트.
+   *
+   * 기록에 함께 남는다 — 적어 둔 이유가 대개 나중에 다시 보려는 것이기 때문이다.
+   * 빈 장은 저장하지 않으므로, 아무것도 적지 않은 판에는 이 값이 아예 없다.
+   */
+  notes?: NotePage[];
 }
 
 export const summarize = (state: GameState): GameSummary => ({
@@ -526,4 +566,13 @@ export const summarize = (state: GameState): GameSummary => ({
   winner: state.winner,
   players: state.players,
   runs: inningRuns(state),
+  notes: keptNotes(state.notes),
 });
+
+/** 빈 장은 버린다. 열어만 보고 아무것도 안 한 판까지 노트가 있는 판으로 남을 이유는 없다. */
+export function keptNotes(pages: NotePage[] | undefined): NotePage[] | undefined {
+  const kept = (pages ?? []).filter((page) =>
+    page.kind === 'text' ? page.text.trim().length > 0 : page.strokes.length > 0
+  );
+  return kept.length ? kept : undefined;
+}
