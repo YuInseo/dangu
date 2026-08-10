@@ -1460,3 +1460,136 @@ button.record {
     flex: 1;
   }
 }
+
+/* 노트 --------------------------------------------------------------- */
+
+/*
+ * 시계 줄에 있는 노트 버튼.
+ *
+ * 아래 네 버튼과 같은 크기로 만들면 그 줄의 다섯 번째가 되어 버린다. 여긴 정보를 읽는
+ * 줄이고, 이건 그 줄에 얹힌 작은 문 하나다 — 44px 규칙은 지키되 눈에 띄는 크기는 아니게.
+ */
+.footer .note-open {
+  min-height: 32px;
+  padding: 0.2rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(243, 244, 246, 0.85);
+}
+
+/* 시트가 화면 높이를 다 쓴다. 그림 그릴 자리는 넓을수록 좋다. */
+.sheet .inner.notes {
+  max-height: 92dvh;
+  gap: 0.7rem;
+}
+
+/*
+ * 장 목록.
+ *
+ * 장이 늘어나면 옆으로 넘친다. 줄바꿈 대신 가로 스크롤인 이유는, 줄이 늘어나면 그만큼
+ * 그림 칸이 줄어들기 때문이다 — 탭 줄의 높이는 늘 한 줄이어야 한다.
+ */
+.notes .tabs {
+  display: flex;
+  gap: 0.35rem;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  padding-bottom: 0.2rem;
+}
+
+.notes .tab {
+  flex: 0 0 auto;
+  min-height: 38px;
+  padding: 0.3rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(243, 244, 246, 0.7);
+  white-space: nowrap;
+}
+
+.notes .tab[aria-selected='true'] {
+  background: var(--center-ink);
+  color: #16181d;
+}
+
+.notes .tab.add {
+  background: transparent;
+  border: 1px dashed rgba(255, 255, 255, 0.25);
+}
+
+.notes .note-text {
+  font: inherit;
+  width: 100%;
+  min-height: 40dvh;
+  padding: 0.8rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--center-ink);
+  line-height: 1.5;
+  resize: none;
+}
+
+.notes .sketch-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/*
+ * 그리는 칸.
+ *
+ * 비율을 못박는다. 획의 좌표가 이 칸의 크기로 나눈 값이라, 다시 볼 때의 비율이 다르면
+ * 같은 그림이 눌리거나 늘어난 채로 나온다. 4:3은 폰 세로에서도 태블릿에서도 손이
+ * 움직이기에 답답하지 않은 비율이다.
+ *
+ * `touch-action: none`이 빠지면 손가락을 움직이는 순간 브라우저가 그걸 스크롤로
+ * 가져가서, 그으려던 선 대신 화면이 밀린다.
+ */
+.notes .sketch {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  touch-action: none;
+  display: block;
+}
+
+/* 기록 화면에서 다시 보는 그림. 그릴 때와 같은 비율이어야 같은 그림이다. */
+.strokes {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.03);
+  color: rgba(243, 244, 246, 0.9);
+  display: block;
+}
+
+/* 기록 화면의 글 메모. 적은 그대로 — 줄바꿈이 살아 있어야 순서를 적어 둔 것이 읽힌다. */
+.note-read {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  font: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* 기록에서 노트를 다시 볼 때. 여러 장이면 위에서 아래로 이어 붙인다. */
+.note-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  max-height: 24rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}

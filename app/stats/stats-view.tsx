@@ -34,6 +34,7 @@ import {
 } from '../../lib/storage';
 import { deleteAllGames, deleteGame, pushGame } from '../../lib/firebase';
 import { syncDown, useAccount } from '../../lib/use-account';
+import { StrokesView } from '../game/notes';
 import { tap } from '../../lib/platform';
 
 /**
@@ -626,6 +627,30 @@ function RecordSheet({
                 </div>
               </div>
             )}
+
+            {/*
+              이 판에 남긴 노트.
+
+              적어 둔 이유가 대개 나중에 다시 보려는 것이라 기록에 함께 남는다. 여기서는
+              읽기만 한다 — 고치는 것은 그 판을 치던 자리에서 할 일이고, 끝난 판의 메모를
+              나중에 손보기 시작하면 그건 이미 다른 이야기다.
+            */}
+            {game.notes?.length ? (
+              <div className="runs">
+                <span className="label">노트 {game.notes.length}장</span>
+                <div className="note-list">
+                  {game.notes.map((page) =>
+                    page.kind === 'text' ? (
+                      <p className="note-read" key={page.id}>
+                        {page.text}
+                      </p>
+                    ) : (
+                      <StrokesView key={page.id} strokes={page.strokes} />
+                    )
+                  )}
+                </div>
+              </div>
+            ) : null}
 
             {confirming ? (
               <>
