@@ -167,28 +167,32 @@ export function NotePages({
 
   return (
     <div className="notes-body">
-      {/* 장. 오른쪽 끝의 숫자가 몇 장 중 몇 번째인지 말한다. */}
-      <div className="tabs" role="tablist">
-        {pages.map((page, position) => (
-          <button
-            key={page.id}
-            role="tab"
-            aria-selected={position === index}
-            className="tab"
-            onClick={() => {
-              setAt(position);
-              setUndone([]);
-            }}
-          >
-            {position + 1}
-          </button>
-        ))}
-        <button className="tab add" onClick={add} aria-label="장 추가">
+      {/* 장 고르기와, 그 옆의 더하기·지우기. 동작은 탭이 아니므로 홈 밖에 선다. */}
+      <div className="tabs-row">
+        {pages.length > 0 && (
+          <div className="tabs" role="tablist">
+            {pages.map((page, position) => (
+              <button
+                key={page.id}
+                role="tab"
+                aria-selected={position === index}
+                className="tab"
+                onClick={() => {
+                  setAt(position);
+                  setUndone([]);
+                }}
+              >
+                {position + 1}
+              </button>
+            ))}
+          </div>
+        )}
+        <button className="icon-round" onClick={add} aria-label="장 추가">
           +
         </button>
         {pages.length > 0 && (
-          <button className="tab add" onClick={remove} aria-label="이 장 지우기">
-            장 지우기
+          <button className="icon-round" onClick={remove} aria-label="이 장 지우기">
+            ✕
           </button>
         )}
       </div>

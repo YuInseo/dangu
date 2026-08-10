@@ -1500,34 +1500,71 @@ button.record {
  * 장이 늘어나면 옆으로 넘친다. 줄바꿈 대신 가로 스크롤인 이유는, 줄이 늘어나면 그만큼
  * 그림 칸이 줄어들기 때문이다 — 탭 줄의 높이는 늘 한 줄이어야 한다.
  */
-.notes .tabs {
-  display: flex;
-  gap: 0.35rem;
+/*
+ * 칸 고르기 — 세그먼티드 컨트롤.
+ *
+ * 낱낱의 알약 버튼이 늘어서 있으면 어느 것이 지금 보고 있는 칸인지 색으로만 구분된다.
+ * 하나의 홈 안에 조각이 들어앉은 모양이면, 고른 것이 "떠 있고" 나머지가 "바닥에 붙어"
+ * 있어서 색을 읽기 전에 자리로 먼저 안다. shadcn/ui의 탭이 쓰는 그 모양이다.
+ */
+.tabs {
+  display: inline-flex;
+  /* 세로로 쌓이는 부모 안에서 홈이 통째로 늘어나지 않게 — 조각만큼만 차지한다. */
+  align-self: flex-start;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  max-width: 100%;
   overflow-x: auto;
   overscroll-behavior-x: contain;
-  padding-bottom: 0.2rem;
+  scrollbar-width: none;
 }
 
-.notes .tab {
+.tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.tab {
   flex: 0 0 auto;
-  min-height: 38px;
-  padding: 0.3rem 0.8rem;
-  border-radius: 999px;
+  min-height: 34px;
+  padding: 0.3rem 0.85rem;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(243, 244, 246, 0.6);
   font-size: 0.85rem;
-  font-weight: 700;
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(243, 244, 246, 0.7);
+  font-weight: 600;
   white-space: nowrap;
 }
 
-.notes .tab[aria-selected='true'] {
-  background: var(--center-ink);
-  color: #16181d;
+.tab[aria-selected='true'] {
+  background: #2b313a;
+  color: #f3f4f6;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.45);
 }
 
-.notes .tab.add {
-  background: transparent;
-  border: 1px dashed rgba(255, 255, 255, 0.25);
+/* 탭 옆의 동작 단추(장 추가·삭제). 탭이 아니므로 홈 밖에 선다. */
+.tabs-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+.icon-round {
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(243, 244, 246, 0.75);
+  font-size: 1rem;
+  font-weight: 700;
+  display: grid;
+  place-items: center;
 }
 
 /*
