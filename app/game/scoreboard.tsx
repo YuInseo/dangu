@@ -454,13 +454,14 @@ function ResultSheet({
           <br />
           {kindInfo(state.kind).label} · {state.inning}이닝 · {formatClock(state.elapsedMs)}
         </p>
+        {/* 저장은 이미 끝났다. 물어보지 않고 알려만 준다. */}
+        <p className="saved">기록에 저장했습니다</p>
         <button className="primary" onClick={() => void onAgain()}>
           한 판 더
         </button>
         <button className="secondary" onClick={() => void onClose()}>
           게임 종료
         </button>
-        <p className="notice">기록에 저장했습니다.</p>
       </div>
     </div>
   );
