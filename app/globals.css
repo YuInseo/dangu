@@ -1101,6 +1101,57 @@ button.record {
   letter-spacing: -0.03em;
 }
 
+/*
+ * 이닝별 득점표.
+ *
+ * 가운데와 오른쪽 칸이 각각 흰 공과 노란 공이고, 색으로만 구분한다 — 이름을 줄마다
+ * 반복하면 스무 줄이 이름으로 덮인다. 바로 위 칸의 색이 방금 그 이름을 말해 주었으므로
+ * 여기서는 자리와 색이면 충분하다.
+ */
+.runs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.runs .grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  max-height: 11rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.runs .line {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: baseline;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.runs .no {
+  color: rgba(243, 244, 246, 0.45);
+  font-size: 0.78rem;
+}
+
+.runs .points {
+  min-width: 2.2rem;
+  text-align: right;
+  font-weight: 700;
+  color: rgba(243, 244, 246, 0.25);
+}
+
+.runs .points.white {
+  color: var(--white-bg);
+}
+
+.runs .points.yellow {
+  color: var(--yellow-bg);
+}
+
 /* 이름표와 값이 한 줄씩. 값은 오른쪽에 모아 두면 숫자끼리 세로로 읽힌다. */
 .facts {
   margin: 0;

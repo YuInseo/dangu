@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   GAME_KINDS,
   formatClock,
+  highRun,
   kindInfo,
   other,
   type GameKind,
@@ -468,6 +469,23 @@ function RecordSheet({
   const innings = Math.max(1, game.inning);
   const cushion = game.lastCushion ?? 0;
 
+  /**
+   * 이닝별 득점. 이 값이 생기기 전의 기록에는 없다.
+   *
+   * 합이 최종 점수와 다르면 보여 주지 않는다 — 점수를 손으로 고친 판이 그렇다. 그때의
+   * 이닝별 표는 고치기 전의 이야기라, 나란히 두면 둘 중 어느 쪽이 맞는지 알 수 없는
+   * 숫자 두 벌이 된다. 틀린 표를 보여 주느니 없는 편이 낫다.
+   */
+  const runs = useMemo(() => {
+    const stored = game.runs;
+    if (!stored?.white || !stored?.yellow) return null;
+    const sum = (list: number[]) => list.reduce((total, points) => total + points, 0);
+    const matches = (['white', 'yellow'] as Side[]).every(
+      (side) => sum(stored[side]) === game.players[side].score
+    );
+    return matches ? stored : null;
+  }, [game]);
+
   const clock = (date: Date) =>
     date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
 
@@ -526,6 +544,9 @@ function RecordSheet({
                         쿠션 {made}/{cushion}점
                       </span>
                     )}
+                    {runs && (
+                      <span className="label">하이런 {highRun(runs[side])}점</span>
+                    )}
                   </div>
                 );
               })}
@@ -558,6 +579,40 @@ function RecordSheet({
                 </div>
               ) : null}
             </dl>
+
+            {/*
+              이닝별로 몇 개를 쳤는지.
+
+              합계만 있으면 22:15가 어떻게 22:15가 되었는지는 알 수 없다 — 한 이닝에
+              몰아쳤는지, 매 이닝 한 개씩 꾸준했는지가 같은 점수 안에 숨는다. 그 둘은
+              당구에서 전혀 다른 판이고, 다시 볼 가치가 있는 것은 대개 그 차이다.
+
+              친 이닝만 줄로 남긴다. 스무 이닝 중 넉 점을 친 판에서 빈 줄 열여섯 개는
+              읽을 것이 아니라 넘길 것이다.
+            */}
+            {runs && runs.white.some((points, i) => points > 0 || runs.yellow[i] > 0) && (
+              <div className="runs">
+                <span className="label">이닝별</span>
+                <div className="grid">
+                  {runs.white.map((_, index) => {
+                    const white = runs.white[index] ?? 0;
+                    const yellow = runs.yellow[index] ?? 0;
+                    if (white === 0 && yellow === 0) return null;
+                    return (
+                      <div className="line" key={index}>
+                        <span className="no">{index + 1}이닝</span>
+                        <span className={white > 0 ? 'points white' : 'points'}>
+                          {white > 0 ? white : '·'}
+                        </span>
+                        <span className={yellow > 0 ? 'points yellow' : 'points'}>
+                          {yellow > 0 ? yellow : '·'}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             {confirming ? (
               <>
