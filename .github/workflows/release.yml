@@ -242,6 +242,21 @@ jobs:
           # 한 번 적힌 값은 다음 빌드에서 건드리지 않으므로 이 줄이 끝까지 이긴다.
           npm pkg set "dependencies.@capgo/capacitor-updater=6.13.2"
           npm install
+
+          # 오버레이가 먼저 android/를 만들어 두는 경우가 있다.
+          #
+          # `mobile/overlay/`는 첫 빌드에서 그대로 복사되므로, 그 안에 android/ 아래
+          # 파일이 하나라도 있으면(우리 경우 google-services.json과 Firebase 리소스)
+          # 프로젝트가 생기기 전에 폴더가 먼저 존재한다. cap은 폴더만 보고 "이미 있다"며
+          # 거절한다 — 안에 프로젝트가 없는데도.
+          #
+          # app/build.gradle이 있으면 진짜 프로젝트이므로 건드리지 않는다. 없으면 그
+          # 폴더는 오버레이 조각뿐이고, 어차피 다음 단계의 빌드가 새 프로젝트 위로
+          # 다시 복사한다.
+          if [ -d android ] && [ ! -f android/app/build.gradle ]; then
+            rm -rf android
+          fi
+
           npx cap add android
 
       # 프로젝트가 생긴 뒤 한 번 더 빌드한다: 권한·오버레이·네이티브 코드는 생성된
