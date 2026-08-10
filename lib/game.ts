@@ -46,8 +46,6 @@ export interface ScoreEntry {
   /** 이 득점이 차례를 넘겼는지 — 되돌리면 차례도 같이 돌아와야 한다. */
   turnBefore: Side;
   inningBefore: number;
-  /** 이 득점 직전에 후구 중이었는지. 되돌리기가 그 상태까지 되살린다. */
-  equalizingBefore?: boolean;
 }
 
 export interface GameState {
@@ -88,15 +86,14 @@ export interface GameState {
   /**
    * 후구를 쓰는지.
    *
-   * 선공이 먼저 목표를 채우면 그대로 끝나지 않고, 후공에게 마지막 한 차례를 준다.
-   * 선공이 한 번 더 친 셈이 되는 것을 메우는 규칙이라, 그 한 차례에서 후공도 자기
-   * 목표를 채우면 비긴 것으로 본다.
+   * 선공은 매 이닝 먼저 친다. 그래서 선공이 목표를 채우는 순간 끝내 버리면 선공이 한
+   * 번 더 친 채로 판이 닫힌다. 후구는 그것을 메운다: 목표를 채워도 그 자리에서 끝나지
+   * 않고, 승부는 이닝이 온전히 끝난 자리에서만 난다.
    *
-   * 후공이 먼저 채운 경우에는 쓰이지 않는다 — 그때는 이미 둘이 같은 횟수를 쳤다.
+   * 후공이 따라붙으면 비기는 게 아니라 매치포인트로 이어진다 — 둘 다 채운 채로 한
+   * 이닝씩 더 치고, 한 이닝에서 한쪽이 더 친 순간 끝난다.
    */
   equalizer: boolean;
-  /** 지금이 그 마지막 한 차례인지. */
-  equalizing?: boolean;
   /**
    * 지금 차례가 시작된 시점 — 벽시계가 아니라 `elapsedMs` 위의 눈금이다.
    *
@@ -150,7 +147,6 @@ export function createGame({
     turn: first,
     first,
     equalizer,
-    equalizing: false,
     turnAt: 0,
     inning: 1,
     players: {
@@ -194,21 +190,7 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
       const { side, now = Date.now() } = action as Extract<GameAction, { type: 'turn' }>;
       const next = side ?? other(state.turn);
       if (next === state.turn) return state;
-
-      // 후구가 끝나는 자리. 마지막 한 차례를 받은 후공이 차례를 넘기면, 목표를 채우지
-      // 못한 채로 그 차례가 끝났다는 뜻이므로 선공이 이긴다.
-      if (state.equalizing && state.turn === other(state.first)) {
-        return {
-          ...state,
-          ...moveTurn(state, next),
-          equalizing: false,
-          running: false,
-          finishedAt: now,
-          winner: state.first,
-        };
-      }
-
-      return { ...state, ...moveTurn(state, next) };
+      return handOver(state, next, now);
     }
 
     case 'undo': {
@@ -222,8 +204,6 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
         },
         turn: last.turnBefore,
         inning: last.inningBefore,
-        // 후구도 되돌린다. 선공의 끝내기 득점을 무르면 마지막 차례는 아직 오지 않은 것이다.
-        equalizing: last.equalizingBefore ?? false,
         // 되돌린 뒤의 샷 클락은 지금부터 다시 센다. 되돌리기는 잘못 누른 것을 고치는
         // 동작이고, 그 사이에 흐른 시간을 누구의 것으로 볼지는 정할 방법이 없다.
         turnAt: state.elapsedMs,
@@ -287,7 +267,6 @@ function applyScore(state: GameState, side: Side, score: number, now: number): G
     scoreAfter: score,
     turnBefore: state.turn,
     inningBefore: state.inning,
-    equalizingBefore: state.equalizing ?? false,
   };
 
   const next: GameState = {
@@ -306,23 +285,18 @@ function applyScore(state: GameState, side: Side, score: number, now: number): G
   // 이기는 점수는 목표 점수 + 쿠션 점수다. 쿠션 규칙이 있으면 20점은 끝이 아니라
   // 쿠션 구간의 시작이므로, 여기서 끝내면 규칙이 없는 것과 같아진다.
   if (players[side].score >= players[side].target + (state.lastCushion ?? 0)) {
-    // 후구: 선공이 먼저 채웠으면 끝내지 않고 후공에게 마지막 한 차례를 넘긴다. 선공이
-    // 한 번 더 친 셈이 된 것을 메우는 규칙이므로, 후공이 먼저 채운 경우에는 쓰이지
-    // 않는다 — 그때는 이미 둘이 같은 횟수를 쳤다.
-    if (state.equalizer && side === state.first && !state.equalizing) {
-      return {
-        ...next,
-        equalizing: true,
-        turn: other(state.first),
-        // 마지막 차례도 차례다. 시계는 0부터 다시 센다.
-        turnAt: state.elapsedMs,
-      };
+    // 후구를 쓰지 않으면 채우는 순간이 곧 끝이다.
+    if (!state.equalizer) {
+      return { ...next, running: false, finishedAt: now, winner: side };
     }
 
-    // 후구 중에 후공까지 자기 목표를 채웠으면 비긴 것으로 본다. 둘 다 같은 횟수를
-    // 치고 둘 다 다 쳤으므로, 여기서 한쪽을 이겼다고 부를 근거가 없다.
-    const winner = state.equalizing && side !== state.first ? undefined : side;
-    return { ...next, running: false, finishedAt: now, winner, equalizing: false };
+    // 후구를 쓰면 여기서 끝나지 않는다. 목표를 채운 사람은 자기 차례를 마치고 상대에게
+    // 넘기며, 승부는 이닝이 끝나는 자리에서만 난다.
+    //
+    // 선공이 채웠으면 그 넘김이 후구 — 후공에게 주는 마지막 한 차례다. 후공이 채웠으면
+    // 그 넘김이 곧 이닝의 끝이라 그 자리에서 판정이 난다. 두 경우를 나눠 쓰지 않는
+    // 이유는 실제로 같은 동작이기 때문이다.
+    return handOver(next, other(side), now);
   }
   return next;
 }
@@ -347,6 +321,58 @@ function moveTurn(state: GameState, next: Side): { turn: Side; inning: number; t
   // 차례가 바뀌면 그 사람의 시간은 0부터다.
   return { turn: next, inning, turnAt: state.elapsedMs };
 }
+
+/**
+ * 차례를 넘긴다. 후구를 쓰는 판이면 이닝이 끝나는 자리에서 승부를 본다.
+ *
+ * 후구의 요점은 "선공이 한 번 더 친 채로 끝나지 않게" 하는 것이므로, 판정은 언제나
+ * 이닝이 온전히 끝난 자리에서만 내려진다. 그 자리는 차례가 선공에게 돌아오는 순간이다.
+ */
+function handOver(state: GameState, next: Side, now: number): GameState {
+  const moved = { ...state, ...moveTurn(state, next) };
+  if (!state.equalizer || state.finishedAt) return moved;
+
+  // 이닝이 끝나는 자리인가 — 차례가 선공에게 돌아왔는가.
+  if (next !== firstSide(state)) return moved;
+
+  const decided = decide(state);
+  if (!decided) return moved;
+  return { ...moved, running: false, finishedAt: now, winner: decided };
+}
+
+/**
+ * 이닝이 끝난 자리에서의 판정.
+ *
+ * 목표를 넘긴 만큼(`surplus`)이 큰 쪽이 이긴다. 아무도 목표를 채우지 못했으면 아직
+ * 판정할 자리가 아니고, 둘이 같으면 한 이닝을 더 친다 — 그게 매치포인트다. 둘 다 채운
+ * 뒤로도 같은 점수로 따라오는 동안은 계속 이어지고, 한 이닝에서 한쪽이 더 치는 순간
+ * 끝난다.
+ *
+ * 이 한 가지 규칙이 후구의 두 경우를 모두 덮는다. 선공만 채우고 후공이 못 채운 채로
+ * 이닝이 끝나면 선공이 앞서 있으므로 선공이 이기고, 후공이 따라붙었으면 같아지므로
+ * 계속된다.
+ */
+function decide(state: GameState): Side | null {
+  const surplus = (side: Side) => state.players[side].score - winningScore(state, side);
+  const white = surplus('white');
+  const yellow = surplus('yellow');
+  if (Math.max(white, yellow) < 0) return null;
+  if (white === yellow) return null;
+  return white > yellow ? 'white' : 'yellow';
+}
+
+/**
+ * 후구가 걸린 판에서 지금이 "끝날 수 있는" 국면인지 — 한쪽이라도 목표를 채웠는지.
+ *
+ * 화면이 그 사실을 말해 주려고 쓴다. 여기서부터는 이닝이 끝날 때마다 승부가 갈릴 수
+ * 있으므로, 치는 사람이 그걸 모르고 있으면 안 된다.
+ */
+export const inDecider = (state: GameState) =>
+  Boolean(state.equalizer) &&
+  !state.finishedAt &&
+  (['white', 'yellow'] as Side[]).some(
+    (side) => state.players[side].score >= winningScore(state, side)
+  );
 
 /** 지금 차례가 시작된 뒤로 흐른 시간(ms). */
 export const turnElapsed = (state: GameState) => Math.max(0, state.elapsedMs - (state.turnAt ?? 0));

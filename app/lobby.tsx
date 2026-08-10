@@ -329,8 +329,9 @@ export function Lobby() {
             </div>
             <p style={{ fontSize: '0.78rem', color: 'rgba(243,244,246,0.55)', margin: '0.4rem 0 0' }}>
               {equalizer
-                ? `선공(${first === 'white' ? settings.myName || '나' : opponent || '상대'})이 먼저 목표를 채우면 ` +
-                  '거기서 끝내지 않고 후공에게 마지막 한 차례를 줍니다. 그 차례에 후공도 다 채우면 무승부입니다.'
+                ? `선공(${first === 'white' ? settings.myName || '나' : opponent || '상대'})이 먼저 목표를 채워도 ` +
+                  '거기서 끝나지 않고 후공이 한 차례를 더 칩니다. 후공이 따라붙으면 매치포인트로 이어져, ' +
+                  '한 이닝에서 더 친 쪽이 나올 때까지 계속됩니다.'
                 : '선공이 목표를 채우는 순간 끝납니다.'}
             </p>
           </div>

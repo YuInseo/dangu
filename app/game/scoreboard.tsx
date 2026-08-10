@@ -9,6 +9,7 @@ import {
   cushionRemaining,
   displayScore,
   formatClock,
+  inDecider,
   innings,
   kindInfo,
   needsCushion,
@@ -206,11 +207,11 @@ export function Scoreboard() {
               적으면 어느 쪽이 자기 것인지 매번 읽어야 한다. */}
           <span>{info.label}</span>
 
-          {/* 후구는 판이 이미 한쪽으로 기운 상태에서 도는 마지막 한 차례다. 그 사실을
-              모르고 치면 왜 아직 안 끝났는지를 알 수 없으므로 크게 말해 준다. */}
-          {state.equalizing && (
+          {/* 여기서부터는 이닝이 끝날 때마다 승부가 갈릴 수 있다. 치는 사람이 그걸
+              모르고 있으면 안 되므로 크게 말해 준다. */}
+          {inDecider(state) && (
             <span className="last-turn">
-              후구 · {state.players[state.turn].name}의 마지막 차례
+              후구 · 이 이닝을 더 친 쪽이 이깁니다
             </span>
           )}
         </div>
