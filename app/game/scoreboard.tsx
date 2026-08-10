@@ -9,6 +9,7 @@ import {
   cushionRemaining,
   displayScore,
   formatClock,
+  inDecider,
   innings,
   kindInfo,
   needsCushion,
@@ -27,10 +28,9 @@ import {
   loadCurrentGame,
   loadSettings,
   recordGame,
-  removeGame,
   saveCurrentGame,
 } from '../../lib/storage';
-import { deleteGame, pushGame } from '../../lib/firebase';
+import { pushGame } from '../../lib/firebase';
 import { useAccount } from '../../lib/use-account';
 
 /**
@@ -50,10 +50,8 @@ export function Scoreboard() {
   const [state, dispatch] = useReducer(reduce, null as unknown as GameState);
   const [missing, setMissing] = useState(false);
   const [saved, setSaved] = useState(false);
-  /** 이 판을 기록에서 빼기로 했는지. 결과 화면의 "기록 안 함"이 정한다. */
-  const [discarded, setDiscarded] = useState(false);
   const started = useRef(false);
-  /** 진행 중인 저장. 지우기 전에 이게 끝나기를 기다린다. */
+  /** 진행 중인 저장. 점수판을 떠나기 전에 이게 끝나기를 기다린다. */
   const storing = useRef<Promise<void> | null>(null);
   /** 한 차례에 주는 시간(ms). 0이면 샷 클락을 쓰지 않는다. */
   const [limit, setLimit] = useState(0);
@@ -126,8 +124,8 @@ export function Scoreboard() {
   useEffect(() => {
     if (!state?.finishedAt || saved) return;
     setSaved(true);
-    // 저장이 끝나는 시점을 붙잡아 둔다. "기록 안 함"이 이것보다 먼저 끝나면 방금 지운
-    // 자리에 저장이 뒤늦게 도착해, 지웠는데 남아 있는 기록이 된다.
+    // 저장이 끝나는 시점을 붙잡아 둔다. "게임 종료"가 기록 화면으로 넘어가기 전에 이걸
+    // 기다린다 — 그러지 않으면 방금 친 판이 아직 없는 목록이 뜬다.
     storing.current = (async () => {
       const summary = summarize(state);
       await recordGame(summary);
@@ -206,11 +204,11 @@ export function Scoreboard() {
               적으면 어느 쪽이 자기 것인지 매번 읽어야 한다. */}
           <span>{info.label}</span>
 
-          {/* 후구는 판이 이미 한쪽으로 기운 상태에서 도는 마지막 한 차례다. 그 사실을
-              모르고 치면 왜 아직 안 끝났는지를 알 수 없으므로 크게 말해 준다. */}
-          {state.equalizing && (
+          {/* 여기서부터는 이닝이 끝날 때마다 승부가 갈릴 수 있다. 치는 사람이 그걸
+              모르고 있으면 안 되므로 크게 말해 준다. */}
+          {inDecider(state) && (
             <span className="last-turn">
-              후구 · {state.players[state.turn].name}의 마지막 차례
+              후구 · 이 이닝을 더 친 쪽이 이깁니다
             </span>
           )}
         </div>
@@ -261,20 +259,13 @@ export function Scoreboard() {
             await saveCurrentGame(next);
             dispatch(next);
             setSaved(false);
-            setDiscarded(false);
           }}
           onClose={async () => {
+            // 기록은 게임이 끝난 순간 이미 저장됐다. 여기서는 그게 끝나기를 기다렸다가
+            // 진행 중인 게임을 비우고 기록으로 넘긴다.
+            await storing.current;
             await clearCurrentGame();
             router.push('/stats');
-          }}
-          discarded={discarded}
-          onDiscard={async () => {
-            // 저장이 끝난 뒤에 지운다. 순서가 반대면 지운 자리에 저장이 뒤늦게 도착한다.
-            await storing.current;
-            await removeGame(state.id);
-            if (account) await deleteGame(account.uid, state.id);
-            setDiscarded(true);
-            tap();
           }}
         />
       )}
@@ -435,21 +426,23 @@ function ShotClock({ spent, limit }: { spent: number; limit: number }) {
 
 /* 결과 --------------------------------------------------------------- */
 
+/**
+ * 끝난 판의 결과.
+ *
+ * 다음에 할 일은 둘 중 하나다 — 한 판 더 치거나, 오늘은 여기까지거나. 그래서 버튼도
+ * 둘이다. 기록은 이 시트가 뜨는 순간 이미 저장되어 있으므로 "저장"은 물어볼 일이
+ * 아니고, "게임 종료"가 그 저장된 기록으로 데려다준다.
+ */
 function ResultSheet({
   state,
   onAgain,
   onClose,
-  onDiscard,
-  discarded,
 }: {
   state: GameState;
   onAgain: () => Promise<void>;
   onClose: () => Promise<void>;
-  onDiscard: () => Promise<void>;
-  discarded: boolean;
 }) {
   const winner = state.winner ? state.players[state.winner] : null;
-  const [asking, setAsking] = useState(false);
 
   return (
     <div className="sheet" role="dialog" aria-modal="true">
@@ -461,65 +454,15 @@ function ResultSheet({
           <br />
           {kindInfo(state.kind).label} · {state.inning}이닝 · {formatClock(state.elapsedMs)}
         </p>
+        {/* 저장은 이미 끝났다. 물어보지 않고 알려만 준다. */}
+        <p className="saved">기록에 저장했습니다</p>
         <button className="primary" onClick={() => void onAgain()}>
           한 판 더
         </button>
         <button className="secondary" onClick={() => void onClose()}>
-          기록 보기
+          게임 종료
         </button>
-
-        {/*
-          연습으로 친 판, 장난으로 눌러 끝난 판, 남이 잠깐 잡고 친 판.
-          끝난 게임은 이미 저장된 뒤이므로 이 버튼이 하는 일은 그걸 도로 빼는 것이다.
-          승률과 에버는 한 번 틀어지면 조용히 틀린 채로 남는 숫자라 빼는 길이 있어야 한다.
-
-          누른 뒤에도 시트는 그대로 둔다 — 기록에서 뺐다고 해서 "한 판 더"가 필요 없어지는
-          것은 아니고, 오히려 연습 판이었다면 더 그렇다.
-        */}
-        {discarded ? (
-          <p className="notice">이 판은 기록하지 않았습니다.</p>
-        ) : (
-          <button className="ghost" onClick={() => setAsking(true)}>
-            기록 안 함
-          </button>
-        )}
       </div>
-
-      {/*
-        한 번 더 묻는다.
-
-        결과 시트는 게임이 끝나자마자 손이 가는 자리이고, 그 아래에 "한 판 더"가 있다.
-        되돌릴 수 없는 버튼을 그 옆에 그냥 두면 잘못 눌린 판이 조용히 사라진다.
-      */}
-      {asking && (
-        <div
-          className="confirm"
-          role="dialog"
-          aria-modal="true"
-          onClick={(event) => {
-            if (event.target === event.currentTarget) setAsking(false);
-          }}
-        >
-          <div className="box">
-            <strong>이 판을 기록에서 뺄까요?</strong>
-            <p>승률과 에버에서 빠집니다. 되돌릴 수 없습니다.</p>
-            <div className="row">
-              <button
-                className="danger"
-                onClick={async () => {
-                  setAsking(false);
-                  await onDiscard();
-                }}
-              >
-                기록 안 함
-              </button>
-              <button className="secondary" onClick={() => setAsking(false)}>
-                취소
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
