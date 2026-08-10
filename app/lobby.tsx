@@ -45,6 +45,7 @@ export function Lobby() {
   const [targets, setTargets] = useState({ white: 20, yellow: 20 });
   const [first, setFirst] = useState<Side>('white');
   const [lastCushion, setLastCushion] = useState(0);
+  const [equalizer, setEqualizer] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -53,6 +54,7 @@ export function Lobby() {
       setKind((stored.lastKind as GameKind) ?? 'four');
       setTargets(stored.lastTargets);
       setLastCushion(stored.lastCushion ?? 0);
+      setEqualizer(stored.lastEqualizer ?? false);
       // 끝난 게임은 이어하기로 제안하지 않는다.
       setResume(current && !current.finishedAt ? current : null);
       setReady(true);
@@ -93,9 +95,16 @@ export function Lobby() {
       me: 'white',
       // 쿠션 규칙은 4구의 관습이다. 다른 종목에 붙이면 화면에 뜻 없는 배지만 는다.
       lastCushion: kind === 'four' ? lastCushion : 0,
+      equalizer,
     });
     await saveCurrentGame(game);
-    await saveSettings({ ...settings, lastKind: kind, lastTargets: targets, lastCushion });
+    await saveSettings({
+      ...settings,
+      lastKind: kind,
+      lastTargets: targets,
+      lastCushion,
+      lastEqualizer: equalizer,
+    });
     tap('medium');
     router.push('/game');
   };
@@ -291,6 +300,39 @@ export function Lobby() {
                 {opponent || '상대'} (노란 공)
               </button>
             </div>
+          </div>
+
+          {/* 후구는 선공이 정해져야 뜻이 생기는 규칙이라 그 바로 아래에 둔다. */}
+          <div>
+            <span className="label">후구</span>
+            <div className="row">
+              <button
+                className="choice"
+                aria-pressed={!equalizer}
+                onClick={() => {
+                  setEqualizer(false);
+                  tap();
+                }}
+              >
+                없음
+              </button>
+              <button
+                className="choice"
+                aria-pressed={equalizer}
+                onClick={() => {
+                  setEqualizer(true);
+                  tap();
+                }}
+              >
+                사용
+              </button>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(243,244,246,0.55)', margin: '0.4rem 0 0' }}>
+              {equalizer
+                ? `선공(${first === 'white' ? settings.myName || '나' : opponent || '상대'})이 먼저 목표를 채우면 ` +
+                  '거기서 끝내지 않고 후공에게 마지막 한 차례를 줍니다. 그 차례에 후공도 다 채우면 무승부입니다.'
+                : '선공이 목표를 채우는 순간 끝납니다.'}
+            </p>
           </div>
 
           <button className="primary" onClick={() => void start()}>

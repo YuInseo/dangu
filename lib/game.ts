@@ -46,6 +46,8 @@ export interface ScoreEntry {
   /** 이 득점이 차례를 넘겼는지 — 되돌리면 차례도 같이 돌아와야 한다. */
   turnBefore: Side;
   inningBefore: number;
+  /** 이 득점 직전에 후구 중이었는지. 되돌리기가 그 상태까지 되살린다. */
+  equalizingBefore?: boolean;
 }
 
 export interface GameState {
@@ -84,6 +86,18 @@ export interface GameState {
    */
   first: Side;
   /**
+   * 후구를 쓰는지.
+   *
+   * 선공이 먼저 목표를 채우면 그대로 끝나지 않고, 후공에게 마지막 한 차례를 준다.
+   * 선공이 한 번 더 친 셈이 되는 것을 메우는 규칙이라, 그 한 차례에서 후공도 자기
+   * 목표를 채우면 비긴 것으로 본다.
+   *
+   * 후공이 먼저 채운 경우에는 쓰이지 않는다 — 그때는 이미 둘이 같은 횟수를 쳤다.
+   */
+  equalizer: boolean;
+  /** 지금이 그 마지막 한 차례인지. */
+  equalizing?: boolean;
+  /**
    * 지금 차례가 시작된 시점 — 벽시계가 아니라 `elapsedMs` 위의 눈금이다.
    *
    * 벽시계로 재면 일시정지한 동안에도 시간이 흐른다. 담배 한 대 피우고 오면 샷 클락이
@@ -108,6 +122,8 @@ export interface NewGameOptions {
   me?: Side;
   /** 목표 점수를 채운 뒤 쿠션으로 더 쳐야 하는 점수. 4구에서만 쓰고, 기본은 없음. */
   lastCushion?: number;
+  /** 후구 — 선공이 먼저 채우면 후공에게 마지막 한 차례. */
+  equalizer?: boolean;
   now?: number;
   id?: string;
 }
@@ -119,6 +135,7 @@ export function createGame({
   first = 'white',
   me = 'white',
   lastCushion = 0,
+  equalizer = false,
   now = Date.now(),
   id,
 }: NewGameOptions): GameState {
@@ -132,6 +149,8 @@ export function createGame({
     running: true,
     turn: first,
     first,
+    equalizer,
+    equalizing: false,
     turnAt: 0,
     inning: 1,
     players: {
@@ -145,7 +164,7 @@ export function createGame({
 export type GameAction =
   | { type: 'score'; side: Side; delta: number; now?: number }
   | { type: 'setScore'; side: Side; score: number; now?: number }
-  | { type: 'turn'; side?: Side }
+  | { type: 'turn'; side?: Side; now?: number }
   | { type: 'undo' }
   | { type: 'tick'; ms: number }
   | { type: 'pause' }
@@ -172,9 +191,23 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
     }
 
     case 'turn': {
-      const { side } = action as Extract<GameAction, { type: 'turn' }>;
+      const { side, now = Date.now() } = action as Extract<GameAction, { type: 'turn' }>;
       const next = side ?? other(state.turn);
       if (next === state.turn) return state;
+
+      // 후구가 끝나는 자리. 마지막 한 차례를 받은 후공이 차례를 넘기면, 목표를 채우지
+      // 못한 채로 그 차례가 끝났다는 뜻이므로 선공이 이긴다.
+      if (state.equalizing && state.turn === other(state.first)) {
+        return {
+          ...state,
+          ...moveTurn(state, next),
+          equalizing: false,
+          running: false,
+          finishedAt: now,
+          winner: state.first,
+        };
+      }
+
       return { ...state, ...moveTurn(state, next) };
     }
 
@@ -189,6 +222,8 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
         },
         turn: last.turnBefore,
         inning: last.inningBefore,
+        // 후구도 되돌린다. 선공의 끝내기 득점을 무르면 마지막 차례는 아직 오지 않은 것이다.
+        equalizing: last.equalizingBefore ?? false,
         // 되돌린 뒤의 샷 클락은 지금부터 다시 센다. 되돌리기는 잘못 누른 것을 고치는
         // 동작이고, 그 사이에 흐른 시간을 누구의 것으로 볼지는 정할 방법이 없다.
         turnAt: state.elapsedMs,
@@ -252,6 +287,7 @@ function applyScore(state: GameState, side: Side, score: number, now: number): G
     scoreAfter: score,
     turnBefore: state.turn,
     inningBefore: state.inning,
+    equalizingBefore: state.equalizing ?? false,
   };
 
   const next: GameState = {
@@ -270,7 +306,23 @@ function applyScore(state: GameState, side: Side, score: number, now: number): G
   // 이기는 점수는 목표 점수 + 쿠션 점수다. 쿠션 규칙이 있으면 20점은 끝이 아니라
   // 쿠션 구간의 시작이므로, 여기서 끝내면 규칙이 없는 것과 같아진다.
   if (players[side].score >= players[side].target + (state.lastCushion ?? 0)) {
-    return { ...next, running: false, finishedAt: now, winner: side };
+    // 후구: 선공이 먼저 채웠으면 끝내지 않고 후공에게 마지막 한 차례를 넘긴다. 선공이
+    // 한 번 더 친 셈이 된 것을 메우는 규칙이므로, 후공이 먼저 채운 경우에는 쓰이지
+    // 않는다 — 그때는 이미 둘이 같은 횟수를 쳤다.
+    if (state.equalizer && side === state.first && !state.equalizing) {
+      return {
+        ...next,
+        equalizing: true,
+        turn: other(state.first),
+        // 마지막 차례도 차례다. 시계는 0부터 다시 센다.
+        turnAt: state.elapsedMs,
+      };
+    }
+
+    // 후구 중에 후공까지 자기 목표를 채웠으면 비긴 것으로 본다. 둘 다 같은 횟수를
+    // 치고 둘 다 다 쳤으므로, 여기서 한쪽을 이겼다고 부를 근거가 없다.
+    const winner = state.equalizing && side !== state.first ? undefined : side;
+    return { ...next, running: false, finishedAt: now, winner, equalizing: false };
   }
   return next;
 }
