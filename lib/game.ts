@@ -146,6 +146,8 @@ export interface Ink {
   w: number;
   /** 형광펜이면 참. 반투명하게 그리고 글씨 위에 얹힌다. */
   h?: boolean;
+  /** 진하기(0~1). 없으면 형광펜은 0.35, 펜은 1. 연필과 형광펜 진하기가 이 값을 쓴다. */
+  a?: number;
 }
 
 export type Stroke = number[] | Ink;
