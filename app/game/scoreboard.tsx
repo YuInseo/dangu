@@ -17,6 +17,7 @@ import {
   reduce,
   remaining,
   summarize,
+  readNotes,
   turnElapsed,
   type GameState,
   type NotePage,
@@ -259,7 +260,7 @@ export function Scoreboard() {
 
       {noting && (
         <Notes
-          pages={state.notes ?? []}
+          pages={readNotes(state.notes)}
           onChange={(pages: NotePage[]) => dispatch({ type: 'notes', pages })}
           onClose={() => setNoting(false)}
         />

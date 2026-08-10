@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   GAME_KINDS,
@@ -9,7 +9,10 @@ import {
   kindInfo,
   other,
   type GameKind,
+  keptNotes,
+  readNotes,
   type GameSummary,
+  type NotePage,
   type Side,
 } from '../../lib/game';
 import {
@@ -34,7 +37,7 @@ import {
 } from '../../lib/storage';
 import { deleteAllGames, deleteGame, pushGame } from '../../lib/firebase';
 import { syncDown, useAccount } from '../../lib/use-account';
-import { StrokesView } from '../game/notes';
+import { NotePages } from '../game/notes';
 import { tap } from '../../lib/platform';
 
 /**
@@ -416,6 +419,14 @@ export function StatsView() {
             setExpanded(null);
             setEditing(null);
           }}
+          onNotes={async (pages) => {
+            // 노트만 바꾼다. 저장은 조용히 — 여기서 진동을 울리거나 화면을 닫으면
+            // 한 획 그을 때마다 그 일이 일어난다.
+            const next = { ...opened, notes: keptNotes(pages) };
+            const list = await updateGame(next);
+            if (account && cloud) await pushGame(account.uid, next);
+            setGames(list);
+          }}
           onSave={async (next) => {
             const list = await updateGame(next);
             // 클라우드에도 고친 값을 올린다. 여기서 안 올리면 폰에서는 고쳐졌는데
@@ -452,6 +463,7 @@ function RecordSheet({
   editing,
   onEdit,
   onSave,
+  onNotes,
   onDelete,
   onClose,
 }: {
@@ -459,10 +471,19 @@ function RecordSheet({
   editing: boolean;
   onEdit: () => void;
   onSave: (next: GameSummary) => Promise<void>;
+  onNotes: (pages: NotePage[]) => Promise<void>;
   onDelete: () => Promise<void>;
   onClose: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  /**
+   * 어느 칸을 보고 있는지.
+   *
+   * 한 판에 대해 알고 싶은 것이 세 종류인데 성격이 다르다 — 누가 이겼나(요약), 어떻게
+   * 이겼나(이닝별), 그때 무엇을 적어 두었나(노트). 세로로 이어 붙이면 노트를 보려고
+   * 매번 이닝 표를 지나쳐 내려가게 된다.
+   */
+  const [tab, setTab] = useState<'summary' | 'runs' | 'notes'>('summary');
 
   const me = game.me ?? 'white';
   const started = new Date(game.startedAt);
@@ -526,7 +547,29 @@ function RecordSheet({
           <RecordEditor game={game} onCancel={onClose} onSave={onSave} />
         ) : (
           <>
+            <div className="tabs" role="tablist">
+              {(
+                [
+                  ['summary', '요약'],
+                  ['runs', '이닝별'],
+                  ['notes', game.notes?.length ? `노트 ${game.notes.length}` : '노트'],
+                ] as const
+              ).map(([id, label]) => (
+                <button
+                  key={id}
+                  role="tab"
+                  className="tab"
+                  aria-selected={tab === id}
+                  onClick={() => setTab(id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
             {/* 두 사람을 점수판과 같은 색으로. 어느 쪽이 누구였는지 색이 먼저 말해 준다. */}
+            {tab === 'summary' && (
+            <>
             <div className="pair">
               {(['white', 'yellow'] as Side[]).map((side) => {
                 const player = game.players[side];
@@ -585,6 +628,8 @@ function RecordSheet({
                 </div>
               ) : null}
             </dl>
+            </>
+            )}
 
             {/*
               이닝별로 몇 개를 쳤는지.
@@ -597,7 +642,11 @@ function RecordSheet({
               절반이고, 친 이닝만 추리면 1·2·7이닝처럼 번호가 튀어 그 사이가 안 보인다.
               대신 목록은 스크롤 안에 넣어 시트가 길어지지 않게 한다.
             */}
-            {runs && innings > 0 && (
+            {tab === 'runs' && !runs && (
+              <p className="notice">이 기록에는 이닝별 점수가 없습니다.</p>
+            )}
+
+            {tab === 'runs' && runs && innings > 0 && (
               <div className="runs">
                 <span className="label">이닝별</span>
                 <div className="grid">
@@ -629,28 +678,13 @@ function RecordSheet({
             )}
 
             {/*
-              이 판에 남긴 노트.
+              이 판의 노트.
 
-              적어 둔 이유가 대개 나중에 다시 보려는 것이라 기록에 함께 남는다. 여기서는
-              읽기만 한다 — 고치는 것은 그 판을 치던 자리에서 할 일이고, 끝난 판의 메모를
-              나중에 손보기 시작하면 그건 이미 다른 이야기다.
+              여기서도 고칠 수 있다. 처음에는 읽기만 하게 두었는데, 노트를 다시 여는
+              이유의 절반은 뭔가를 더 적으려는 것이다 — 끝나고 나서야 생각나는 것들이
+              있고, 그때 적을 자리가 없으면 노트는 치는 동안만 쓰는 것이 된다.
             */}
-            {game.notes?.length ? (
-              <div className="runs">
-                <span className="label">노트 {game.notes.length}장</span>
-                <div className="note-list">
-                  {game.notes.map((page) =>
-                    page.kind === 'text' ? (
-                      <p className="note-read" key={page.id}>
-                        {page.text}
-                      </p>
-                    ) : (
-                      <StrokesView key={page.id} strokes={page.strokes} />
-                    )
-                  )}
-                </div>
-              </div>
-            ) : null}
+            {tab === 'notes' && <RecordNotes game={game} onNotes={onNotes} />}
 
             {confirming ? (
               <>
@@ -694,6 +728,47 @@ function RecordSheet({
  * 늘 승부를 뒤집는 건 아니고(핸디가 다르면 점수가 높은 쪽이 진 판도 있다), 무엇보다
  * 누가 이겼는지는 친 사람이 안다. 그래서 그것만은 직접 고르게 둔다.
  */
+/* 기록의 노트 ------------------------------------------------------- */
+
+/**
+ * 끝난 판의 노트를 다시 열고, 더 적는 자리.
+ *
+ * 화면이 자기 초안을 들고 있다가 잠깐 뒤에 저장한다. 노트는 한 획, 한 글자마다 바뀌는데
+ * 그때마다 기록 전체를 저장소에 쓰면(클라우드까지 쓰면 더욱) 손이 느려진다. 600ms는
+ * 글자를 이어 치는 동안에는 저장하지 않고, 손을 멈추면 곧 저장되는 간격이다.
+ */
+function RecordNotes({
+  game,
+  onNotes,
+}: {
+  game: GameSummary;
+  onNotes: (pages: NotePage[]) => Promise<void>;
+}) {
+  const [draft, setDraft] = useState<NotePage[]>(() => readNotes(game.notes));
+  const first = useRef(true);
+  /*
+   * 저장 함수는 ref로 들고 있는다.
+   *
+   * 부르는 쪽이 인라인 화살표라 그릴 때마다 새 함수가 되는데, 그걸 효과의 의존성에
+   * 두면 저장 → 목록 갱신 → 다시 그림 → 또 저장이 되어 멈추지 않는다. 효과가 봐야 하는
+   * 것은 "노트가 바뀌었는가" 하나뿐이다.
+   */
+  const save = useRef(onNotes);
+  save.current = onNotes;
+
+  useEffect(() => {
+    // 처음 그린 순간에는 저장하지 않는다 — 아직 아무도 아무것도 하지 않았다.
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    const timer = setTimeout(() => void save.current(draft), 600);
+    return () => clearTimeout(timer);
+  }, [draft]);
+
+  return <NotePages pages={draft} onChange={setDraft} />;
+}
+
 function RecordEditor({
   game,
   onSave,
