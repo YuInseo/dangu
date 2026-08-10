@@ -34,6 +34,8 @@ export interface AppSettings {
   lastTargets: { white: number; yellow: number };
   /** 4구에서 마지막 몇 점을 쿠션으로 칠지. 다음 게임에도 대개 같은 값을 쓴다. */
   lastCushion: number;
+  /** 후구를 쓸지. 같이 치는 사람들끼리는 대개 늘 같은 규칙으로 친다. */
+  lastEqualizer: boolean;
   haptics: boolean;
   keepAwake: boolean;
   /**
@@ -51,6 +53,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastKind: 'four',
   lastTargets: { white: 20, yellow: 20 },
   lastCushion: 0,
+  lastEqualizer: false,
   haptics: true,
   keepAwake: true,
   turnSeconds: 0,

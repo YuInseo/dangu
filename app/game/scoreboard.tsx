@@ -205,6 +205,14 @@ export function Scoreboard() {
           {/* 에버와 이닝은 각자의 판으로 옮겼다 — 사람마다 다른 숫자라 한 줄에 몰아
               적으면 어느 쪽이 자기 것인지 매번 읽어야 한다. */}
           <span>{info.label}</span>
+
+          {/* 후구는 판이 이미 한쪽으로 기운 상태에서 도는 마지막 한 차례다. 그 사실을
+              모르고 치면 왜 아직 안 끝났는지를 알 수 없으므로 크게 말해 준다. */}
+          {state.equalizing && (
+            <span className="last-turn">
+              후구 · {state.players[state.turn].name}의 마지막 차례
+            </span>
+          )}
         </div>
 
         <div className="stack">
@@ -248,6 +256,7 @@ export function Scoreboard() {
               first: state.winner ? other(state.winner) : 'white',
               me: state.me,
               lastCushion: state.lastCushion,
+              equalizer: state.equalizer,
             });
             await saveCurrentGame(next);
             dispatch(next);

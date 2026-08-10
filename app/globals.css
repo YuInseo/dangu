@@ -531,6 +531,14 @@ graft-island {
   color: rgba(243, 244, 246, 0.6);
 }
 
+/* 후구가 도는 중이라는 표시. 시계 줄에서 이것만 색을 가진다. */
+.footer .meta .last-turn {
+  color: var(--danger);
+  font-weight: 800;
+  flex: 1 0 100%;
+  text-align: center;
+}
+
 .footer .meta .clock {
   font-size: 1.3rem;
   font-weight: 800;
