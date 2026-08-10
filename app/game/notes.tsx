@@ -140,6 +140,8 @@ export function NotePages({
   const [markOnly, setMarkOnly] = useState(false);
 
   const [ballColor, setBallColor] = useState<Ball['c']>('w');
+  /** 당점을 찍고 있는 공의 자리. `null`이면 창이 닫혀 있다. */
+  const [tipAt, setTipAt] = useState<number | null>(null);
 
   /** 되돌린 획들. 저장하지 않는다 — 노트를 다시 열 때까지 남을 성질의 것이 아니다. */
   const [undone, setUndone] = useState<Stroke[]>([]);
@@ -276,12 +278,39 @@ export function NotePages({
                 setUndone([]);
               }}
               onBalls={setBalls}
+              onTip={setTipAt}
             />
 
             <span className="page-no">
               {index + 1}/{pages.length}
             </span>
           </div>
+
+          {/*
+            당점.
+
+            판 위의 공을 두 번 두드리면 그 공이 크게 뜨고, 어디를 칠지 찍을 수 있다.
+            공을 놓는 것과 당점을 찍는 것은 다른 일이라 도구를 하나 더 만들 수도 있었지만,
+            "그 공에 대해 더 말한다"는 뜻이므로 그 공을 두드리는 편이 짧다.
+          */}
+          {tipAt !== null && balls[tipAt] && (
+            <TipPad
+              ball={balls[tipAt]}
+              onChange={(t) =>
+                setBalls(
+                  balls.map((ball, i) => {
+                    if (i !== tipAt) return ball;
+                    if (!t) {
+                      const { t: _drop, ...rest } = ball;
+                      return rest;
+                    }
+                    return { ...ball, t };
+                  })
+                )
+              }
+              onClose={() => setTipAt(null)}
+            />
+          )}
 
           {/* 도구 설정. 도구 줄 위로 떠오른다. */}
           {open && tool === 'pen' && (
@@ -473,6 +502,104 @@ function Popup({
       {children}
     </div>
   );
+}
+
+/**
+ * 당점 판.
+ *
+ * 공 하나를 크게 띄우고 그 위에 칠 자리를 찍는다. 십자선과 두 개의 원은 당점표에서 그대로
+ * 가져온 것이다 — 사람들이 "왼쪽 세 시" "아래 반 팁" 하고 말할 때 머릿속에 있는 그림이고,
+ * 그게 없으면 찍은 점이 가운데에서 얼마나 벗어난 것인지 눈으로 잴 수가 없다.
+ *
+ * 가장자리 밖으로는 나가지 않는다. 공을 벗어난 당점은 당점이 아니라 헛치기다.
+ */
+function TipPad({
+  ball,
+  onChange,
+  onClose,
+}: {
+  ball: Ball;
+  onChange: (tip: { x: number; y: number } | null) => void;
+  onClose: () => void;
+}) {
+  const spec = BALLS.find((entry) => entry.id === ball.c) ?? BALLS[0];
+  const pad = useRef<HTMLDivElement | null>(null);
+
+  const put = (event: React.PointerEvent<HTMLDivElement>) => {
+    const box = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - box.left) / box.width) * 2 - 1;
+    const y = ((event.clientY - box.top) / box.height) * 2 - 1;
+    const away = Math.hypot(x, y);
+    // 0.86은 큐가 실제로 닿을 수 있는 가장자리다. 그보다 밖은 미끄러진다.
+    const scale = away > 0.86 ? 0.86 / away : 1;
+    onChange({ x: Number((x * scale).toFixed(3)), y: Number((y * scale).toFixed(3)) });
+  };
+
+  return (
+    <div
+      className="confirm"
+      role="dialog"
+      aria-modal="true"
+      aria-label="당점"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="box tip-box">
+        <strong>{spec.label} 당점</strong>
+
+        <div
+          ref={pad}
+          className="tip-pad"
+          style={{ background: spec.fill }}
+          onPointerDown={(event) => {
+            event.currentTarget.setPointerCapture(event.pointerId);
+            put(event);
+          }}
+          onPointerMove={(event) => {
+            if (event.buttons === 0) return;
+            put(event);
+          }}
+        >
+          <span className="cross" />
+          <span className="ring mid" />
+          <span className="ring out" />
+          {ball.t && (
+            <span
+              className="tip-dot"
+              style={{ left: `${(ball.t.x + 1) * 50}%`, top: `${(ball.t.y + 1) * 50}%` }}
+            />
+          )}
+        </div>
+
+        <p>{ball.t ? describeTip(ball.t) : '공을 눌러 칠 자리를 찍으세요.'}</p>
+
+        <div className="row">
+          <button className="secondary" disabled={!ball.t} onClick={() => onChange(null)}>
+            지우기
+          </button>
+          <button className="primary" onClick={onClose}>
+            확인
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 찍은 당점을 말로.
+ *
+ * 숫자 두 개(0.42, -0.61)는 다시 볼 때 아무것도 말해 주지 않는다. 당구장에서 쓰는 말로
+ * 옮겨 두면 기록을 읽는 사람이 그대로 큐를 댈 수 있다.
+ */
+function describeTip(tip: { x: number; y: number }): string {
+  const side = Math.abs(tip.x) < 0.18 ? '' : tip.x < 0 ? '왼쪽' : '오른쪽';
+  const level = Math.abs(tip.y) < 0.18 ? '' : tip.y < 0 ? '위' : '아래';
+  const far = Math.max(Math.abs(tip.x), Math.abs(tip.y));
+  const depth = far < 0.18 ? '' : far < 0.5 ? '반 팁' : far < 0.72 ? '한 팁' : '끝';
+  const where = [level, side].filter(Boolean).join(' ');
+  return where ? `${where} ${depth}`.trim() : '한가운데';
 }
 
 /**
@@ -695,6 +822,7 @@ function Sketch({
   onDraw,
   onErase,
   onBalls,
+  onTip,
 }: {
   strokes: Stroke[];
   balls: Ball[];
@@ -710,6 +838,7 @@ function Sketch({
   onDraw: (stroke: Ink) => void;
   onErase: (keep: Stroke[]) => void;
   onBalls: (balls: Ball[]) => void;
+  onTip: (index: number) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const live = useRef<Ink | null>(null);
@@ -719,6 +848,8 @@ function Sketch({
   kept.current = balls;
   /** 끌고 있는 공의 자리. 손을 뗄 때 한 번만 저장한다 — 획과 같은 이유다. */
   const dragging = useRef<number | null>(null);
+  /** 방금 두드린 공과 그 시각. 같은 공을 곧바로 또 두드리면 당점 창을 연다. */
+  const tapped = useRef<{ at: number; time: number }>({ at: -1, time: 0 });
 
   /** 공의 반지름 — 칸 너비에 대한 비율. 진짜 비율(2.2%)보다 조금 크게 그려야 손에 잡힌다. */
   const RADIUS = 0.032;
@@ -785,6 +916,14 @@ function Sketch({
       context.arc(x - radius * 0.3, y - radius * 0.35, radius * 0.28, 0, Math.PI * 2);
       context.fillStyle = 'rgba(255, 255, 255, 0.55)';
       context.fill();
+
+      // 당점을 찍어 둔 공에는 그 자리에 점을 남긴다 — 판을 보면 어디를 치는지 바로 보이게.
+      if (ball.t) {
+        context.beginPath();
+        context.arc(x + ball.t.x * radius * 0.8, y + ball.t.y * radius * 0.8, radius * 0.22, 0, Math.PI * 2);
+        context.fillStyle = 'rgba(17, 24, 39, 0.85)';
+        context.fill();
+      }
     }
   }, []);
 
@@ -863,6 +1002,14 @@ function Sketch({
             return dx * dx + dy * dy < RADIUS * RADIUS * 1.6;
           });
           if (hit >= 0) {
+            const now = Date.now();
+            const again = tapped.current.at === hit && now - tapped.current.time < 320;
+            tapped.current = { at: hit, time: now };
+            if (again) {
+              dragging.current = null;
+              onTip(hit);
+              return;
+            }
             dragging.current = hit;
           } else if (kept.current.filter((ball) => ball.c === ballColor).length >= limitOf(ballColor)) {
             /*
