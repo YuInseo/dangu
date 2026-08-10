@@ -249,7 +249,7 @@ export function NotePages({
             글 도구를 들면 글칸이 위로 올라와 손가락을 받고, 그리는 도구를 들면 그림이
             위로 올라온다. 보이는 것은 늘 셋 다이고, 무엇을 만지는지만 도구가 정한다.
           */}
-          <div className={`paper${current.plain ? '' : ' table'}${full ? ' tall' : ''}`} data-tool={tool}>
+          <div className={`paper${full ? ' tall' : ''}`} data-tool={tool}>
             <textarea
               className="note-text"
               value={current.text ?? ''}
@@ -285,6 +285,7 @@ export function NotePages({
               onBalls={setBalls}
               onTip={setTipAt}
               rotate={full}
+              plain={Boolean(current.plain)}
             />
 
             {/*
@@ -864,6 +865,7 @@ function Sketch({
   markOnly,
   eraseRadius,
   rotate,
+  plain,
   onDraw,
   onErase,
   onBalls,
@@ -882,6 +884,7 @@ function Sketch({
   markOnly: boolean;
   eraseRadius: number;
   rotate: boolean;
+  plain: boolean;
   onDraw: (stroke: Ink) => void;
   onErase: (keep: Stroke[]) => void;
   onBalls: (balls: Ball[]) => void;
@@ -901,6 +904,26 @@ function Sketch({
   /** 공의 반지름 — 판의 긴 변에 대한 비율. 진짜 비율(2.2%)보다 조금 크게 그려야 손에 잡힌다. */
   const RADIUS = 0.032;
 
+  /**
+   * 판이 실제로 그려지는 네모.
+   *
+   * 칸이 어떤 모양이든 판은 늘 2:1에 가깝게 그린다. 예전에는 칸 전체를 판으로 썼는데,
+   * 그러면 칸이 납작해지는 순간(설정 카드가 열려 자리를 뺏을 때, 펼친 화면에서) 공이
+   * 타원이 되고 그어 둔 선이 눌린다. 좌표가 칸에 매여 있었기 때문이다.
+   *
+   * 이제 좌표는 이 네모에 매인다. 칸이 남으면 위아래(또는 좌우)가 남을 뿐, 판의 비율은
+   * 변하지 않는다 — 사진을 상자에 맞출 때 잘라 넣지 않고 여백을 두는 것과 같다.
+   */
+  const fitOf = useCallback(
+    (w: number, h: number) => {
+      const ratio = rotate ? 9 / 16 : 16 / 9;
+      const width = Math.min(w, h * ratio);
+      const height = width / ratio;
+      return { x: (w - width) / 2, y: (h - height) / 2, w: width, h: height };
+    },
+    [rotate]
+  );
+
   /*
    * 펼친 판은 세로로 선다.
    *
@@ -909,9 +932,12 @@ function Sketch({
    * 받는 순간에만 돌린다. 판의 (x, y)가 세운 화면에서는 (1 - y, x)다.
    */
   const view = useCallback(
-    (nx: number, ny: number, w: number, h: number): [number, number] =>
-      rotate ? [(1 - ny) * w, nx * h] : [nx * w, ny * h],
-    [rotate]
+    (nx: number, ny: number, w: number, h: number): [number, number] => {
+      const fit = fitOf(w, h);
+      const [fx, fy] = rotate ? [1 - ny, nx] : [nx, ny];
+      return [fit.x + fx * fit.w, fit.y + fy * fit.h];
+    },
+    [fitOf, rotate]
   );
 
   const paint = useCallback(() => {
@@ -921,13 +947,26 @@ function Sketch({
 
     const ratio = window.devicePixelRatio || 1;
     const box = element.getBoundingClientRect();
-    if (element.width !== Math.round(box.width * ratio)) {
-      element.width = Math.round(box.width * ratio);
-      element.height = Math.round(box.height * ratio);
+    /*
+     * 높이도 봐야 한다.
+     *
+     * 폭만 비교하고 있었다. 그래서 폭은 그대로인 채 높이만 바뀌는 순간 — 설정 카드가
+     * 열려 판이 낮아질 때, 펼칠 때 — 캔버스의 알맹이는 옛날 높이 그대로이고 CSS가 그걸
+     * 늘려서 보여 준다. 공이 타원이 되고 선이 눌리던 것이 이것이었다.
+     */
+    const width = Math.round(box.width * ratio);
+    const height = Math.round(box.height * ratio);
+    if (element.width !== width || element.height !== height) {
+      element.width = width;
+      element.height = height;
     }
 
     context.setTransform(ratio, 0, 0, ratio, 0, 0);
     context.clearRect(0, 0, box.width, box.height);
+
+    const fit = fitOf(box.width, box.height);
+    if (!plain) drawTable(context, fit);
+
     context.lineCap = 'round';
     context.lineJoin = 'round';
 
@@ -939,7 +978,7 @@ function Sketch({
       context.strokeStyle = ink.c;
       // 형광펜은 끝이 각진 편이 그은 자리가 또렷하다.
       context.lineCap = ink.h ? 'butt' : 'round';
-      context.lineWidth = Math.max(1, ink.w * box.width);
+      context.lineWidth = Math.max(1, ink.w * Math.max(fit.w, fit.h));
       context.beginPath();
       const [mx, my] = view(ink.p[0], ink.p[1], box.width, box.height);
       context.moveTo(mx, my);
@@ -961,7 +1000,7 @@ function Sketch({
      * 대개 그 반사광 하나다.
      */
     // 반지름은 판의 긴 변을 따른다 — 세워 놓으면 긴 변이 세로가 된다.
-    const radius = RADIUS * Math.max(box.width, box.height);
+    const radius = RADIUS * Math.max(fit.w, fit.h);
     for (const ball of kept.current) {
       const spec = BALLS.find((entry) => entry.id === ball.c) ?? BALLS[0];
       const [x, y] = view(ball.x, ball.y, box.width, box.height);
@@ -990,20 +1029,38 @@ function Sketch({
         context.fill();
       }
     }
-  }, [view, rotate]);
+  }, [view, fitOf, rotate, plain]);
 
   useEffect(() => {
     paint();
-    // 화면이 돌아가면 칸의 크기가 바뀐다. 좌표가 정규화되어 있으므로 다시 그리면 된다.
-    window.addEventListener('resize', paint);
-    return () => window.removeEventListener('resize', paint);
+
+    /*
+     * 칸의 크기가 바뀌면 다시 그린다.
+     *
+     * 창 크기만 보고 있었다. 그런데 이 칸이 작아지는 이유의 대부분은 창이 아니라 형제들
+     * 때문이다 — 설정 카드가 열려 자리를 뺏거나, 판을 펼치거나, 키보드가 올라오거나.
+     * 그럴 때는 `resize`가 오지 않으므로 캔버스는 옛 그림을 그대로 들고 있고, CSS가 그걸
+     * 새 크기로 늘여서 보여 준다. 공이 타원이 되던 것이 이것이다.
+     *
+     * `ResizeObserver`는 이유를 가리지 않고 "이 칸이 달라졌다"만 알려 준다. 그거면 된다.
+     */
+    const element = canvas.current;
+    if (!element || typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', paint);
+      return () => window.removeEventListener('resize', paint);
+    }
+
+    const watch = new ResizeObserver(() => paint());
+    watch.observe(element);
+    return () => watch.disconnect();
   }, [paint, strokes, balls]);
 
   const point = (event: React.PointerEvent<HTMLCanvasElement>): [number, number] => {
     const box = event.currentTarget.getBoundingClientRect();
-    const px = Math.min(1, Math.max(0, (event.clientX - box.left) / box.width));
-    const py = Math.min(1, Math.max(0, (event.clientY - box.top) / box.height));
-    // 세워 놓은 화면에서는 손가락의 자리도 되돌려 읽는다 — `view`의 반대다.
+    const fit = fitOf(box.width, box.height);
+    // 판 밖(여백)을 눌러도 판 안의 가장 가까운 자리로 읽는다. `view`의 반대다.
+    const px = Math.min(1, Math.max(0, (event.clientX - box.left - fit.x) / fit.w));
+    const py = Math.min(1, Math.max(0, (event.clientY - box.top - fit.y) / fit.h));
     return rotate ? [py, 1 - px] : [px, py];
   };
 
@@ -1060,8 +1117,7 @@ function Sketch({
            * 때문이다 — 판 위의 공을 손가락으로 민다. 짚은 자리에 공이 있느냐 없느냐로
            * 갈리는 것이 도구를 갈아 드는 것보다 짧다.
            */
-          const box = event.currentTarget.getBoundingClientRect();
-          const ratio = rotate ? box.width / box.height : box.height / box.width;
+          const ratio = 9 / 16; // 판의 짧은 변 / 긴 변. 칸이 아니라 판이 기준이다.
           const hit = kept.current.findIndex((ball) => {
             const dx = ball.x - x;
             const dy = (ball.y - y) * ratio;
@@ -1148,6 +1204,62 @@ function Sketch({
       }}
     />
   );
+}
+
+/* 당구대 ------------------------------------------------------------- */
+
+/**
+ * 판을 그린다 — 나무 레일, 천, 다이아.
+ *
+ * 예전에는 CSS로 그렸다. 테두리와 배경만으로 당구대의 구조가 나오기 때문인데, 그러면
+ * 판의 크기가 칸의 크기이고 칸은 사정에 따라 납작해진다. 캔버스에 그리면 판과 그림이
+ * 같은 네모 안에 있으므로, 둘이 함께 커지고 함께 작아진다 — 어느 화면에서도 공이
+ * 타원이 되지 않는 이유가 이것이다.
+ */
+function drawTable(context: CanvasRenderingContext2D, fit: { x: number; y: number; w: number; h: number }) {
+  const rail = Math.min(fit.w, fit.h) * 0.055;
+  const round = (x: number, y: number, w: number, h: number, r: number) => {
+    context.beginPath();
+    context.moveTo(x + r, y);
+    context.arcTo(x + w, y, x + w, y + h, r);
+    context.arcTo(x + w, y + h, x, y + h, r);
+    context.arcTo(x, y + h, x, y, r);
+    context.arcTo(x, y, x + w, y, r);
+    context.closePath();
+  };
+
+  round(fit.x, fit.y, fit.w, fit.h, rail * 1.2);
+  context.fillStyle = '#6b4a2b';
+  context.fill();
+
+  round(fit.x + rail, fit.y + rail, fit.w - rail * 2, fit.h - rail * 2, rail * 0.5);
+  context.fillStyle = '#0d6b3f';
+  context.fill();
+
+  /*
+   * 다이아는 긴 변을 여덟 칸으로 나눈 자리에 찍는다. 짧은 변은 그 절반인 네 칸이다 —
+   * 판이 2:1이므로 칸의 크기가 네 변에서 같아진다. 겨냥선을 그을 때 쓰는 눈금이 그것이다.
+   */
+  context.fillStyle = 'rgba(233, 216, 182, 0.75)';
+  const dot = Math.max(1.5, rail * 0.22);
+  const long = fit.w >= fit.h ? 8 : 4;
+  const short = fit.w >= fit.h ? 4 : 8;
+  for (let i = 1; i < long; i++) {
+    const x = fit.x + (fit.w * i) / long;
+    for (const y of [fit.y + rail / 2, fit.y + fit.h - rail / 2]) {
+      context.beginPath();
+      context.arc(x, y, dot, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+  for (let i = 1; i < short; i++) {
+    const y = fit.y + (fit.h * i) / short;
+    for (const x of [fit.x + rail / 2, fit.x + fit.w - rail / 2]) {
+      context.beginPath();
+      context.arc(x, y, dot, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
 }
 
 /* 획 다루기 ----------------------------------------------------------- */
