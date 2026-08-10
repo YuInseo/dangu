@@ -58,31 +58,41 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 설정해야 하는 것 — Firebase
 
-로그인과 클라우드 저장을 켜려면 이 단계가 필요합니다. **안 해도 앱은 완전히
-동작합니다**; 기록이 기기에만 남을 뿐입니다.
+이 저장소는 **`moneywalk-551ca` 프로젝트에 이미 연결되어 있습니다.** 저장소에 들어 있는
+것은 이렇습니다:
 
-1. [Firebase 콘솔](https://console.firebase.google.com)에서 프로젝트를 만듭니다.
-2. **Authentication → Sign-in method → Google**을 켭니다.
-3. **웹 앱**을 추가하고(`</>` 아이콘) SDK 설정값을 `.env.local`에 옮깁니다.
-   `.env.example`가 그 형식입니다:
+| 어디 | 무엇 |
+| --- | --- |
+| `graft.config.ts`의 `env` | 웹 설정 여섯 값(기본값). 시크릿이나 `.env.local`이 있으면 그쪽이 이깁니다 |
+| `mobile/overlay/android/app/google-services.json` | 콘솔에서 받은 안드로이드 설정 원본 |
+| `mobile/overlay/…/res/values/firebase.xml` | 그 json에서 옮긴 안드로이드 리소스. 네이티브 로그인이 읽는 쪽 |
+| `firestore.rules` | 자기 문서만 자기가 읽고 쓰는 규칙 |
+
+값이 저장소에 그대로 적혀 있어도 되는 이유는 규칙입니다. Firebase 웹 설정은 "어느
+프로젝트인지"를 말할 뿐이고, 누가 무엇을 읽고 쓸 수 있는지는 `firestore.rules`가
+정합니다. 그래서 이 값들이 공개된 상태를 전제로 규칙을 짭니다.
+
+**콘솔에서 아직 해야 하는 것** — 코드로는 할 수 없는 것들입니다:
+
+1. **Authentication → Sign-in method → Google**을 켭니다.
+2. **Firestore Database**를 만들고 규칙에 `firestore.rules`의 `users/{uid}/games/{gameId}`
+   블록을 넣습니다. ⚠️ 이 프로젝트를 다른 앱과 함께 쓰고 있다면 파일을 통째로 붙여넣지
+   마세요 — 맨 아래 `match /{document=**} { allow read, write: if false; }`가 그 앱의
+   컬렉션까지 닫아 버립니다. 블록만 기존 규칙에 더하세요.
+3. **안드로이드 앱(`com.dangu.score`)에 서명 키의 SHA-1 지문을 등록**합니다. 이게 없으면
+   앱에서 구글 로그인이 `DEVELOPER_ERROR`로 끝납니다. 릴리스 APK는 CI의 업로드 키로
+   서명되므로 그 키의 지문이 필요합니다:
 
    ```bash
-   cp .env.example .env.local
-   ```
-
-4. **Firestore Database**를 만들고, 규칙을 이 저장소의 `firestore.rules`로 바꿉니다.
-   자기 문서만 자기가 읽고 쓰게 하는 규칙입니다. 웹 설정값이 앱 번들에 그대로 들어
-   있어도 되는 이유가 이 규칙입니다.
-5. **안드로이드 앱**을 같은 프로젝트에 추가합니다. 패키지 이름은
-   `com.dangu.score`(`graft.config.ts`의 `mobile.appId`)이고, 디버그 빌드로
-   로그인까지 시험하려면 SHA-1 지문도 등록해야 합니다:
-
-   ```bash
+   keytool -list -v -keystore release.keystore -alias upload
+   # 디버그 빌드로 시험할 때는 디버그 키의 지문도 같이 등록합니다
    keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
    ```
 
-6. 받은 `google-services.json`을 `mobile/overlay/android/app/google-services.json`에
-   둡니다. 빌드가 생성된 프로젝트로 복사합니다.
+다른 프로젝트로 옮기려면 콘솔에서 받은 `google-services.json`을
+`mobile/overlay/android/app/`에 덮어쓰고, 그 안의 값들을 `firebase.xml`과
+`graft.config.ts`에 옮기면 됩니다. 저장소에 값을 남기고 싶지 않다면 대신 시크릿
+(`FIREBASE_*`, `GOOGLE_SERVICES_JSON`)에 넣으세요 — 그쪽이 언제나 이깁니다.
 
 앱에서의 구글 로그인은 `@capacitor-firebase/authentication`이 네이티브 창을 띄우고,
 웹에서는 팝업을 씁니다 — 구글이 WebView 안의 OAuth를 거절하기 때문입니다. 호출하는

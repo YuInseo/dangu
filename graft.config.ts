@@ -32,17 +32,33 @@ export default defineConfig({
     GRAFT_PUBLIC_APP_VERSION: process.env.GRAFT_PUBLIC_APP_VERSION ?? '0.0.0-dev',
 
     /**
-     * Firebase 웹 설정. `.env.local`에 넣으면 여기로 흘러들어온다.
+     * Firebase 웹 설정.
      *
-     * 비어 있어도 앱은 완전히 동작한다 — 로그인과 클라우드 저장만 꺼진다. 키를 여기
-     * 한 번에 나열해 두는 이유는 빈 문자열이라도 정의는 되어야 하기 때문이다.
+     * 이 프로젝트의 값이 기본값으로 적혀 있다. 시크릿이나 `.env.local`이 있으면 그쪽이
+     * 이기고, 없으면 여기 적힌 값으로 빌드된다 — 사이드로딩으로 배포하는 앱이라
+     * "환경변수를 넣고 다시 빌드하세요"가 통하지 않고, 시크릿이 비면 로그인과 클라우드
+     * 저장이 조용히 꺼진 APK가 나가기 때문이다.
+     *
+     * 저장소에 적혀 있어도 되는 값이다. Firebase 웹 설정은 "어느 프로젝트인지"를 말할
+     * 뿐이고, 누가 무엇을 읽고 쓸 수 있는지는 `firestore.rules`가 정한다. 그래서
+     * 이 값들이 공개된 상태를 전제로 규칙을 짠다 — 자기 문서만, 로그인한 사람만.
+     *
+     * `??`가 아니라 `||`인 것은 CI 때문이다. 워크플로가 시크릿을 job 환경으로 올리므로,
+     * 시크릿이 없어도 변수는 *빈 문자열로 정의*된다 — `??`는 그걸 값으로 받아들여
+     * 기본값에 닿지 못한다.
      */
-    GRAFT_PUBLIC_FIREBASE_API_KEY: process.env.GRAFT_PUBLIC_FIREBASE_API_KEY ?? '',
-    GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN: process.env.GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
-    GRAFT_PUBLIC_FIREBASE_PROJECT_ID: process.env.GRAFT_PUBLIC_FIREBASE_PROJECT_ID ?? '',
-    GRAFT_PUBLIC_FIREBASE_APP_ID: process.env.GRAFT_PUBLIC_FIREBASE_APP_ID ?? '',
-    GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET: process.env.GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET ?? '',
-    GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: process.env.GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
+    GRAFT_PUBLIC_FIREBASE_API_KEY:
+      process.env.GRAFT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyCrGaNU7hKTHM2Cqc5LRNgeeTRBWVkbV8w',
+    GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN:
+      process.env.GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'moneywalk-551ca.firebaseapp.com',
+    GRAFT_PUBLIC_FIREBASE_PROJECT_ID:
+      process.env.GRAFT_PUBLIC_FIREBASE_PROJECT_ID || 'moneywalk-551ca',
+    GRAFT_PUBLIC_FIREBASE_APP_ID:
+      process.env.GRAFT_PUBLIC_FIREBASE_APP_ID || '1:1073558096483:android:faf99adce285e6e2d08656',
+    GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET:
+      process.env.GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'moneywalk-551ca.firebasestorage.app',
+    GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:
+      process.env.GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '1073558096483',
   },
 
   /**
