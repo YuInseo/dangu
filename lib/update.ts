@@ -73,10 +73,31 @@ export function isNewer(candidate: string, current: string): boolean {
   return false;
 }
 
-/** 최신 릴리스를 묻는다. 토큰이 없으므로 공개 저장소에서만 동작한다. */
-export async function checkForUpdate(): Promise<UpdateCheck> {
+/**
+ * 방금 물어본 답.
+ *
+ * 토큰 없이 부르는 GitHub API는 IP당 시간에 60번이다. 그런데 그 IP는 이동통신에서
+ * 내 것이 아니다 — 통신사 NAT 뒤에 있는 모두가 같은 숫자를 나눠 쓴다. 그래서 앱이
+ * 켤 때 한 번, 설정을 열 때 한 번, 그 안에서 APK 판단으로 또 한 번 물으면, 아무 잘못
+ * 없이도 어느 저녁에 403이 뜬다.
+ *
+ * 같은 답을 잠깐 재사용해서 부르는 횟수를 줄인다. 새 릴리스가 10분 늦게 보이는 것은
+ * 조용한 업데이트를 쓰는 앱에서 아무 문제가 아니고, "다시 확인"은 이 캐시를 건너뛴다.
+ */
+const CACHE_MS = 10 * 60 * 1000;
+let cached: { at: number; result: UpdateCheck } | null = null;
+
+/**
+ * 최신 릴리스를 묻는다. 토큰이 없으므로 공개 저장소에서만 동작한다.
+ *
+ * `force`면 캐시를 건너뛴다 — 사람이 "다시 확인"을 누른 경우다. 그때는 방금 올린
+ * 버전을 보러 온 것이므로 10분 전의 답이 쓸모가 없다.
+ */
+export async function checkForUpdate(force = false): Promise<UpdateCheck> {
   const repo = repository();
   if (!repo) return { state: 'unconfigured' };
+
+  if (!force && cached && Date.now() - cached.at < CACHE_MS) return cached.result;
 
   try {
     const response = await fetch(`https://api.github.com/repos/${repo}/releases/latest`, {
@@ -85,12 +106,23 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
       cache: 'no-store',
     });
     if (!response.ok) {
+      /*
+       * 한도에 걸린 것은 고장이 아니다.
+       *
+       * 마지막으로 성공한 답이 있으면 그걸 계속 보여 준다 — 조금 전까지 맞던 답이
+       * 갑자기 빨간 오류로 바뀔 이유가 없다. 그것도 없을 때만, 무엇이 일어났고 무엇을
+       * 하면 되는지 적는다. 사용자가 할 수 있는 일은 기다리는 것뿐이므로 그렇게 쓴다.
+       */
+      const limited = response.status === 403 || response.status === 429;
+      if (limited && cached) return cached.result;
       return {
         state: 'error',
         reason:
           response.status === 404
             ? '아직 릴리스가 없습니다.'
-            : `업데이트 정보를 가져오지 못했습니다 (HTTP ${response.status}).`,
+            : limited
+              ? 'GitHub 확인 한도에 걸렸습니다. 잠시 뒤에 저절로 다시 확인합니다.'
+              : `업데이트 정보를 가져오지 못했습니다 (HTTP ${response.status}).`,
       };
     }
 
@@ -98,10 +130,13 @@ export async function checkForUpdate(): Promise<UpdateCheck> {
 
     const current = currentVersion();
     if (!release.version) return { state: 'error', reason: '릴리스에 태그가 없습니다.' };
-    return isNewer(release.version, current)
+    const result: UpdateCheck = isNewer(release.version, current)
       ? { state: 'available', version: release.version, release }
       : { state: 'current', version: current };
+    cached = { at: Date.now(), result };
+    return result;
   } catch (error: any) {
+    if (cached) return cached.result;
     return { state: 'error', reason: error?.message ?? '네트워크 오류' };
   }
 }
@@ -152,17 +187,29 @@ export async function needsApk(release: ReleaseInfo): Promise<boolean> {
   if (!native) return false;
   if (native === release.version) return false;
 
+  // 내 껍데기의 지문은 바뀌지 않는다 — 그걸 알아내는 요청도 한 번이면 된다.
+  if (mine.version === native) return mine.key !== '' && mine.key !== release.nativeKey;
+
   try {
     const response = await fetch(`https://api.github.com/repos/${repo}/releases/tags/v${native}`, {
       headers: { accept: 'application/vnd.github+json' },
     });
     if (!response.ok) return false;
-    const mine = describe(await response.json());
-    return Boolean(mine.nativeKey) && mine.nativeKey !== release.nativeKey;
+    const found = describe(await response.json());
+    mine = { version: native, key: found.nativeKey ?? '' };
+    return Boolean(mine.key) && mine.key !== release.nativeKey;
   } catch {
     return false;
   }
 }
+
+/**
+ * 지금 깔려 있는 APK의 네이티브 지문.
+ *
+ * 한 번 알아내면 앱이 살아 있는 동안 바뀌지 않는다 — 껍데기가 바뀌려면 설치를 거쳐야
+ * 하고, 그러면 이 프로세스는 이미 없다. 그래서 기억해 두고 다시 묻지 않는다.
+ */
+let mine: { version: string; key: string } = { version: '', key: '' };
 
 export type InstallProgress = { downloaded: number; total: number };
 

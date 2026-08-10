@@ -351,10 +351,11 @@ function UpdateCard() {
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const run = async () => {
+  /** `force`는 사람이 "다시 확인"을 눌렀다는 뜻이다 — 그때만 캐시를 건너뛴다. */
+  const run = async (force = false) => {
     setBusy(true);
     setMessage(null);
-    const result = await checkForUpdate();
+    const result = await checkForUpdate(force);
     setCheck(result);
     if (result.state === 'available') {
       setStage(await stageWebBundle(result.release));
@@ -437,7 +438,7 @@ function UpdateCard() {
         </>
       )}
 
-      <button className="ghost" onClick={() => void run()} disabled={busy}>
+      <button className="ghost" onClick={() => void run(true)} disabled={busy}>
         {busy ? '확인 중…' : '다시 확인'}
       </button>
 
