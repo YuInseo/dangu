@@ -380,6 +380,40 @@ export function average(state: GameState, side: Side): number {
   return state.players[side].score / played;
 }
 
+/**
+ * 이닝별로 각자 몇 점을 쳤는지. 배열의 자리 하나가 이닝 하나다(0번 자리가 1이닝).
+ *
+ * 히스토리에서 되짚어 만든다. 득점 하나가 어느 이닝에 속하는지는 리듀서가 차례를 옮길
+ * 때 쓰는 규칙과 똑같이 정한다 — 상대 차례에 넣은 점수는 그 사람의 새 차례에 속하고,
+ * 그 차례가 선공에게 돌아온 것이면 이닝이 하나 올라간 뒤다. 여기서 규칙을 다시 쓰지
+ * 않고 같은 조건을 그대로 두는 이유는, 둘이 어긋나는 순간 표와 점수가 서로 다른 말을
+ * 하게 되기 때문이다.
+ */
+export function inningRuns(state: GameState): Record<Side, number[]> {
+  const first = firstSide(state);
+  const runs: Record<Side, number[]> = { white: [], yellow: [] };
+
+  for (const entry of state.history) {
+    const moved = entry.delta > 0 && entry.side !== entry.turnBefore && entry.side === first;
+    const inning = moved ? entry.inningBefore + 1 : entry.inningBefore;
+    const at = Math.max(0, inning - 1);
+    const list = runs[entry.side];
+    while (list.length <= at) list.push(0);
+    list[at] += entry.delta;
+  }
+
+  // 두 배열의 길이를 맞춰 둔다. 표가 이닝 수만큼 줄을 그릴 때 한쪽만 짧으면 곤란하다.
+  const length = Math.max(runs.white.length, runs.yellow.length);
+  for (const side of ['white', 'yellow'] as Side[]) {
+    while (runs[side].length < length) runs[side].push(0);
+  }
+  return runs;
+}
+
+/** 한 이닝에 몰아친 최고 점수 — 당구장에서 "하이런"이라고 부르는 그 숫자. */
+export const highRun = (runs: number[] | undefined) =>
+  runs && runs.length ? Math.max(0, ...runs) : 0;
+
 /** 저장·전송용으로 줄인 형태. 히스토리 전체를 클라우드에 넣을 이유는 없다. */
 export interface GameSummary {
   id: string;
@@ -392,6 +426,14 @@ export interface GameSummary {
   inning: number;
   winner?: Side;
   players: Record<Side, PlayerState>;
+  /**
+   * 이닝별 득점. 히스토리 전체 대신 이것만 남긴다.
+   *
+   * 히스토리는 한 판에 수십 줄이고 그 안의 대부분은 되돌리기를 위한 것이라, 게임이
+   * 끝나면 쓸 데가 없다. 반면 "몇 이닝에 몇 개를 쳤나"는 끝난 뒤에야 볼 수 있는 것이고
+   * 숫자 스물몇 개면 담긴다 — 남길 값과 버릴 값이 여기서 갈린다.
+   */
+  runs?: Record<Side, number[]>;
 }
 
 export const summarize = (state: GameState): GameSummary => ({
@@ -405,4 +447,5 @@ export const summarize = (state: GameState): GameSummary => ({
   inning: state.inning,
   winner: state.winner,
   players: state.players,
+  runs: inningRuns(state),
 });
