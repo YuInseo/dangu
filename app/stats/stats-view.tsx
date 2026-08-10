@@ -483,7 +483,7 @@ function RecordSheet({
    * 이겼나(이닝별), 그때 무엇을 적어 두었나(노트). 세로로 이어 붙이면 노트를 보려고
    * 매번 이닝 표를 지나쳐 내려가게 된다.
    */
-  const [tab, setTab] = useState<'summary' | 'runs' | 'notes'>('summary');
+  const [tab, setTab] = useState<'summary' | 'notes'>('summary');
 
   const me = game.me ?? 'white';
   const started = new Date(game.startedAt);
@@ -551,7 +551,6 @@ function RecordSheet({
               {(
                 [
                   ['summary', '요약'],
-                  ['runs', '이닝별'],
                   ['notes', game.notes?.length ? `노트 ${game.notes.length}` : '노트'],
                 ] as const
               ).map(([id, label]) => (
@@ -628,8 +627,6 @@ function RecordSheet({
                 </div>
               ) : null}
             </dl>
-            </>
-            )}
 
             {/*
               이닝별로 몇 개를 쳤는지.
@@ -642,11 +639,7 @@ function RecordSheet({
               절반이고, 친 이닝만 추리면 1·2·7이닝처럼 번호가 튀어 그 사이가 안 보인다.
               대신 목록은 스크롤 안에 넣어 시트가 길어지지 않게 한다.
             */}
-            {tab === 'runs' && !runs && (
-              <p className="notice">이 기록에는 이닝별 점수가 없습니다.</p>
-            )}
-
-            {tab === 'runs' && runs && innings > 0 && (
+            {runs && innings > 0 && (
               <div className="runs">
                 <span className="label">이닝별</span>
                 <div className="grid">
@@ -675,6 +668,8 @@ function RecordSheet({
                   )}
                 </div>
               </div>
+            )}
+            </>
             )}
 
             {/*
