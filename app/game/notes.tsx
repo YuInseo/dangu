@@ -163,6 +163,12 @@ export function NotePages({
     }
   };
 
+  // 노트를 연 사람은 적으려고 연 것이다. 빈 노트에 "먼저 장을 만드세요"는 이유 없는 한 걸음이다.
+  useEffect(() => {
+    if (pages.length === 0) add();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pages.length]);
+
   const nibOf = NIBS.find((entry) => entry.id === nib) ?? NIBS[1];
 
   return (
@@ -692,13 +698,12 @@ function Sketch({
         const [x, y] = point(event);
         if (tool === 'eraser') return erase(x, y);
         if (tool === 'text') return;
-        live.current = {
-          p: [x, y],
-          c: color,
-          w: width,
-          h: highlighter || undefined,
-          a: alpha < 1 ? Number(alpha.toFixed(2)) : undefined,
-        };
+        // 해당 없는 값은 키를 아예 만들지 않는다 — `undefined`가 들어 있는 객체는
+        // 아일랜드 직렬화 검사에서 터지고, 그러면 노트가 통째로 사라진다.
+        const ink: Ink = { p: [x, y], c: color, w: width };
+        if (highlighter) ink.h = true;
+        if (alpha < 1) ink.a = Number(alpha.toFixed(2));
+        live.current = ink;
         paint();
       }}
       onPointerMove={(event) => {

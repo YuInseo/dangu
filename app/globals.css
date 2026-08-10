@@ -1020,6 +1020,11 @@ button.record {
   z-index: 20;
 }
 
+/* 시트 안의 조각들은 눌리지 않는다. 넘치면 줄어드는 게 아니라 시트가 굴러야 한다. */
+.sheet .inner > * {
+  flex: 0 0 auto;
+}
+
 .sheet .inner {
   background: #171a20;
   border-radius: 22px;
@@ -1144,30 +1149,21 @@ button.record {
 }
 
 /*
- * 이닝별 목록. 공타까지 전부 있어서 스무 줄이 넘기도 하므로 정해진 높이 안에서
- * 스크롤한다 — 이 표 하나 때문에 시트 전체가 길어지면 아래의 수정·삭제가 밀려난다.
+ * 이닝별 목록.
  *
- * 위아래 그림자는 `local`과 `scroll` 배경을 섞은 오래된 방법이다. 더 있을 때만 저절로
- * 나타나고 끝에 닿으면 사라져서, 스크롤 막대가 없는 모바일에서 "아래에 더 있다"를
- * 알려 주는 유일한 표시가 된다. 자바스크립트로 스크롤 위치를 재는 것보다 이게 싸다.
+ * 예전에는 이 목록이 스스로 스크롤했다. 시트가 짧던 시절의 답이고, 지금은 시트가 이미
+ * 스크롤하므로 그 안에 또 하나의 스크롤이 생긴 셈이었다 — 손가락을 올린 자리에 따라
+ * 시트가 움직이기도 하고 표가 움직이기도 해서, 표는 늘 어중간하게 잘린 채로 보인다.
+ *
+ * 스크롤은 하나면 된다. 표는 제 길이를 다 쓰고, 화면은 시트가 굴린다.
  */
 .runs .grid {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  max-height: 12.5rem;
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  padding: 0.4rem 0.55rem;
+  padding: 0.5rem 0.6rem;
   border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 12px;
-  background:
-    linear-gradient(#171a20 30%, rgba(23, 26, 32, 0)) top / 100% 16px no-repeat local,
-    linear-gradient(rgba(23, 26, 32, 0), #171a20 70%) bottom / 100% 16px no-repeat local,
-    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0)) top / 100% 11px
-      no-repeat scroll,
-    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0)) bottom / 100%
-      11px no-repeat scroll;
 }
 
 .runs .line {
@@ -1387,7 +1383,6 @@ button.record {
 
   /* 표가 커진 만큼 한 번에 보이는 줄도 늘린다. 큰 화면에서 열 줄만 보이면 손해다. */
   .sheet .runs .grid {
-    max-height: 24rem;
     padding: 0.7rem 0.9rem;
   }
 
@@ -1465,7 +1460,6 @@ button.record {
   }
 
   .sheet .inner.detail:not(.editing) > .runs .grid {
-    max-height: none;
     flex: 1;
   }
 }
@@ -1574,7 +1568,7 @@ button.record {
  * 시트 안에서 `sticky`라 위쪽 내용이 길어져도 늘 바닥에 붙어 있고, 키보드가 올라오면
  * 시트째로 그 위로 떠오른다(--kb).
  */
-.notes .tools {
+.notes-body .tools {
   position: sticky;
   bottom: 0;
   z-index: 2;
@@ -1585,12 +1579,12 @@ button.record {
   background: #171a20;
 }
 
-.notes .tools .gap {
+.notes-body .tools .gap {
   flex: 1;
 }
 
 /* 도구 하나. 든 것만 동그란 배경을 갖는다 — 손글씨 앱들이 쓰는 그 표시다. */
-.notes .tool {
+.notes-body .tool {
   width: 46px;
   height: 46px;
   min-height: 46px;
@@ -1602,16 +1596,16 @@ button.record {
   place-items: center;
 }
 
-.notes .tool svg {
+.notes-body .tool svg {
   width: 25px;
   height: 25px;
 }
 
-.notes .tool[aria-pressed='true'] {
+.notes-body .tool[aria-pressed='true'] {
   background: rgba(255, 255, 255, 0.16);
 }
 
-.notes .tool.round[aria-pressed='true'] {
+.notes-body .tool.round[aria-pressed='true'] {
   box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.5);
 }
 
@@ -1622,7 +1616,7 @@ button.record {
  * 때마다 시선이 화면 가운데와 아래를 오간다 — 고치는 것과 그 결과가 같은 자리에 있어야
  * 한 번에 맞출 수 있다.
  */
-.notes .ink-pop {
+.notes-body .ink-pop {
   position: sticky;
   bottom: 56px;
   z-index: 3;
@@ -1635,19 +1629,19 @@ button.record {
   box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
 }
 
-.notes .pop-head {
+.notes-body .pop-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   min-height: 28px;
 }
 
-.notes .pop-head .fav {
+.notes-body .pop-head .fav {
   font-size: 1.1rem;
   color: rgba(243, 244, 246, 0.7);
 }
 
-.notes .pop-x {
+.notes-body .pop-x {
   width: 32px;
   height: 32px;
   min-height: 32px;
@@ -1658,25 +1652,25 @@ button.record {
   font-size: 0.8rem;
 }
 
-.notes .pop-line {
+.notes-body .pop-line {
   border: 0;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   margin: 0;
   width: 100%;
 }
 
-.notes .pop-line.dotted {
+.notes-body .pop-line.dotted {
   border-top-style: dotted;
 }
 
 /* 펜촉 고르기. 그림이 먼저고 이름은 작게 — 촉은 생김새로 고르는 것이다. */
-.notes .nibs {
+.notes-body .nibs {
   display: flex;
   justify-content: space-around;
   gap: 0.4rem;
 }
 
-.notes .nib {
+.notes-body .nib {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1689,24 +1683,24 @@ button.record {
   font-weight: 700;
 }
 
-.notes .nib[aria-pressed='true'] {
+.notes-body .nib[aria-pressed='true'] {
   background: rgba(255, 255, 255, 0.1);
   color: #f3f4f6;
 }
 
-.notes .nib svg {
+.notes-body .nib svg {
   width: 22px;
   height: 38px;
 }
 
 /* 굵기·진하기 막대. 양 끝의 −와 +는 한 눈금씩 정확히 옮기려는 손을 위한 것이다. */
-.notes .slider-row {
+.notes-body .slider-row {
   display: flex;
   align-items: center;
   gap: 0.4rem;
 }
 
-.notes .step {
+.notes-body .step {
   width: 36px;
   height: 36px;
   min-height: 36px;
@@ -1718,7 +1712,7 @@ button.record {
   font-weight: 700;
 }
 
-.notes .track {
+.notes-body .track {
   position: relative;
   flex: 1;
   display: flex;
@@ -1727,7 +1721,7 @@ button.record {
   height: 36px;
 }
 
-.notes .track input[type='range'] {
+.notes-body .track input[type='range'] {
   width: 100%;
   margin: 0;
   accent-color: #9ca3af;
@@ -1735,7 +1729,7 @@ button.record {
 }
 
 /* 진하기 막대의 바탕이 체크무늬인 것은 그 값이 투명도라는 말이다. */
-.notes .track.alpha::before {
+.notes-body .track.alpha::before {
   content: '';
   position: absolute;
   inset: 13px 0;
@@ -1745,12 +1739,12 @@ button.record {
     repeating-conic-gradient(#4b5563 0 25%, #374151 0 50%) 0 0 / 10px 10px;
 }
 
-.notes .track.alpha input[type='range'] {
+.notes-body .track.alpha input[type='range'] {
   position: relative;
   opacity: 0.001;
 }
 
-.notes .track .bubble {
+.notes-body .track .bubble {
   position: absolute;
   transform: translateX(-50%);
   padding: 0.15rem 0.55rem;
@@ -1763,8 +1757,8 @@ button.record {
 }
 
 /* 켜고 끄는 줄. 안드로이드 설정 화면의 그 모양이라 따로 배울 것이 없다. */
-.notes .switch-row,
-.notes .radio-row {
+.notes-body .switch-row,
+.notes-body .radio-row {
   display: flex;
   align-items: center;
   gap: 0.7rem;
@@ -1777,11 +1771,11 @@ button.record {
   text-align: left;
 }
 
-.notes .switch-row span:first-child {
+.notes-body .switch-row span:first-child {
   flex: 1;
 }
 
-.notes .switch {
+.notes-body .switch {
   width: 46px;
   height: 26px;
   border-radius: 999px;
@@ -1791,7 +1785,7 @@ button.record {
   transition: background 0.15s ease;
 }
 
-.notes .switch::after {
+.notes-body .switch::after {
   content: '';
   position: absolute;
   top: 3px;
@@ -1803,15 +1797,15 @@ button.record {
   transition: transform 0.15s ease;
 }
 
-.notes .switch-row[aria-checked='true'] .switch {
+.notes-body .switch-row[aria-checked='true'] .switch {
   background: var(--accent);
 }
 
-.notes .switch-row[aria-checked='true'] .switch::after {
+.notes-body .switch-row[aria-checked='true'] .switch::after {
   transform: translateX(20px);
 }
 
-.notes .radio-row .dot {
+.notes-body .radio-row .dot {
   width: 22px;
   height: 22px;
   border-radius: 999px;
@@ -1821,11 +1815,11 @@ button.record {
   place-items: center;
 }
 
-.notes .radio-row[aria-checked='true'] .dot {
+.notes-body .radio-row[aria-checked='true'] .dot {
   border-color: #3b82f6;
 }
 
-.notes .radio-row[aria-checked='true'] .dot::after {
+.notes-body .radio-row[aria-checked='true'] .dot::after {
   content: '';
   width: 11px;
   height: 11px;
@@ -1833,7 +1827,7 @@ button.record {
   background: #3b82f6;
 }
 
-.notes .pop-wide {
+.notes-body .pop-wide {
   width: 100%;
   background: transparent;
   color: #f3f4f6;
@@ -1843,14 +1837,14 @@ button.record {
 
 /* 색. 고른 것 위에만 체크가 얹힌다 — 테두리보다 이쪽이 멀리서도 읽힌다. */
 /* 아홉 개가 한 줄에 들어가야 한다 — 두 줄이 되면 그건 색 목록이 아니라 색 표가 된다. */
-.notes .swatches {
+.notes-body .swatches {
   display: flex;
   gap: 0.25rem;
   justify-content: space-between;
   flex-wrap: nowrap;
 }
 
-.notes .swatch {
+.notes-body .swatch {
   width: 30px;
   height: 30px;
   min-height: 30px;
@@ -1862,17 +1856,17 @@ button.record {
   place-items: center;
 }
 
-.notes .swatch .check {
+.notes-body .swatch .check {
   width: 18px;
   height: 18px;
 }
 
 /* 그리는 칸과 몇 번째 장인지. */
-.notes .canvas-wrap {
+.notes-body .canvas-wrap {
   position: relative;
 }
 
-.notes .page-no {
+.notes-body .page-no {
   position: absolute;
   right: 0.6rem;
   bottom: 0.5rem;
@@ -1882,7 +1876,7 @@ button.record {
   pointer-events: none;
 }
 
-.notes .note-text {
+.notes-body .note-text {
   font: inherit;
   width: 100%;
   min-height: 6.5rem;
@@ -1895,7 +1889,7 @@ button.record {
   resize: none;
 }
 
-.notes .sketch-wrap {
+.notes-body .sketch-wrap {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -1911,7 +1905,7 @@ button.record {
  * `touch-action: none`이 빠지면 손가락을 움직이는 순간 브라우저가 그걸 스크롤로
  * 가져가서, 그으려던 선 대신 화면이 밀린다.
  */
-.notes .sketch {
+.notes-body .sketch {
   width: 100%;
   aspect-ratio: 4 / 3;
   border-radius: 14px;
@@ -1927,4 +1921,8 @@ button.record {
   flex-direction: column;
   gap: 0.7rem;
   min-width: 0;
+}
+
+.notes-body > * {
+  flex: 0 0 auto;
 }
