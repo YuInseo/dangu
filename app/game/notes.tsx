@@ -807,9 +807,34 @@ function Sketch({
     const keep = areaEraser
       ? eraseArea(all.current, x, y, markOnly)
       : eraseStrokes(all.current, x, y, markOnly);
-    if (keep.length === all.current.length && keep.every((entry, i) => entry === all.current[i])) return;
-    all.current = keep;
-    onErase(keep);
+    const changed = keep.length !== all.current.length || keep.some((entry, i) => entry !== all.current[i]);
+    if (changed) {
+      all.current = keep;
+      onErase(keep);
+    }
+
+    /*
+     * 공도 지운다.
+     *
+     * 판 위에 놓인 것을 치우는 손짓은 하나뿐이라, 획은 지우개로 지우고 공은 카드를 열어
+     * "마지막 공 빼기"를 눌러야 한다면 그건 두 가지를 배우게 하는 것이다. 지우개가 닿으면
+     * 지워진다 — 획이든 공이든.
+     *
+     * "형광펜만 지우기"가 켜져 있을 때는 건드리지 않는다. 그건 형광펜만 남기고 지우겠다는
+     * 뜻이고, 공은 형광펜이 아니다.
+     */
+    if (markOnly) return;
+    const reach = RADIUS + 0.02;
+    const balls = kept.current.filter((ball) => {
+      const dx = ball.x - x;
+      const dy = (ball.y - y) * 0.5625; // 칸이 16:9라 세로 한 칸이 가로 한 칸보다 짧다
+      return dx * dx + dy * dy > reach * reach;
+    });
+    if (balls.length !== kept.current.length) {
+      kept.current = balls;
+      onBalls(balls);
+    }
+
     paint();
   };
 
