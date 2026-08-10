@@ -103,10 +103,11 @@ export function SettingsPanel() {
 
         {account.configured === true && !account.account && (
           <>
-            <p>구글로 로그인하면 기록이 계정에 저장되어 폰을 바꿔도 남습니다.</p>
+            <p>로그인하면 기록이 계정에 저장되어 폰을 바꿔도 남습니다.</p>
             <button className="secondary" onClick={() => void account.signIn()} disabled={account.signingIn}>
               {account.signingIn ? '로그인 중…' : 'Google로 로그인'}
             </button>
+            <EmailSignIn account={account} />
             {account.error && <p className="notice error">{account.error}</p>}
           </>
         )}
@@ -209,6 +210,66 @@ export function SettingsPanel() {
         <p>
           {platformLine()} · 실행 환경 <code>{getPlatform()}</code>
         </p>
+      </div>
+    </div>
+  );
+}
+
+/* 이메일 로그인 ------------------------------------------------------ */
+
+/**
+ * 이메일과 비밀번호로 들어가는 칸.
+ *
+ * 구글 로그인 아래에 있지만 곁다리가 아니다. 앱 안에서 구글 로그인은 네이티브 창을
+ * 띄우고, 그 창은 APK 안에 들어 있는 설정을 읽는다 — 새 APK를 깔기 전에는 켜지지
+ * 않는다는 뜻이다. 이 칸은 전부 자바스크립트라서 조용한 웹 업데이트만으로 그 자리에서
+ * 동작한다. 지금 폰에 깔린 앱에서 클라우드 저장을 켜는 길은 이쪽뿐이다.
+ *
+ * 로그인과 가입이 버튼 두 개인 이유는 `lib/firebase.ts`의 `signInWithEmail`에 적었다 —
+ * 없는 계정과 틀린 비밀번호가 같은 오류로 오기 때문에 코드가 짐작할 수 없다.
+ */
+function EmailSignIn({ account }: { account: ReturnType<typeof useAccount> }) {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  const ready = email.includes('@') && password.length >= 6 && !account.signingIn;
+
+  return (
+    <div className="editor" style={{ marginTop: '0.5rem' }}>
+      <label>
+        <span className="label">이메일</span>
+        <input
+          type="email"
+          inputMode="email"
+          autoComplete="username"
+          value={email}
+          onChange={(event) => setEmail(event.target.value)}
+        />
+      </label>
+      <label>
+        <span className="label">비밀번호 (6자 이상)</span>
+        <input
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(event) => setPassword(event.target.value)}
+        />
+      </label>
+      <div className="row">
+        <button
+          className="secondary"
+          disabled={!ready}
+          onClick={() => void account.signInEmail(email, password, false)}
+        >
+          이메일로 로그인
+        </button>
+        <button
+          className="secondary"
+          disabled={!ready}
+          onClick={() => void account.signInEmail(email, password, true)}
+        >
+          가입
+        </button>
       </div>
     </div>
   );

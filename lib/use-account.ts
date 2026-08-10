@@ -4,10 +4,12 @@ import {
   fetchGames,
   loadFirebaseConfig,
   pushGame,
+  signInWithEmail,
   signInWithGoogle,
   signOut,
   watchAccount,
   type Account,
+  type SignInResult,
 } from './firebase';
 import { cloudChosen, loadHistory, recordGame } from './storage';
 import type { GameSummary } from './game';
@@ -28,6 +30,13 @@ export interface AccountState {
   signingIn: boolean;
   error: string | null;
   signIn: () => Promise<void>;
+  /**
+   * 이메일로. `create`면 계정을 만든다.
+   *
+   * 구글 로그인과 나란히 있는 이유는 앱 안에서다 — 네이티브 구글 창은 APK 안의 설정을
+   * 읽으므로 새 APK 없이는 켤 수 없고, 이쪽은 웹 번들만으로 동작한다.
+   */
+  signInEmail: (email: string, password: string, create: boolean) => Promise<void>;
   signOutNow: () => Promise<void>;
 }
 
@@ -68,10 +77,8 @@ export function useAccount(): AccountState {
     return stop;
   }, [configured]);
 
-  const signIn = useCallback(async () => {
-    setSigningIn(true);
-    setError(null);
-    const result = await signInWithGoogle();
+  /** 로그인 결과 하나를 받아 상태에 반영한다. 어느 방법으로 들어왔든 그다음은 같다. */
+  const settle = useCallback((result: SignInResult) => {
     setSigningIn(false);
     if (result.ok) {
       setAccount(result.account);
@@ -85,12 +92,27 @@ export function useAccount(): AccountState {
     }
   }, []);
 
+  const signIn = useCallback(async () => {
+    setSigningIn(true);
+    setError(null);
+    settle(await signInWithGoogle());
+  }, [settle]);
+
+  const signInEmail = useCallback(
+    async (email: string, password: string, create: boolean) => {
+      setSigningIn(true);
+      setError(null);
+      settle(await signInWithEmail(email, password, create));
+    },
+    [settle]
+  );
+
   const signOutNow = useCallback(async () => {
     await signOut();
     setAccount(null);
   }, []);
 
-  return { account, loading, configured, signingIn, error, signIn, signOutNow };
+  return { account, loading, configured, signingIn, error, signIn, signInEmail, signOutNow };
 }
 
 /** 기기에 있는 기록을 클라우드로. 이미 올라간 건 같은 문서에 덮어써도 값이 같다. */
