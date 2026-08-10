@@ -587,29 +587,37 @@ function RecordSheet({
               몰아쳤는지, 매 이닝 한 개씩 꾸준했는지가 같은 점수 안에 숨는다. 그 둘은
               당구에서 전혀 다른 판이고, 다시 볼 가치가 있는 것은 대개 그 차이다.
 
-              친 이닝만 줄로 남긴다. 스무 이닝 중 넉 점을 친 판에서 빈 줄 열여섯 개는
-              읽을 것이 아니라 넘길 것이다.
+              공타도 줄로 남긴다. 못 친 이닝이 몇 번 이어졌는지가 그 판의 이야기의
+              절반이고, 친 이닝만 추리면 1·2·7이닝처럼 번호가 튀어 그 사이가 안 보인다.
+              대신 목록은 스크롤 안에 넣어 시트가 길어지지 않게 한다.
             */}
-            {runs && runs.white.some((points, i) => points > 0 || runs.yellow[i] > 0) && (
+            {runs && innings > 0 && (
               <div className="runs">
                 <span className="label">이닝별</span>
                 <div className="grid">
-                  {runs.white.map((_, index) => {
-                    const white = runs.white[index] ?? 0;
-                    const yellow = runs.yellow[index] ?? 0;
-                    if (white === 0 && yellow === 0) return null;
-                    return (
-                      <div className="line" key={index}>
-                        <span className="no">{index + 1}이닝</span>
-                        <span className={white > 0 ? 'points white' : 'points'}>
-                          {white > 0 ? white : '·'}
-                        </span>
-                        <span className={yellow > 0 ? 'points yellow' : 'points'}>
-                          {yellow > 0 ? yellow : '·'}
-                        </span>
-                      </div>
-                    );
-                  })}
+                  {/*
+                    줄 수는 게임의 이닝 수를 따른다. 다만 후구처럼 마지막 득점이 이닝을
+                    한 칸 밀어 놓는 경우가 있어, 배열이 더 길면 그쪽을 쓴다 — 친 점수가
+                    표에서 잘려 나가는 것보다 빈 줄 하나가 낫다.
+                  */}
+                  {Array.from(
+                    { length: Math.max(innings, runs.white.length, runs.yellow.length) },
+                    (_, index) => {
+                      const white = runs.white[index] ?? 0;
+                      const yellow = runs.yellow[index] ?? 0;
+                      return (
+                        <div className="line" key={index}>
+                          <span className="no">{index + 1}이닝</span>
+                          <span className={white > 0 ? 'points white' : 'points'}>
+                            {white > 0 ? white : '·'}
+                          </span>
+                          <span className={yellow > 0 ? 'points yellow' : 'points'}>
+                            {yellow > 0 ? yellow : '·'}
+                          </span>
+                        </div>
+                      );
+                    }
+                  )}
                 </div>
               </div>
             )}

@@ -1134,13 +1134,31 @@ button.record {
   gap: 0.3rem;
 }
 
+/*
+ * 이닝별 목록. 공타까지 전부 있어서 스무 줄이 넘기도 하므로 정해진 높이 안에서
+ * 스크롤한다 — 이 표 하나 때문에 시트 전체가 길어지면 아래의 수정·삭제가 밀려난다.
+ *
+ * 위아래 그림자는 `local`과 `scroll` 배경을 섞은 오래된 방법이다. 더 있을 때만 저절로
+ * 나타나고 끝에 닿으면 사라져서, 스크롤 막대가 없는 모바일에서 "아래에 더 있다"를
+ * 알려 주는 유일한 표시가 된다. 자바스크립트로 스크롤 위치를 재는 것보다 이게 싸다.
+ */
 .runs .grid {
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  max-height: 11rem;
+  max-height: 12.5rem;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px;
+  background:
+    linear-gradient(#171a20 30%, rgba(23, 26, 32, 0)) top / 100% 16px no-repeat local,
+    linear-gradient(rgba(23, 26, 32, 0), #171a20 70%) bottom / 100% 16px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0)) top / 100% 11px
+      no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgba(0, 0, 0, 0.7), rgba(0, 0, 0, 0)) bottom / 100%
+      11px no-repeat scroll;
 }
 
 .runs .line {
