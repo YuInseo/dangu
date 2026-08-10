@@ -68,6 +68,26 @@ const BALLS: { id: Ball['c']; label: string; fill: string; edge: string; max: nu
 ];
 
 const limitOf = (color: Ball['c']) => BALLS.find((entry) => entry.id === color)?.max ?? 1;
+
+/**
+ * 공의 크기 — 판 긴 변에 대한 반지름 비율.
+ *
+ * 눈대중이 아니라 실제 치수다. 3쿠션은 대대(2840mm)에 61.5mm 공, 4구는 중대(2540mm)에
+ * 65.5mm 공이다. 그래서 같은 61.5와 65.5의 차이보다 판의 차이가 더 크게 벌어진다 —
+ * 4구 공이 판에서 더 크게 보이는 이유가 그것이고, 배치를 읽을 때 이 비율이 눈금이 된다.
+ *
+ * 손가락으로 잡기에는 작다. 그래서 그리는 크기와 잡는 크기를 따로 둔다 — 보이는 것은
+ * 진짜 비율이고, 만지는 자리는 손가락만큼이다.
+ */
+const BALL_SIZES = {
+  four: { label: '4구', radius: 65.5 / 2540 / 2, note: '중대 · 65.5mm' },
+  three: { label: '3구', radius: 61.5 / 2840 / 2, note: '대대 · 61.5mm' },
+} as const;
+
+type BallSize = keyof typeof BALL_SIZES;
+
+/** 손가락이 짚을 수 있는 최소 반지름. 진짜 공은 이보다 작다. */
+const GRAB = 0.03;
 const ballFill = (color: Ball['c']) => BALLS.find((entry) => entry.id === color)?.fill ?? '#fff';
 
 /**
@@ -198,6 +218,7 @@ export function NotePages({
   }, [pages.length]);
 
   const nibOf = NIBS.find((entry) => entry.id === nib) ?? NIBS[1];
+  const ballSize: BallSize = current?.ball === 'three' ? 'three' : 'four';
 
   return (
     <div className={`notes-body${full ? ' full' : ''}`}>
@@ -286,6 +307,7 @@ export function NotePages({
               onTip={setTipAt}
               rotate={full}
               plain={Boolean(current.plain)}
+              ballRadius={BALL_SIZES[ballSize].radius}
             />
 
             {/*
@@ -406,6 +428,29 @@ export function NotePages({
                 판을 누르면 놓이고, 공을 끌면 옮겨집니다. 흰 공과 노란 공은 하나씩, 빨간 공은
                 둘까지 — 다 나와 있으면 누른 자리로 옮겨집니다.
               </p>
+
+              {/* 공 크기. 종목마다 공도 판도 다르고, 그 비율이 배치를 읽는 눈금이 된다. */}
+              <div className="row" style={{ alignItems: 'center' }}>
+                <span className="hint" style={{ flex: '0 0 auto' }}>
+                  공 크기
+                </span>
+                <div className="tabs" role="tablist">
+                  {(Object.keys(BALL_SIZES) as BallSize[]).map((size) => (
+                    <button
+                      key={size}
+                      role="tab"
+                      className="tab"
+                      aria-selected={ballSize === size}
+                      onClick={() => replace({ ...current, ball: size })}
+                    >
+                      {BALL_SIZES[size].label}
+                    </button>
+                  ))}
+                </div>
+                <span className="hint" style={{ flex: '0 0 auto' }}>
+                  {BALL_SIZES[ballSize].note}
+                </span>
+              </div>
               <Toggle
                 label="당구대 배경"
                 on={!current.plain}
@@ -866,6 +911,7 @@ function Sketch({
   eraseRadius,
   rotate,
   plain,
+  ballRadius,
   onDraw,
   onErase,
   onBalls,
@@ -885,6 +931,7 @@ function Sketch({
   eraseRadius: number;
   rotate: boolean;
   plain: boolean;
+  ballRadius: number;
   onDraw: (stroke: Ink) => void;
   onErase: (keep: Stroke[]) => void;
   onBalls: (balls: Ball[]) => void;
@@ -901,8 +948,9 @@ function Sketch({
   /** 방금 두드린 공과 그 시각. 같은 공을 곧바로 또 두드리면 당점 창을 연다. */
   const tapped = useRef<{ at: number; time: number }>({ at: -1, time: 0 });
 
-  /** 공의 반지름 — 판의 긴 변에 대한 비율. 진짜 비율(2.2%)보다 조금 크게 그려야 손에 잡힌다. */
-  const RADIUS = 0.032;
+  /** 그리는 반지름은 진짜 비율, 짚는 반지름은 손가락만큼. 둘은 다른 값이다. */
+  const RADIUS = ballRadius;
+  const GRABBABLE = Math.max(ballRadius, GRAB);
 
   /**
    * 판이 실제로 그려지는 네모.
@@ -1029,7 +1077,7 @@ function Sketch({
         context.fill();
       }
     }
-  }, [view, fitOf, rotate, plain]);
+  }, [view, fitOf, rotate, plain, ballRadius]);
 
   useEffect(() => {
     paint();
@@ -1085,7 +1133,7 @@ function Sketch({
      * 뜻이고, 공은 형광펜이 아니다.
      */
     if (markOnly) return;
-    const reach = RADIUS + eraseRadius * 0.5;
+    const reach = GRABBABLE + eraseRadius * 0.5;
     const squash = 9 / 16; // 판의 짧은 변 / 긴 변 — 거리를 재기 전에 세로를 그만큼 눕힌다
     const balls = kept.current.filter((ball) => {
       const dx = ball.x - x;
@@ -1121,7 +1169,7 @@ function Sketch({
           const hit = kept.current.findIndex((ball) => {
             const dx = ball.x - x;
             const dy = (ball.y - y) * ratio;
-            return dx * dx + dy * dy < RADIUS * RADIUS * 1.6;
+            return dx * dx + dy * dy < GRABBABLE * GRABBABLE;
           });
           if (hit >= 0) {
             const now = Date.now();

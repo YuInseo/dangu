@@ -130,6 +130,14 @@ export interface NotePage {
   balls?: Ball[];
   /** 당구대 대신 빈 종이로 볼지. 기본은 당구대다 — 여기 적히는 것의 대부분이 배치다. */
   plain?: boolean;
+  /**
+   * 어느 종목의 공인지. 기본은 4구.
+   *
+   * 공과 판의 크기가 종목마다 다르고, 그 둘의 *비율*이 배치를 읽는 눈금이 된다 —
+   * 3쿠션은 대대(2840mm)에 61.5mm 공이라 판 긴 변의 2.2%, 4구는 중대(2540mm)에 65.5mm
+   * 공이라 2.6%다. 같은 자리에 놓인 공도 종목이 다르면 다른 그림이다.
+   */
+  ball?: 'three' | 'four';
 }
 
 /**
@@ -200,6 +208,7 @@ export function readNotes(pages: readonly any[] | undefined): NotePage[] {
     if (Array.isArray(page?.strokes)) next.strokes = page.strokes as Stroke[];
     if (Array.isArray(page?.balls)) next.balls = page.balls as Ball[];
     if (page?.plain === true) next.plain = true;
+    if (page?.ball === 'three' || page?.ball === 'four') next.ball = page.ball;
     return next;
   });
 }
