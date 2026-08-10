@@ -1925,34 +1925,12 @@ button.record {
 }
 
 /*
- * 당구대.
+ * 판은 캔버스가 그린다.
  *
- * 나무 레일은 테두리로, 천은 배경으로, 다이아는 레일 위에 찍힌 점으로 그린다. 그림
- * 파일 없이 CSS만으로 되는 것은 이게 실제 당구대의 구조 그대로이기 때문이다 —
- * 틀, 천, 그리고 그 사이에 박힌 눈금.
- *
- * 천이 2:1에 가깝게 나오도록 칸을 16:9로 잡았다. 레일을 빼고 나면 대략 1.95:1이 되는데,
- * 당구대의 2:1과 눈으로는 구분되지 않으면서 그릴 자리는 더 넓다.
+ * CSS로 그리면 판의 크기가 곧 칸의 크기인데, 칸은 사정에 따라 납작해진다(설정 카드가
+ * 열려 자리를 뺏을 때, 펼친 화면에서). 그러면 공이 타원이 되고 그어 둔 선이 눌린다.
+ * 캔버스 안에서 판과 그림이 같은 네모를 쓰면 둘이 함께 커지고 함께 작아진다.
  */
-.paper.table {
-  /*
-   * 다이아는 천 안쪽 가장자리에 찍는다.
-   *
-   * 진짜 당구대는 레일 위에 박혀 있지만, 테두리(`border`)는 배경보다 위에 칠해지므로
-   * 거기에 점을 놓으면 나무색에 덮여 사라진다. 천 안쪽 가장자리면 같은 자리에서 같은
-   * 눈금 노릇을 하고, 겨냥선을 그을 때 실제로 쓰는 것도 그 위치다.
-   */
-  background:
-    radial-gradient(circle 2px, rgba(233, 216, 182, 0.75) 98%, transparent 100%) 50% 7px / 12.5% 14px
-      repeat-x,
-    radial-gradient(circle 2px, rgba(233, 216, 182, 0.75) 98%, transparent 100%) 50% calc(100% - 7px) /
-      12.5% 14px repeat-x,
-    #0d6b3f;
-  background-origin: padding-box;
-  background-clip: padding-box;
-  border: 12px solid #6b4a2b;
-  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4), inset 0 6px 20px rgba(0, 0, 0, 0.35);
-}
 
 .paper .note-text,
 .paper .sketch {
@@ -1984,8 +1962,8 @@ button.record {
   color: rgba(243, 244, 246, 0.35);
 }
 
-.paper.table .note-text {
-  color: #f7f7f4;
+/* 글씨는 늘 천 위에 얹힌다. 그림자 한 겹이 초록 위에서도 검정 위에서도 읽히게 한다. */
+.paper .note-text {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
 }
 
@@ -2401,16 +2379,6 @@ button.record {
   flex: 1;
   aspect-ratio: auto;
   min-height: 0;
-}
-
-/* 세운 당구대. 다이아가 위아래가 아니라 좌우 레일에 선다. */
-.paper.table.tall {
-  background:
-    radial-gradient(circle 2px, rgba(233, 216, 182, 0.75) 98%, transparent 100%) 7px 50% / 14px 12.5%
-      repeat-y,
-    radial-gradient(circle 2px, rgba(233, 216, 182, 0.75) 98%, transparent 100%) calc(100% - 7px) 50% /
-      14px 12.5% repeat-y,
-    #0d6b3f;
 }
 
 /* 펼치기·접기. 판의 모서리에 붙어 그림을 가리지 않는다. */
