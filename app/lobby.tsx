@@ -17,6 +17,7 @@ import {
   type AppSettings,
 } from '../lib/storage';
 import { useAccount } from '../lib/use-account';
+import { SignIn } from './sign-in';
 
 /**
  * 로비 — 게임이 시작되기 전에 정해야 하는 것들.
@@ -158,16 +159,8 @@ export function Lobby() {
                 동작합니다.
               </p>
             )}
-            {account.configured === true && !account.account && (
-              <>
-                <p>구글로 로그인하면 기록이 계정에 저장되어 폰을 바꿔도 남습니다.</p>
-                <button className="secondary" onClick={() => void account.signIn()} disabled={account.signingIn}>
-                  {account.signingIn ? '로그인 중…' : 'Google로 로그인'}
-                </button>
-              </>
-            )}
+            {account.configured === true && !account.account && <SignIn account={account} />}
             {account.account && <p>기록이 계정에 저장되고 있습니다.</p>}
-            {account.error && <p className="notice error">{account.error}</p>}
           </div>
         </>
       )}

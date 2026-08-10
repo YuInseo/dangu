@@ -201,10 +201,17 @@ export async function signInWithGoogle(): Promise<SignInResult> {
     if (isNativeApp()) {
       const native = plugin('FirebaseAuthentication');
       if (!native?.signInWithGoogle) {
+        /*
+         * 앱을 쓰는 사람에게 `npm install`을 시킬 수는 없다.
+         *
+         * 이 자리에 닿는 사람은 플러그인이 들어가기 전에 빌드된 APK를 쓰고 있는
+         * 사람이고, 그가 할 수 있는 일은 둘뿐이다 — 새 APK를 깔거나, 이 화면 바로
+         * 아래에 있는 이메일 로그인을 쓰거나. 할 수 없는 일 대신 할 수 있는 일을 적는다.
+         */
         return {
           ok: false,
           reason:
-            '네이티브 구글 로그인 플러그인이 없습니다. 생성된 프로젝트에서 `npm install` 후 다시 빌드하세요.',
+            '이 앱 버전에는 구글 로그인이 들어 있지 않습니다. 아래 이메일 로그인을 쓰거나, 설정에서 새 APK를 설치하세요.',
         };
       }
 
