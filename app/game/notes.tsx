@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { inkOf, type Ink, type NotePage, type Stroke } from '../../lib/game';
+import { inkOf, type Ball, type Ink, type NotePage, type Stroke } from '../../lib/game';
 
 /**
  * 이 판의 노트.
@@ -53,7 +53,14 @@ export function Notes({
 const PEN_COLORS = ['#ef4444', '#fbbf24', '#facc15', '#34d399', '#38bdf8', '#3b82f6', '#a855f7', '#f3f4f6', '#111827'];
 const HIGHLIGHT_COLORS = ['#ef4444', '#fbbf24', '#facc15', '#34d399', '#38bdf8', '#3b82f6', '#a855f7', '#f3f4f6'];
 
-type Tool = 'text' | 'pen' | 'highlighter' | 'eraser';
+type Tool = 'text' | 'pen' | 'highlighter' | 'eraser' | 'ball';
+
+/** 공의 색. 당구공은 셋뿐이라 고르는 것도 셋이면 된다. */
+const BALLS: { id: Ball['c']; label: string; fill: string; edge: string }[] = [
+  { id: 'w', label: '흰 공', fill: '#f7f7f4', edge: 'rgba(0,0,0,0.35)' },
+  { id: 'y', label: '노란 공', fill: '#ffd43a', edge: 'rgba(0,0,0,0.35)' },
+  { id: 'r', label: '빨간 공', fill: '#e0322c', edge: 'rgba(0,0,0,0.35)' },
+];
 
 /**
  * 펜촉.
@@ -125,12 +132,15 @@ export function NotePages({
   const [areaEraser, setAreaEraser] = useState(false);
   const [markOnly, setMarkOnly] = useState(false);
 
+  const [ballColor, setBallColor] = useState<Ball['c']>('w');
+
   /** 되돌린 획들. 저장하지 않는다 — 노트를 다시 열 때까지 남을 성질의 것이 아니다. */
   const [undone, setUndone] = useState<Stroke[]>([]);
 
   const index = Math.min(at, Math.max(0, pages.length - 1));
   const current = pages[index];
   const strokes = current?.strokes ?? [];
+  const balls = current?.balls ?? [];
 
   const replace = (page: NotePage) =>
     onChange(pages.map((entry, position) => (position === index ? page : entry)));
@@ -138,6 +148,11 @@ export function NotePages({
   const setStrokes = (next: Stroke[]) => {
     if (!current) return;
     replace({ ...current, strokes: next });
+  };
+
+  const setBalls = (next: Ball[]) => {
+    if (!current) return;
+    replace({ ...current, balls: next });
   };
 
   const add = () => {
@@ -212,25 +227,28 @@ export function NotePages({
       {current && (
         <>
           {/*
-            글은 그림 위가 아니라 위쪽 칸에 있다.
+            한 장은 한 판이다.
 
-            손글씨 앱은 글자 레이어 위에 획을 겹쳐 놓지만, 그건 글자가 흐를 때마다 획이
-            따라 움직여야 한다는 뜻이다. 여기 적는 글은 대개 두세 줄이라 그 복잡함이 값을
-            하지 않는다.
+            글칸과 그림칸을 따로 두었더니 "여기에 적고 저기에 그리는" 화면이 되었다.
+            실제로 적는 것은 그렇지 않다 — 배치를 그려 놓고 그 옆에 조건을 적는다.
+            그래서 셋을 같은 자리에 겹쳤다: 아래에서부터 당구대, 글, 그리고 그림.
+
+            글 도구를 들면 글칸이 위로 올라와 손가락을 받고, 그리는 도구를 들면 그림이
+            위로 올라온다. 보이는 것은 늘 셋 다이고, 무엇을 만지는지만 도구가 정한다.
           */}
-          {(tool === 'text' || (current.text ?? '').length > 0) && (
+          <div className={`paper${current.plain ? '' : ' table'}`} data-tool={tool}>
             <textarea
               className="note-text"
               value={current.text ?? ''}
-              placeholder="내기 조건, 순서, 무엇이든"
+              placeholder={tool === 'text' ? '내기 조건, 순서, 무엇이든' : ''}
               onChange={(event) => replace({ ...current, text: event.target.value })}
             />
-          )}
 
-          <div className="canvas-wrap">
             <Sketch
               strokes={strokes}
+              balls={balls}
               tool={tool}
+              ballColor={ballColor}
               color={tool === 'highlighter' ? markColor : penColor}
               width={
                 tool === 'highlighter'
@@ -250,7 +268,9 @@ export function NotePages({
                 setStrokes(keep);
                 setUndone([]);
               }}
+              onBalls={setBalls}
             />
+
             <span className="page-no">
               {index + 1}/{pages.length}
             </span>
@@ -284,6 +304,43 @@ export function NotePages({
               <Slider value={markThick} onChange={setMarkThick} label="두께" />
               <Slider value={markAlpha} onChange={setMarkAlpha} label="진하기" track="alpha" color={markColor} />
               <Swatches colors={HIGHLIGHT_COLORS} value={markColor} onChange={setMarkColor} />
+            </Popup>
+          )}
+
+          {open && tool === 'ball' && (
+            <Popup title="공 놓기" onClose={() => setOpen(false)}>
+              <div className="ball-picks">
+                {BALLS.map((ball) => (
+                  <button
+                    key={ball.id}
+                    className="ball-pick"
+                    aria-pressed={ballColor === ball.id}
+                    onClick={() => setBallColor(ball.id)}
+                  >
+                    <span className="dot-ball" style={{ background: ball.fill }} />
+                    <span>{ball.label}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="hint">판을 누르면 놓이고, 공을 끌면 옮겨집니다.</p>
+              <Toggle
+                label="당구대 배경"
+                on={!current.plain}
+                onChange={(on) => replace({ ...current, plain: on ? undefined : true })}
+              />
+              <hr className="pop-line dotted" />
+              <div className="row">
+                <button
+                  className="secondary"
+                  disabled={balls.length === 0}
+                  onClick={() => setBalls(balls.slice(0, -1))}
+                >
+                  마지막 공 빼기
+                </button>
+                <button className="secondary" disabled={balls.length === 0} onClick={() => setBalls([])}>
+                  공 전부 빼기
+                </button>
+              </div>
             </Popup>
           )}
 
@@ -339,6 +396,14 @@ export function NotePages({
               onClick={() => pick('eraser')}
             >
               <EraserIcon />
+            </button>
+            <button
+              className="tool"
+              aria-pressed={tool === 'ball'}
+              aria-label="공 놓기"
+              onClick={() => pick('ball')}
+            >
+              <BallIcon color={BALLS.find((entry) => entry.id === ballColor)?.fill ?? '#fff'} />
             </button>
 
             <span className="gap" />
@@ -553,6 +618,13 @@ const UndoIcon = ({ flip }: { flip?: boolean }) => (
   </svg>
 );
 
+const BallIcon = ({ color }: { color: string }) => (
+  <svg viewBox="0 0 24 24" aria-hidden>
+    <circle cx="9" cy="14" r="5" fill={color} stroke="rgba(0,0,0,0.35)" strokeWidth="0.8" />
+    <circle cx="16" cy="9" r="5" fill="#e0322c" stroke="rgba(0,0,0,0.35)" strokeWidth="0.8" />
+  </svg>
+);
+
 const CheckIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden className="check">
     <path d="M5 12.5l4.5 4.5L19 7.5" fill="none" stroke="#16181d" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
@@ -598,7 +670,9 @@ const NibIcon = ({ id, color }: { id: NibId; color: string }) => {
  */
 function Sketch({
   strokes,
+  balls,
   tool,
+  ballColor,
   color,
   width,
   alpha,
@@ -608,9 +682,12 @@ function Sketch({
   markOnly,
   onDraw,
   onErase,
+  onBalls,
 }: {
   strokes: Stroke[];
+  balls: Ball[];
   tool: Tool;
+  ballColor: Ball['c'];
   color: string;
   width: number;
   alpha: number;
@@ -620,11 +697,19 @@ function Sketch({
   markOnly: boolean;
   onDraw: (stroke: Ink) => void;
   onErase: (keep: Stroke[]) => void;
+  onBalls: (balls: Ball[]) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement | null>(null);
   const live = useRef<Ink | null>(null);
   const all = useRef<Stroke[]>(strokes);
   all.current = strokes;
+  const kept = useRef<Ball[]>(balls);
+  kept.current = balls;
+  /** 끌고 있는 공의 자리. 손을 뗄 때 한 번만 저장한다 — 획과 같은 이유다. */
+  const dragging = useRef<number | null>(null);
+
+  /** 공의 반지름 — 칸 너비에 대한 비율. 진짜 비율(2.2%)보다 조금 크게 그려야 손에 잡힌다. */
+  const RADIUS = 0.032;
 
   const paint = useCallback(() => {
     const element = canvas.current;
@@ -662,6 +747,33 @@ function Sketch({
       context.stroke();
     }
     context.globalAlpha = 1;
+
+    /*
+     * 공은 획 위에 그린다.
+     *
+     * 판 위에 놓인 물건이므로 그어 놓은 선 아래로 숨으면 안 된다. 위쪽에 옅은 흰빛을
+     * 얹어 두는데, 그 한 점이 공을 동그란 물체로 보이게 한다 — 납작한 원과 공의 차이는
+     * 대개 그 반사광 하나다.
+     */
+    const radius = RADIUS * box.width;
+    for (const ball of kept.current) {
+      const spec = BALLS.find((entry) => entry.id === ball.c) ?? BALLS[0];
+      const x = ball.x * box.width;
+      const y = ball.y * box.height;
+
+      context.beginPath();
+      context.arc(x, y, radius, 0, Math.PI * 2);
+      context.fillStyle = spec.fill;
+      context.fill();
+      context.lineWidth = Math.max(1, radius * 0.12);
+      context.strokeStyle = spec.edge;
+      context.stroke();
+
+      context.beginPath();
+      context.arc(x - radius * 0.3, y - radius * 0.35, radius * 0.28, 0, Math.PI * 2);
+      context.fillStyle = 'rgba(255, 255, 255, 0.55)';
+      context.fill();
+    }
   }, []);
 
   useEffect(() => {
@@ -669,7 +781,7 @@ function Sketch({
     // 화면이 돌아가면 칸의 크기가 바뀐다. 좌표가 정규화되어 있으므로 다시 그리면 된다.
     window.addEventListener('resize', paint);
     return () => window.removeEventListener('resize', paint);
-  }, [paint, strokes]);
+  }, [paint, strokes, balls]);
 
   const point = (event: React.PointerEvent<HTMLCanvasElement>): [number, number] => {
     const box = event.currentTarget.getBoundingClientRect();
@@ -698,6 +810,32 @@ function Sketch({
         const [x, y] = point(event);
         if (tool === 'eraser') return erase(x, y);
         if (tool === 'text') return;
+        if (tool === 'ball') {
+          /*
+           * 이미 있는 공을 짚었으면 그걸 옮기고, 빈 자리를 짚었으면 새로 놓는다.
+           *
+           * "놓기"와 "옮기기"를 도구 두 개로 나누지 않은 이유는 손이 하는 일이 하나이기
+           * 때문이다 — 판 위의 공을 손가락으로 민다. 짚은 자리에 공이 있느냐 없느냐로
+           * 갈리는 것이 도구를 갈아 드는 것보다 짧다.
+           */
+          const box = event.currentTarget.getBoundingClientRect();
+          const ratio = box.height / box.width;
+          const hit = kept.current.findIndex((ball) => {
+            const dx = ball.x - x;
+            const dy = (ball.y - y) * ratio;
+            return dx * dx + dy * dy < RADIUS * RADIUS * 1.6;
+          });
+          if (hit >= 0) {
+            dragging.current = hit;
+          } else {
+            const next = [...kept.current, { c: ballColor, x, y }];
+            kept.current = next;
+            dragging.current = next.length - 1;
+            onBalls(next);
+          }
+          paint();
+          return;
+        }
         // 해당 없는 값은 키를 아예 만들지 않는다 — `undefined`가 들어 있는 객체는
         // 아일랜드 직렬화 검사에서 터지고, 그러면 노트가 통째로 사라진다.
         const ink: Ink = { p: [x, y], c: color, w: width };
@@ -712,6 +850,14 @@ function Sketch({
           if (event.buttons === 0) return;
           return erase(x, y);
         }
+        if (tool === 'ball') {
+          const at = dragging.current;
+          if (at === null || event.buttons === 0) return;
+          // 끄는 동안은 캔버스에만 옮긴다. 손을 뗄 때 한 번 저장한다.
+          kept.current = kept.current.map((ball, i) => (i === at ? { ...ball, x, y } : ball));
+          paint();
+          return;
+        }
         const stroke = live.current;
         if (!stroke) return;
         // 같은 자리에서 떨리는 손가락이 점을 수백 개 만들지 않도록 최소 간격을 둔다.
@@ -722,6 +868,11 @@ function Sketch({
         paint();
       }}
       onPointerUp={() => {
+        if (tool === 'ball') {
+          if (dragging.current !== null) onBalls(kept.current);
+          dragging.current = null;
+          return;
+        }
         const stroke = live.current;
         live.current = null;
         if (!stroke || stroke.p.length < 2) return paint();
@@ -729,6 +880,7 @@ function Sketch({
       }}
       onPointerCancel={() => {
         live.current = null;
+        dragging.current = null;
         paint();
       }}
     />

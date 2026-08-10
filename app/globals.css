@@ -1835,6 +1835,38 @@ button.record {
   font-size: 1rem;
 }
 
+/* 공 고르기. 색 동그라미가 곧 그 공이라 이름은 아래에 작게 붙는다. */
+.notes-body .ball-picks {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.notes-body .ball-pick {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.5rem 0.3rem;
+  border-radius: 14px;
+  background: transparent;
+  color: rgba(243, 244, 246, 0.55);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.notes-body .ball-pick[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f3f4f6;
+}
+
+.notes-body .dot-ball {
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  box-shadow: inset -2px -3px 5px rgba(0, 0, 0, 0.35), inset 3px 3px 4px rgba(255, 255, 255, 0.45);
+}
+
 /* 색. 고른 것 위에만 체크가 얹힌다 — 테두리보다 이쪽이 멀리서도 읽힌다. */
 /* 아홉 개가 한 줄에 들어가야 한다 — 두 줄이 되면 그건 색 목록이 아니라 색 표가 된다. */
 .notes-body .swatches {
@@ -1861,13 +1893,10 @@ button.record {
   height: 18px;
 }
 
-/* 그리는 칸과 몇 번째 장인지. */
-.notes-body .canvas-wrap {
-  position: relative;
-}
-
-.notes-body .page-no {
+/* 몇 번째 장인지. */
+.paper .page-no {
   position: absolute;
+  z-index: 3;
   right: 0.6rem;
   bottom: 0.5rem;
   font-size: 0.72rem;
@@ -1876,44 +1905,404 @@ button.record {
   pointer-events: none;
 }
 
-.notes-body .note-text {
-  font: inherit;
+/*
+ * 한 장 = 한 판.
+ *
+ * 세 겹이 같은 자리에 포개진다: 아래에서부터 당구대(배경), 글(textarea), 그림(canvas).
+ * 글칸과 그림칸을 위아래로 나눠 두었을 때는 "여기 적고 저기 그리는" 화면이었는데,
+ * 실제로 적는 것은 그렇지 않다 — 배치를 그려 놓고 그 옆에 조건을 적는다.
+ *
+ * 무엇을 만질지는 도구가 정한다(`data-tool`). 보이는 것은 늘 셋 다이고, 손가락을 받는
+ * 겹만 바뀐다.
+ */
+.paper {
+  position: relative;
   width: 100%;
-  min-height: 6.5rem;
-  padding: 0.7rem 0.8rem;
+  aspect-ratio: 16 / 9;
   border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--center-ink);
-  line-height: 1.5;
-  resize: none;
-}
-
-.notes-body .sketch-wrap {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  background: #05070a;
+  overflow: hidden;
 }
 
 /*
- * 그리는 칸.
+ * 당구대.
  *
- * 비율을 못박는다. 획의 좌표가 이 칸의 크기로 나눈 값이라, 다시 볼 때의 비율이 다르면
- * 같은 그림이 눌리거나 늘어난 채로 나온다. 4:3은 폰 세로에서도 태블릿에서도 손이
- * 움직이기에 답답하지 않은 비율이다.
+ * 나무 레일은 테두리로, 천은 배경으로, 다이아는 레일 위에 찍힌 점으로 그린다. 그림
+ * 파일 없이 CSS만으로 되는 것은 이게 실제 당구대의 구조 그대로이기 때문이다 —
+ * 틀, 천, 그리고 그 사이에 박힌 눈금.
  *
- * `touch-action: none`이 빠지면 손가락을 움직이는 순간 브라우저가 그걸 스크롤로
- * 가져가서, 그으려던 선 대신 화면이 밀린다.
+ * 천이 2:1에 가깝게 나오도록 칸을 16:9로 잡았다. 레일을 빼고 나면 대략 1.95:1이 되는데,
+ * 당구대의 2:1과 눈으로는 구분되지 않으면서 그릴 자리는 더 넓다.
  */
-.notes-body .sketch {
+.paper.table {
+  /*
+   * 다이아는 천 안쪽 가장자리에 찍는다.
+   *
+   * 진짜 당구대는 레일 위에 박혀 있지만, 테두리(`border`)는 배경보다 위에 칠해지므로
+   * 거기에 점을 놓으면 나무색에 덮여 사라진다. 천 안쪽 가장자리면 같은 자리에서 같은
+   * 눈금 노릇을 하고, 겨냥선을 그을 때 실제로 쓰는 것도 그 위치다.
+   */
+  background:
+    radial-gradient(circle 2px, rgba(233, 216, 182, 0.75) 98%, transparent 100%) 50% 7px / 12.5% 14px
+      repeat-x,
+    radial-gradient(circle 2px, rgba(233, 216, 182, 0.75) 98%, transparent 100%) 50% calc(100% - 7px) /
+      12.5% 14px repeat-x,
+    #0d6b3f;
+  background-origin: padding-box;
+  background-clip: padding-box;
+  border: 12px solid #6b4a2b;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.4), inset 0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.paper .note-text,
+.paper .sketch {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  aspect-ratio: 4 / 3;
-  border-radius: 14px;
-  background: #05070a;
+  height: 100%;
+}
+
+.paper .note-text {
+  font: inherit;
+  padding: 0.8rem 0.9rem;
+  border: 0;
+  background: transparent;
+  color: var(--center-ink);
+  line-height: 1.5;
+  resize: none;
+  z-index: 1;
+}
+
+/* 글칸의 초점 표시. 기본 두꺼운 테두리는 당구대 위에서 그림보다 눈에 띈다. */
+.paper .note-text:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.35);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.paper .note-text::placeholder {
+  color: rgba(243, 244, 246, 0.35);
+}
+
+.paper.table .note-text {
+  color: #f7f7f4;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.paper .sketch {
+  z-index: 2;
   touch-action: none;
   display: block;
 }
 
+/* 글을 쓸 때는 글칸이 손가락을 받는다. 그 밖에는 그림이 받는다. */
+.paper[data-tool='text'] .sketch {
+  pointer-events: none;
+}
+
+.paper:not([data-tool='text']) .note-text {
+  pointer-events: none;
+}
+
+/*
+ * 도구 줄.
+ *
+ * 손글씨 앱들이 도구를 화면 맨 아래에 두는 이유는 그리는 손이 이미 거기 있기 때문이다.
+ * 시트 안에서 `sticky`라 위쪽 내용이 길어져도 늘 바닥에 붙어 있고, 키보드가 올라오면
+ * 시트째로 그 위로 떠오른다(--kb).
+ */
+.notes-body .tools {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.1rem;
+  padding: 0.35rem 0;
+  background: #171a20;
+}
+
+.notes-body .tools .gap {
+  flex: 1;
+}
+
+/* 도구 하나. 든 것만 동그란 배경을 갖는다 — 손글씨 앱들이 쓰는 그 표시다. */
+.notes-body .tool {
+  width: 46px;
+  height: 46px;
+  min-height: 46px;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #e5e7eb;
+  display: grid;
+  place-items: center;
+}
+
+.notes-body .tool svg {
+  width: 25px;
+  height: 25px;
+}
+
+.notes-body .tool[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.notes-body .tool.round[aria-pressed='true'] {
+  box-shadow: inset 0 0 0 1.5px rgba(255, 255, 255, 0.5);
+}
+
+/*
+ * 도구 설정 카드.
+ *
+ * 도구 줄 바로 위에 떠오른다. 화면 가운데에 띄우는 창으로 만들면 굵기를 한 눈금 바꿀
+ * 때마다 시선이 화면 가운데와 아래를 오간다 — 고치는 것과 그 결과가 같은 자리에 있어야
+ * 한 번에 맞출 수 있다.
+ */
+.notes-body .ink-pop {
+  position: sticky;
+  bottom: 56px;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem 1rem;
+  border-radius: 22px;
+  background: #2b2f36;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
+}
+
+.notes-body .pop-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+}
+
+.notes-body .pop-head .fav {
+  font-size: 1.1rem;
+  color: rgba(243, 244, 246, 0.7);
+}
+
+.notes-body .pop-x {
+  width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  color: #e5e7eb;
+  font-size: 0.8rem;
+}
+
+.notes-body .pop-line {
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  margin: 0;
+  width: 100%;
+}
+
+.notes-body .pop-line.dotted {
+  border-top-style: dotted;
+}
+
+/* 펜촉 고르기. 그림이 먼저고 이름은 작게 — 촉은 생김새로 고르는 것이다. */
+.notes-body .nibs {
+  display: flex;
+  justify-content: space-around;
+  gap: 0.4rem;
+}
+
+.notes-body .nib {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 14px;
+  background: transparent;
+  color: rgba(243, 244, 246, 0.55);
+  font-size: 0.7rem;
+  font-weight: 700;
+}
+
+.notes-body .nib[aria-pressed='true'] {
+  background: rgba(255, 255, 255, 0.1);
+  color: #f3f4f6;
+}
+
+.notes-body .nib svg {
+  width: 22px;
+  height: 38px;
+}
+
+/* 굵기·진하기 막대. 양 끝의 −와 +는 한 눈금씩 정확히 옮기려는 손을 위한 것이다. */
+.notes-body .slider-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.notes-body .step {
+  width: 36px;
+  height: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #e5e7eb;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.notes-body .track {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  height: 36px;
+}
+
+.notes-body .track input[type='range'] {
+  width: 100%;
+  margin: 0;
+  accent-color: #9ca3af;
+  background: transparent;
+}
+
+/* 진하기 막대의 바탕이 체크무늬인 것은 그 값이 투명도라는 말이다. */
+.notes-body .track.alpha::before {
+  content: '';
+  position: absolute;
+  inset: 13px 0;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, transparent, var(--ink, #facc15)),
+    repeating-conic-gradient(#4b5563 0 25%, #374151 0 50%) 0 0 / 10px 10px;
+}
+
+.notes-body .track.alpha input[type='range'] {
+  position: relative;
+  opacity: 0.001;
+}
+
+.notes-body .track .bubble {
+  position: absolute;
+  transform: translateX(-50%);
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: #9ca3af;
+  color: #16181d;
+  font-size: 0.75rem;
+  font-weight: 800;
+  pointer-events: none;
+}
+
+/* 켜고 끄는 줄. 안드로이드 설정 화면의 그 모양이라 따로 배울 것이 없다. */
+.notes-body .switch-row,
+.notes-body .radio-row {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  padding: 0.35rem 0;
+  background: transparent;
+  color: #f3f4f6;
+  font-size: 0.95rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.notes-body .switch-row span:first-child {
+  flex: 1;
+}
+
+.notes-body .switch {
+  width: 46px;
+  height: 26px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  position: relative;
+  flex: 0 0 auto;
+  transition: background 0.15s ease;
+}
+
+.notes-body .switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: #f3f4f6;
+  transition: transform 0.15s ease;
+}
+
+.notes-body .switch-row[aria-checked='true'] .switch {
+  background: var(--accent);
+}
+
+.notes-body .switch-row[aria-checked='true'] .switch::after {
+  transform: translateX(20px);
+}
+
+.notes-body .radio-row .dot {
+  width: 22px;
+  height: 22px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.35);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+}
+
+.notes-body .radio-row[aria-checked='true'] .dot {
+  border-color: #3b82f6;
+}
+
+.notes-body .radio-row[aria-checked='true'] .dot::after {
+  content: '';
+  width: 11px;
+  height: 11px;
+  border-radius: 999px;
+  background: #3b82f6;
+}
+
+.notes-body .pop-wide {
+  width: 100%;
+  background: transparent;
+  color: #f3f4f6;
+  font-weight: 800;
+  font-size: 1rem;
+}
+
+/* 색. 고른 것 위에만 체크가 얹힌다 — 테두리보다 이쪽이 멀리서도 읽힌다. */
+/* 아홉 개가 한 줄에 들어가야 한다 — 두 줄이 되면 그건 색 목록이 아니라 색 표가 된다. */
+.notes-body .swatches {
+  display: flex;
+  gap: 0.25rem;
+  justify-content: space-between;
+  flex-wrap: nowrap;
+}
+
+.notes-body .swatch {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  flex: 0 0 auto;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: grid;
+  place-items: center;
+}
+
+.notes-body .swatch .check {
+  width: 18px;
+  height: 18px;
+}
 
 /* 기록 상세의 칸 나눔. 노트 칸은 시트 안에서 스스로 굴러간다. */
 .notes-body {
