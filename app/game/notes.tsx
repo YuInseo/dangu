@@ -55,12 +55,19 @@ const HIGHLIGHT_COLORS = ['#ef4444', '#fbbf24', '#facc15', '#34d399', '#38bdf8',
 
 type Tool = 'text' | 'pen' | 'highlighter' | 'eraser' | 'ball';
 
-/** 공의 색. 당구공은 셋뿐이라 고르는 것도 셋이면 된다. */
-const BALLS: { id: Ball['c']; label: string; fill: string; edge: string }[] = [
-  { id: 'w', label: '흰 공', fill: '#f7f7f4', edge: 'rgba(0,0,0,0.35)' },
-  { id: 'y', label: '노란 공', fill: '#ffd43a', edge: 'rgba(0,0,0,0.35)' },
-  { id: 'r', label: '빨간 공', fill: '#e0322c', edge: 'rgba(0,0,0,0.35)' },
+/**
+ * 공의 색. 당구공은 셋뿐이라 고르는 것도 셋이면 된다.
+ *
+ * `max`는 판에 실제로 있는 개수다 — 흰 공과 노란 공이 하나씩, 빨간 공이 둘(4구). 없는
+ * 공을 놓을 수 있게 두면 그건 당구대가 아니라 그냥 초록 종이다.
+ */
+const BALLS: { id: Ball['c']; label: string; fill: string; edge: string; max: number }[] = [
+  { id: 'w', label: '흰 공', fill: '#f7f7f4', edge: 'rgba(0,0,0,0.35)', max: 1 },
+  { id: 'y', label: '노란 공', fill: '#ffd43a', edge: 'rgba(0,0,0,0.35)', max: 1 },
+  { id: 'r', label: '빨간 공', fill: '#e0322c', edge: 'rgba(0,0,0,0.35)', max: 2 },
 ];
+
+const limitOf = (color: Ball['c']) => BALLS.find((entry) => entry.id === color)?.max ?? 1;
 
 /**
  * 펜촉.
@@ -318,11 +325,16 @@ export function NotePages({
                     onClick={() => setBallColor(ball.id)}
                   >
                     <span className="dot-ball" style={{ background: ball.fill }} />
-                    <span>{ball.label}</span>
+                    <span>
+                      {ball.label} {balls.filter((entry) => entry.c === ball.id).length}/{ball.max}
+                    </span>
                   </button>
                 ))}
               </div>
-              <p className="hint">판을 누르면 놓이고, 공을 끌면 옮겨집니다.</p>
+              <p className="hint">
+                판을 누르면 놓이고, 공을 끌면 옮겨집니다. 흰 공과 노란 공은 하나씩, 빨간 공은
+                둘까지 — 다 나와 있으면 누른 자리로 옮겨집니다.
+              </p>
               <Toggle
                 label="당구대 배경"
                 on={!current.plain}
@@ -827,6 +839,19 @@ function Sketch({
           });
           if (hit >= 0) {
             dragging.current = hit;
+          } else if (kept.current.filter((ball) => ball.c === ballColor).length >= limitOf(ballColor)) {
+            /*
+             * 그 색이 이미 다 나와 있으면, 제일 먼저 놓았던 것을 여기로 옮긴다.
+             *
+             * 아무 일도 일어나지 않게 두는 쪽이 규칙으로는 깔끔하지만, 화면은 누른 손에
+             * 답을 해야 한다. 그리고 이 상황에서 사람이 원하는 것은 대개 "그 공을 여기로"다 —
+             * 끌어다 놓는 것과 같은 결과를, 한 번 누르는 것으로 준다.
+             */
+            const at = kept.current.findIndex((ball) => ball.c === ballColor);
+            const next = kept.current.map((ball, i) => (i === at ? { ...ball, x, y } : ball));
+            kept.current = next;
+            dragging.current = at;
+            onBalls(next);
           } else {
             const next = [...kept.current, { c: ballColor, x, y }];
             kept.current = next;
