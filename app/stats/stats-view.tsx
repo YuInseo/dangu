@@ -7,6 +7,7 @@ import {
   formatClock,
   highRun,
   kindInfo,
+  ballOf,
   other,
   sides,
   SIDE_LABELS,
@@ -580,7 +581,7 @@ function RecordSheet({
                 // 이기는 순간 게임이 끝나므로 그 위로 올라갈 자리는 없다.
                 const made = Math.min(cushion, Math.max(0, player.score - player.target));
                 return (
-                  <div className={`box ${side}`} key={side}>
+                  <div className={`box ${ballOf(sides(game), side)}`} key={side}>
                     <span className="label">
                       {side === me ? '나' : '상대'}
                       {won ? ' · 승' : game.winner ? ' · 패' : ''}
@@ -677,7 +678,7 @@ function RecordSheet({
                           return (
                             <span
                               key={side}
-                              className={points > 0 ? `points ${side}` : 'points'}
+                              className={points > 0 ? `points ${ballOf(sides(game), side)}` : 'points'}
                             >
                               {points > 0 ? points : '·'}
                             </span>
@@ -838,7 +839,7 @@ function RecordEditor({
     const player = draft.seats[side];
     const label = SIDE_LABELS[side] ?? side;
     return (
-      <div className={`box ${side}`} key={side}>
+      <div className={`box ${ballOf(list, side)}`} key={side}>
         <span className="label">
           {label}
           {side === me ? ' (나)' : ''}

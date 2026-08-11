@@ -16,6 +16,7 @@ import {
   other,
   reduce,
   remaining,
+  ballOf,
   scoreFloor,
   shooter,
   sides,
@@ -424,6 +425,8 @@ function PlayerSide({
   const [manual, setManual] = useState('');
   const active = state.turn === side;
   const cushion = needsCushion(state, side);
+  // 판의 색은 자리 키가 아니라 잡는 공에서 온다 — 셋째부터는 흰·노랑을 다시 쓴다.
+  const ball = ballOf(sides(state), side);
   const shown = displayScore(state, side);
 
   /*
@@ -443,7 +446,7 @@ function PlayerSide({
 
   return (
     <section
-      className={`side ${side}${active ? ' active' : ''}${cushion ? ' in-cushion' : ''}`}
+      className={`side ${ball}${active ? ' active' : ''}${cushion ? ' in-cushion' : ''}`}
       aria-label={`${player.name} 점수판`}
     >
       <button className="name" onClick={onTurn} title="이 사람 차례로">
