@@ -2450,3 +2450,73 @@ button.record {
   width: 16px;
   height: 16px;
 }
+
+/* 다시 한 판 --------------------------------------------------------- */
+
+/*
+ * 로비의 지난 상대들.
+ *
+ * 한 줄에 하나씩 세운다. 이름은 길이가 제각각이라 격자에 넣으면 짧은 이름 옆에 빈
+ * 자리가 생기고, 그 빈 자리가 목록의 끝처럼 보인다. 세로로 쌓으면 다섯 명이든 한
+ * 명이든 같은 모양이다.
+ */
+.faces {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.faces .face {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  width: 100%;
+  min-height: 0;
+  padding: 0.7rem 0.9rem;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 0.8rem;
+  color: var(--center-ink);
+  font: inherit;
+}
+
+.faces .face strong {
+  font-size: 1.02rem;
+  font-weight: 800;
+}
+
+.faces .face small {
+  font-size: 0.76rem;
+  opacity: 0.55;
+  font-variant-numeric: tabular-nums;
+}
+
+.faces .face:active {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* 이름 칸 아래의 지난 상대들. 여기서는 이름만 있으면 되므로 칩으로 눕힌다. */
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.chips .chip {
+  min-height: 0;
+  padding: 0.4rem 0.75rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--center-ink);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.chips .chip.on {
+  background: var(--accent);
+  border-color: transparent;
+  color: #05240f;
+}
