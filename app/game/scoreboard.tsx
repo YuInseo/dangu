@@ -151,12 +151,20 @@ export function Scoreboard() {
       return;
     }
 
-    // 쿠션 구간에서는 남은 것이 목표 점수가 아니라 쿠션 점수다. 화면이 그렇게 바뀌므로
-    // 소리도 같은 것을 말해야 한다 — 둘이 다른 숫자를 말하면 듣는 쪽이 화면을 본다.
-    const left = needsCushion(state, last.side)
-      ? cushionRemaining(state, last.side)
-      : remaining(state, last.side);
-    speak(`${left}점 남았습니다`);
+    /*
+      쿠션 구간에서는 남은 것이 목표 점수가 아니라 쿠션 점수다. 화면이 그렇게 바뀌므로
+      소리도 같은 것을 말해야 한다 — 둘이 다른 숫자를 말하면 듣는 쪽이 화면을 본다.
+
+      그리고 그 앞에 "쿠션입니다"를 붙인다. 숫자만 읽으면 "1점 남았습니다"가 목표까지
+      한 점인지 쿠션으로 한 점인지 구별되지 않는데, 그 둘은 쳐야 하는 공이 다르다.
+      매번 붙이는 것은 소리만 듣는 사람에게 지금이 어느 구간인지 알려 주는 자리가
+      여기밖에 없기 때문이다.
+    */
+    if (needsCushion(state, last.side)) {
+      speak(`쿠션입니다. ${cushionRemaining(state, last.side)}점 남았습니다`);
+      return;
+    }
+    speak(`${remaining(state, last.side)}점 남았습니다`);
   }, [state?.history.length, state?.finishedAt, voice]);
 
   // 점수판을 떠나면 읽던 것을 멈춘다. 로비에서 점수가 들리면 곤란하다.
