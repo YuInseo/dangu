@@ -177,10 +177,10 @@ export function Scoreboard() {
 
   const info = kindInfo(state.kind);
 
-  // 뒷빡. 치던 사람이 상대 수구를 맞혔다는 뜻이라, 어느 판을 눌렀든 기록은 *치던 쪽*에
-  // 남는다 — 상대 판을 누르는 것은 "네 공을 맞혔다"는 신고이지 상대의 득점이 아니다.
+  // 뒷빡을 쓰는 판에서 상대 판을 누르면 하는 일. 차례를 넘기는 것뿐이다 — 점수는
+  // 아무 데도 움직이지 않고, 몇 점을 물릴지는 −1 버튼으로 사람이 직접 뺀다.
   const foul = () => {
-    dispatch({ type: 'foul', side: state.turn });
+    dispatch({ type: 'turn', side: other(state.turn) });
     tap('heavy');
   };
 
@@ -339,9 +339,12 @@ function PlayerSide({
   /*
     뒷빡을 쓰는 판에서 상대 판을 누르는 일.
 
-    상대 수구를 맞혔을 때 누른다. 그런데 이건 상대가 한 점을 얻은 것이 아니다 — 친
-    사람의 실수이므로 그 사람 쪽에 −1이 쌓이고 차례가 넘어간다. 그래서 지금 치고 있지
-    않은 쪽의 넓은 자리는 +1이 아니라 "뒷빡"이 된다. 자기 차례인 쪽은 그대로 +1이다.
+    상대 수구를 맞혔을 때 누른다. 그런데 이건 상대가 한 점을 얻은 것이 아니라 친
+    사람의 실수라서, 일어나는 일은 차례가 넘어가는 것뿐이다. 그래서 지금 치고 있지
+    않은 쪽의 넓은 자리는 +1이 아니라 차례 넘기기가 된다. 자기 차례인 쪽은 그대로 +1이다.
+
+    몇 점을 물릴지는 앱이 정하지 않는다. 그건 같이 치는 사람들이 정하는 것이고, −1
+    버튼이 0에서도 눌리는 것으로 충분하다.
 
     뒷빡을 안 쓰기로 한 판에서는 이 자리가 예전처럼 +1로 남는다. 두 사람의 점수를 한
     사람이 몰아서 넣는 일이 흔하기 때문이다.
@@ -367,11 +370,7 @@ function PlayerSide({
       <button
         className={foulTap ? 'tap foul-tap' : 'tap'}
         onClick={() => (foulTap ? onFoul() : onScore(side, 1))}
-        aria-label={
-          foulTap
-            ? `${state.players[state.turn].name} 뒷빡, 차례 넘기기`
-            : `${player.name} 1점 더하기`
-        }
+        aria-label={foulTap ? `${player.name} 차례로 넘기기` : `${player.name} 1점 더하기`}
       >
         {/*
           목표 점수를 채우면 숫자가 0으로 돌아가고 쿠션 점수를 센다. 그래서 지금 보이는
@@ -419,24 +418,11 @@ function PlayerSide({
           에버 {average(state, side).toFixed(2).replace('-', '−')} · {innings(state, side)}이닝
         </div>
 
-        {/*
-          몇 번 냈는지.
-
-          에버 줄에 이어 붙였더니 한쪽만 줄바꿈이 되어 두 판의 높이가 어긋났다 — 같은
-          줄이어도 "뒷빡 −1"과 "뒷빡 0"의 길이가 다르기 때문이다. 한 줄을 따로 주면
-          두 판이 똑같이 한 줄씩 늘어난다.
-        */}
-        {state.foul === true && (
-          <div className="rate fouls" data-zero={!player.fouls}>
-            뒷빡 {player.fouls ? `−${player.fouls}` : 0}
-          </div>
-        )}
-
         <div className="spacer" />
 
         {/* 뒷빡 자리에는 안내를 적지 않는다. 이 판을 누르는 사람은 방금 무슨 일이
-            있었는지 이미 알고 있고, 남는 것은 에버 줄의 −N 하나면 된다. 글자는 지우되
-            자리는 남긴다 — 한쪽만 없어지면 두 판의 숫자 높이가 어긋난다. */}
+            있었는지 이미 알고 있다. 글자는 지우되 자리는 남긴다 — 한쪽만 없어지면
+            두 판의 숫자 높이가 어긋난다. */}
         <div className="tap-hint" data-empty={foulTap}>
           눌러서 +1
         </div>

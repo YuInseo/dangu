@@ -34,13 +34,6 @@ export interface PlayerState {
   /** 핸디 — 이 사람이 몇 점을 쳐야 이기는지. 두 사람이 서로 다른 게 정상이다. */
   target: number;
   score: number;
-  /**
-   * 뒷빡을 낸 횟수. 이 사람이 상대 수구를 맞힌 횟수다.
-   *
-   * 점수와 따로 센다. 점수판의 큰 숫자는 "몇 점을 쳤나"이고 이건 "몇 번 잘못 쳤나"라서,
-   * 한 숫자에 섞으면 둘 다 읽을 수 없게 된다 — 화면에는 `뒷빡 −2`로 따로 선다.
-   */
-  fouls?: number;
 }
 
 /** 되돌리기가 있는 이유: 잘못 누른 걸 빼기 버튼으로 고치면 이닝 수가 틀어진다. */
@@ -53,8 +46,6 @@ export interface ScoreEntry {
   /** 이 득점이 차례를 넘겼는지 — 되돌리면 차례도 같이 돌아와야 한다. */
   turnBefore: Side;
   inningBefore: number;
-  /** 득점이 아니라 뒷빡이었으면 참. 되돌릴 때 점수가 아니라 뒷빡을 되돌린다. */
-  foul?: boolean;
 }
 
 export interface GameState {
@@ -106,9 +97,11 @@ export interface GameState {
   /**
    * 뒷빡을 쓰는지.
    *
-   * 4구에서 상대 수구를 맞히면 잘못 친 것이다. 켜 두면 지금 치는 사람이 상대 판을 눌러
-   * 그것을 적는다 — 상대에게 점수가 가는 게 아니라, 친 사람의 뒷빡이 하나 늘고 차례가
-   * 넘어간다. 누르는 자리가 "내가 맞힌 공"이라는 뜻이 되는 것이 이 규칙의 전부다.
+   * 4구에서 상대 수구를 맞히면 잘못 친 것이다. 이 규칙을 쓰는 판에서 바뀌는 것은 둘이다.
+   * 상대 판을 누르면 상대에게 한 점이 가는 대신 차례만 넘어가고, 점수의 바닥이 열려
+   * −1 버튼이 0에서도 눌린다 — 몇 점을 물릴지는 치는 사람들이 정하기 때문이다.
+   *
+   * 앱이 따로 세어 두는 것은 없다. 뒷빡을 몇 번 냈는지는 점수에 이미 들어 있다.
    */
   foul: boolean;
   /**
@@ -294,7 +287,6 @@ export type GameAction =
   | { type: 'rename'; side: Side; name: string }
   | { type: 'setTarget'; side: Side; target: number }
   | { type: 'setLastCushion'; value: number }
-  | { type: 'foul'; side: Side; now?: number }
   | { type: 'notes'; pages: NotePage[] };
 
 export function reduce(state: GameState, action: GameState | GameAction): GameState {
@@ -320,37 +312,6 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
       return handOver(state, next, now);
     }
 
-    /*
-     * 뒷빡.
-     *
-     * 점수는 건드리지 않는다. 상대 판을 누르는 것은 "저 공을 맞혔다"는 뜻이고, 그때
-     * 일어나는 일은 차례가 넘어가는 것뿐이다 — 상대에게 한 점이 가지도 않고, 친
-     * 사람의 점수가 저절로 깎이지도 않는다. 몇 점을 물릴지는 치는 사람들이 정하는
-     * 것이라 −1 버튼으로 직접 뺀다. 여기서 세어 두는 것은 몇 번 냈는지 하나뿐이다.
-     */
-    case 'foul': {
-      const { side, now = Date.now() } = action as Extract<GameAction, { type: 'foul' }>;
-      if (state.finishedAt) return state;
-      const player = state.players[side];
-      const next: GameState = {
-        ...state,
-        players: { ...state.players, [side]: { ...player, fouls: (player.fouls ?? 0) + 1 } },
-        history: [
-          ...state.history,
-          {
-            at: now,
-            side,
-            delta: 0,
-            scoreAfter: player.score,
-            turnBefore: state.turn,
-            inningBefore: state.inning,
-            foul: true,
-          },
-        ],
-      };
-      return handOver(next, other(side), now);
-    }
-
     case 'undo': {
       const last = state.history.at(-1);
       if (!last) return state;
@@ -358,15 +319,7 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
         ...state,
         players: {
           ...state.players,
-          // 되돌리는 것은 언제나 점수다. 뒷빡이었으면 깎인 점수와 함께 뒷빡 수도
-          // 되돌린다 — 그 둘은 한 번의 누름으로 함께 생긴 것이다.
-          [last.side]: last.foul
-            ? {
-                ...state.players[last.side],
-                score: last.scoreAfter - last.delta,
-                fouls: Math.max(0, (state.players[last.side].fouls ?? 0) - 1),
-              }
-            : { ...state.players[last.side], score: last.scoreAfter - last.delta },
+          [last.side]: { ...state.players[last.side], score: last.scoreAfter - last.delta },
         },
         turn: last.turnBefore,
         inning: last.inningBefore,
