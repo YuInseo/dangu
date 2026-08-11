@@ -1,4 +1,4 @@
-import { GAME_KINDS, kindInfo, other, type GameKind, type GameSummary, type Side } from './game';
+import { GAME_KINDS, kindInfo, other, sides, type GameKind, type GameSummary, type Side } from './game';
 
 /**
  * 통계. 기록 배열 하나를 받아 숫자만 낸다 — 저장소도 화면도 모른다.
@@ -101,14 +101,25 @@ export function computeStats(games: GameSummary[], now = Date.now()): Stats {
     if (game.startedAt >= monthFrom) month = add(month, game);
     if (game.startedAt >= todayFrom) today = add(today, game);
 
+    /*
+      상대별.
+
+      셋이 친 판에는 상대가 둘이다. 그 판을 한 사람에게만 달아 두면 나머지 한 사람과는
+      친 적이 없는 것이 되므로, 나를 뺀 모두에게 같은 판을 단다. 그래서 상대별 게임 수의
+      합은 전체 게임 수보다 클 수 있다 — 한 판이 두 사람과의 판이기 때문이다.
+    */
     const me = game.me ?? 'white';
-    const opponentName = (game.players[other(me)]?.name ?? '상대').trim() || '상대';
-    const previous = opponents.get(opponentName) ?? { ...emptyTally(), name: opponentName, lastPlayedAt: 0 };
-    opponents.set(opponentName, {
-      ...add(previous, game),
-      name: opponentName,
-      lastPlayedAt: Math.max(previous.lastPlayedAt, game.startedAt),
-    });
+    for (const side of sides(game)) {
+      if (side === me) continue;
+      const opponentName = (game.players[side]?.name ?? '상대').trim() || '상대';
+      const previous =
+        opponents.get(opponentName) ?? { ...emptyTally(), name: opponentName, lastPlayedAt: 0 };
+      opponents.set(opponentName, {
+        ...add(previous, game),
+        name: opponentName,
+        lastPlayedAt: Math.max(previous.lastPlayedAt, game.startedAt),
+      });
+    }
 
     const kindKey = game.kind;
     const previousKind =
@@ -289,36 +300,39 @@ export function recentOpponents(games: GameSummary[], limit = 6): OpponentCard[]
 
   for (const game of ordered) {
     const me = game.me ?? 'white';
-    const them = game.players[other(me)];
-    const name = (them?.name ?? '').trim();
+    for (const side of sides(game)) {
+      if (side === me) continue;
+      const them = game.players[side];
+      const name = (them?.name ?? '').trim();
     // 이름을 적지 않은 판은 세지 않는다. 앱이 대신 붙인 이름들이라, 그걸 목록에 세우면
     // "노란 공과 한 판 더"가 된다 — 그런 사람은 없다.
-    if (!name || DEFAULT_NAMES.has(name)) continue;
+      if (!name || DEFAULT_NAMES.has(name)) continue;
 
-    const found = cards.get(name);
-    if (found) {
+      const found = cards.get(name);
+      if (found) {
+        cards.set(name, {
+          ...found,
+          games: found.games + 1,
+          wins: found.wins + (game.winner === me ? 1 : 0),
+          losses: found.losses + (game.winner && game.winner !== me ? 1 : 0),
+        });
+        continue;
+      }
+
       cards.set(name, {
-        ...found,
-        games: found.games + 1,
-        wins: found.wins + (game.winner === me ? 1 : 0),
-        losses: found.losses + (game.winner === other(me) ? 1 : 0),
+        name,
+        games: 1,
+        wins: game.winner === me ? 1 : 0,
+        losses: game.winner && game.winner !== me ? 1 : 0,
+        lastPlayedAt: game.startedAt,
+        last: {
+          kind: game.kind,
+          mine: game.players[me]?.target ?? 20,
+          theirs: them?.target ?? 20,
+          cushion: game.lastCushion ?? 0,
+        },
       });
-      continue;
     }
-
-    cards.set(name, {
-      name,
-      games: 1,
-      wins: game.winner === me ? 1 : 0,
-      losses: game.winner === other(me) ? 1 : 0,
-      lastPlayedAt: game.startedAt,
-      last: {
-        kind: game.kind,
-        mine: game.players[me]?.target ?? 20,
-        theirs: them?.target ?? 20,
-        cushion: game.lastCushion ?? 0,
-      },
-    });
   }
 
   return [...cards.values()].sort((a, b) => b.lastPlayedAt - a.lastPlayedAt).slice(0, limit);

@@ -6,7 +6,29 @@
  * 리듀서 하나로 모아 두었고, 화면은 이걸 그리기만 한다.
  */
 
-export type Side = 'white' | 'yellow';
+/**
+ * 한 자리를 가리키는 이름.
+ *
+ * 값이 곧 공 색이다 — `white`, `yellow`, 셋째부터 `red`, `blue`. 색을 따로 들고 다니지
+ * 않는 이유는 점수판에서 사람을 구분하는 것이 색이기 때문이다. 판의 배경색도, 이닝
+ * 표의 글자색도 이 값 하나에서 나온다.
+ *
+ * 두 명뿐이던 때에는 `'white' | 'yellow'`였다. 넓힌 자리에 저장된 게임이 그대로
+ * 들어맞는다는 게 이 방식의 값어치다: 예전 기록의 `players`는 키가 둘인 객체이고,
+ * 지금 모델에서도 정확히 그것이다.
+ */
+export type Side = string;
+
+/** 자리에 붙는 색 — 순서대로 쓴다. 넷을 넘는 판은 점수판 화면이 감당하지 못한다. */
+export const SIDES: readonly Side[] = ['white', 'yellow', 'red', 'blue'];
+
+/** 자리마다의 기본 이름. 아무것도 적지 않은 사람은 자기 공 색으로 불린다. */
+export const SIDE_LABELS: Record<Side, string> = {
+  white: '흰 공',
+  yellow: '노란 공',
+  red: '빨간 공',
+  blue: '파란 공',
+};
 
 export type GameKind = 'four' | 'three' | 'pocket';
 
@@ -34,6 +56,17 @@ export interface PlayerState {
   /** 핸디 — 이 사람이 몇 점을 쳐야 이기는지. 두 사람이 서로 다른 게 정상이다. */
   target: number;
   score: number;
+  /**
+   * 팀전에서 이 자리에 선 사람들.
+   *
+   * 팀은 점수를 함께 쓴다. 그래서 팀 하나가 자리 하나이고, 그 안에서 누가 칠 차례인지는
+   * 이 목록을 돌아가며 정한다 — 자리에 차례가 올 때마다 다음 사람으로 넘어간다. 몇 번째
+   * 사람인지를 따로 저장하지 않는 이유는, 그 값이 이미 "이 자리가 몇 이닝을 쳤나"와
+   * 같은 수이기 때문이다. 두 벌로 두면 되돌리기에서 어긋난다.
+   *
+   * 개인전에는 없다.
+   */
+  members?: string[];
 }
 
 /** 되돌리기가 있는 이유: 잘못 누른 걸 빼기 버튼으로 고치면 이닝 수가 틀어진다. */
@@ -83,6 +116,14 @@ export interface GameState {
    * 이닝이 올라가지 않는다. 기준은 게임이 시작될 때 정해지는 값이므로 그때 적어 둔다.
    */
   first: Side;
+  /**
+   * 치는 순서.
+   *
+   * 이 목록의 자리 순서대로 돌아가고, 한 바퀴 돌아 선공에게 오면 이닝이 하나 올라간다.
+   * 두 명이던 시절에 저장된 게임에는 이 값이 없다 — 그때는 순서가 `['white','yellow']`
+   * 하나뿐이었으므로, 읽는 자리에서 그 값을 채워 준다.
+   */
+  order?: Side[];
   /**
    * 후구를 쓰는지.
    *
@@ -223,10 +264,25 @@ export function readNotes(pages: readonly any[] | undefined): NotePage[] {
   });
 }
 
+/** 판에 앉는 한 자리. 팀전이면 `members`에 그 팀 사람들이 들어간다. */
+export interface Seat {
+  name: string;
+  target: number;
+  members?: string[];
+}
+
 export interface NewGameOptions {
   kind: GameKind;
-  white: { name: string; target: number };
-  yellow: { name: string; target: number };
+  /**
+   * 셋 이상이 치거나 팀으로 칠 때의 자리들 — 치는 순서대로.
+   *
+   * 주면 `white`/`yellow`는 무시된다. 둘이 치는 판은 예전 그대로 두 값으로 만들 수
+   * 있다: 그게 이 앱에서 압도적으로 흔한 경우이고, 거기까지 배열로 적게 하면 흔한
+   * 일이 번거로워진다.
+   */
+  seats?: Seat[];
+  white?: { name: string; target: number };
+  yellow?: { name: string; target: number };
   /** 선공. 흰 공이 기본이지만 로비에서 바꿀 수 있다. */
   first?: Side;
   /** 이 폰의 주인이 잡은 공. 통계가 내 승률을 낼 때 쓴다. */
@@ -243,9 +299,10 @@ export interface NewGameOptions {
 
 export function createGame({
   kind,
+  seats,
   white,
   yellow,
-  first = 'white',
+  first,
   me = 'white',
   lastCushion = 0,
   equalizer = false,
@@ -253,6 +310,30 @@ export function createGame({
   now = Date.now(),
   id,
 }: NewGameOptions): GameState {
+  const list: Seat[] = seats?.length
+    ? seats
+    : [
+        { name: white?.name ?? '', target: white?.target ?? 20 },
+        { name: yellow?.name ?? '', target: yellow?.target ?? 20 },
+      ];
+
+  const order = list.map((_, index) => SIDES[index] ?? `p${index + 1}`);
+  const players: Record<Side, PlayerState> = {};
+  list.forEach((seat, index) => {
+    const key = order[index];
+    const next: PlayerState = {
+      name: seat.name.trim() || SIDE_LABELS[key] || `${index + 1}번`,
+      target: Math.max(1, Math.round(seat.target)),
+      score: 0,
+    };
+    // 값이 없는 키는 아예 만들지 않는다 — 아일랜드 직렬화가 undefined에서 죽는다.
+    const members = seat.members?.map((name) => name.trim()).filter(Boolean);
+    if (members?.length) next.members = members;
+    players[key] = next;
+  });
+
+  const opening = first && order.includes(first) ? first : order[0];
+
   return {
     id: id ?? `g-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     kind,
@@ -261,16 +342,14 @@ export function createGame({
     startedAt: now,
     elapsedMs: 0,
     running: true,
-    turn: first,
-    first,
+    turn: opening,
+    first: opening,
+    order,
     equalizer,
     foul,
     turnAt: 0,
     inning: 1,
-    players: {
-      white: { name: white.name.trim() || '흰 공', target: Math.max(1, white.target), score: 0 },
-      yellow: { name: yellow.name.trim() || '노란 공', target: Math.max(1, yellow.target), score: 0 },
-    },
+    players,
     history: [],
   };
 }
@@ -307,7 +386,7 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
 
     case 'turn': {
       const { side, now = Date.now() } = action as Extract<GameAction, { type: 'turn' }>;
-      const next = side ?? other(state.turn);
+      const next = side ?? nextSide(state, state.turn);
       if (next === state.turn) return state;
       return handOver(state, next, now);
     }
@@ -427,7 +506,7 @@ function applyScore(state: GameState, side: Side, score: number, now: number): G
     // 선공이 채웠으면 그 넘김이 후구 — 후공에게 주는 마지막 한 차례다. 후공이 채웠으면
     // 그 넘김이 곧 이닝의 끝이라 그 자리에서 판정이 난다. 두 경우를 나눠 쓰지 않는
     // 이유는 실제로 같은 동작이기 때문이다.
-    return handOver(next, other(side), now);
+    return handOver(next, nextSide(state, side), now);
   }
   return next;
 }
@@ -446,7 +525,50 @@ const clampScore = (value: number, floor = 0) =>
 /** 이 판에서 점수가 내려갈 수 있는 바닥. */
 export const scoreFloor = (state: GameState) => (state.foul ? -999 : 0);
 
+/**
+ * 이 판의 자리들 — 치는 순서대로.
+ *
+ * 두 명이던 시절에 저장된 게임에는 `order`가 없다. 그때는 순서가 하나뿐이었으므로
+ * 여기서 채워 준다. 저장된 데이터를 옮기는 이사 대신 읽는 자리에서 맞추는 쪽을 고른
+ * 이유는, 그 이사가 실패하면 지난 기록이 사라지기 때문이다.
+ */
+export function sides(state: { order?: Side[]; players: Record<Side, PlayerState> }): Side[] {
+  if (state.order?.length) return state.order;
+  const keys = Object.keys(state.players ?? {});
+  return keys.length ? keys : ['white', 'yellow'];
+}
+
+/** 이 자리 다음에 칠 사람. 마지막이면 처음으로 돌아온다. */
+export function nextSide(state: GameState, side: Side): Side {
+  const list = sides(state);
+  const at = list.indexOf(side);
+  return list[(at + 1) % list.length] ?? list[0];
+}
+
+/**
+ * 두 명짜리 판에서 "상대".
+ *
+ * 셋 이상인 판에는 상대가 하나가 아니므로 이 함수로는 답할 수 없다. 그래도 남겨 둔
+ * 이유는 기록이 그렇기 때문이다 — 지난 기록의 승률과 상대별 통계는 전부 둘이 친 판의
+ * 것이고, 거기서는 이 물음이 늘 뜻이 있다.
+ */
 export const other = (side: Side): Side => (side === 'white' ? 'yellow' : 'white');
+
+/**
+ * 팀전에서 지금 칠 사람의 이름.
+ *
+ * 팀은 점수를 함께 쓰므로 자리가 하나다. 그 안에서 누구 차례인지는 이 자리가 몇 이닝을
+ * 쳤는지로 정한다 — 차례가 돌아올 때마다 다음 사람이다. 몇 번째인지를 따로 저장하지
+ * 않는 이유는 그 값이 이미 이닝 수와 같은 수이고, 두 벌로 두면 되돌리기에서 어긋나기
+ * 때문이다.
+ */
+export function shooter(state: GameState, side: Side): string {
+  const player = state.players[side];
+  const roster = player?.members;
+  if (!roster?.length) return player?.name ?? '';
+  const played = Math.max(0, innings(state, side) - 1);
+  return roster[played % roster.length] ?? roster[0];
+}
 
 /**
  * 차례를 옮긴다. 그 이동이 이닝 경계이면 이닝도 하나 올린다.
@@ -496,12 +618,13 @@ function handOver(state: GameState, next: Side, now: number): GameState {
  * 계속된다.
  */
 function decide(state: GameState): Side | null {
+  const list = sides(state);
   const surplus = (side: Side) => state.players[side].score - winningScore(state, side);
-  const white = surplus('white');
-  const yellow = surplus('yellow');
-  if (Math.max(white, yellow) < 0) return null;
-  if (white === yellow) return null;
-  return white > yellow ? 'white' : 'yellow';
+  const best = Math.max(...list.map(surplus));
+  if (best < 0) return null;
+  // 같은 값이 둘이면 아직 갈리지 않은 것이다. 셋이 치는 판에서도 규칙은 같다.
+  const leaders = list.filter((side) => surplus(side) === best);
+  return leaders.length === 1 ? leaders[0] : null;
 }
 
 /**
@@ -513,9 +636,7 @@ function decide(state: GameState): Side | null {
 export const inDecider = (state: GameState) =>
   Boolean(state.equalizer) &&
   !state.finishedAt &&
-  (['white', 'yellow'] as Side[]).some(
-    (side) => state.players[side].score >= winningScore(state, side)
-  );
+  sides(state).some((side) => state.players[side].score >= winningScore(state, side));
 
 /** 지금 차례가 시작된 뒤로 흐른 시간(ms). */
 export const turnElapsed = (state: GameState) => Math.max(0, state.elapsedMs - (state.turnAt ?? 0));
@@ -528,11 +649,12 @@ function firstSide(state: GameState): Side {
 
 /** 지금 이기고 있는 쪽. 남은 점수가 적은 쪽이고, 같으면 무승부로 흰 공을 반환하지 않는다. */
 export function leader(state: GameState): Side | undefined {
-  const remaining = (side: Side) => winningScore(state, side) - state.players[side].score;
-  const white = remaining('white');
-  const yellow = remaining('yellow');
-  if (white === yellow) return undefined;
-  return white < yellow ? 'white' : 'yellow';
+  const list = sides(state);
+  const left = (side: Side) => winningScore(state, side) - state.players[side].score;
+  const best = Math.min(...list.map(left));
+  const leaders = list.filter((side) => left(side) === best);
+  // 나란히 앞선 사람이 둘이면 무승부다 — 아무도 반환하지 않는다.
+  return leaders.length === 1 ? leaders[0] : undefined;
 }
 
 /** 이 사람이 실제로 이기는 점수. 쿠션 규칙이 붙으면 목표 점수보다 그만큼 높다. */
@@ -588,10 +710,14 @@ export function formatClock(ms: number): string {
  * 나눈 값이므로, 여기서 각자의 몫을 센다.
  */
 export function innings(state: GameState, side: Side): number {
-  const first = firstSide(state);
-  if (side === first) return state.inning;
-  // 후공은 선공이 이번 이닝을 아직 넘기지 않았으면 한 이닝 적다.
-  return Math.max(0, state.turn === first ? state.inning - 1 : state.inning);
+  const list = sides(state);
+  const start = Math.max(0, list.indexOf(firstSide(state)));
+  // 선공을 0번으로 놓았을 때의 순번. 이닝 안에서 누가 이미 쳤는지가 이 순서로 갈린다.
+  const order = (side: Side) => (list.indexOf(side) - start + list.length) % list.length;
+  const mine = order(side);
+  const now = order(state.turn);
+  // 지금 차례보다 앞선 자리는 이번 이닝을 이미 쳤고, 뒤인 자리는 아직이다.
+  return Math.max(0, mine <= now ? state.inning : state.inning - 1);
 }
 
 /** 한 게임의 평균 애버리지 — 당구장에서 실제로 보는 숫자. 자기가 친 이닝으로 나눈다. */
@@ -612,7 +738,9 @@ export function average(state: GameState, side: Side): number {
  */
 export function inningRuns(state: GameState): Record<Side, number[]> {
   const first = firstSide(state);
-  const runs: Record<Side, number[]> = { white: [], yellow: [] };
+  const list = sides(state);
+  const runs: Record<Side, number[]> = {};
+  for (const side of list) runs[side] = [];
 
   for (const entry of state.history) {
     const moved = entry.delta > 0 && entry.side !== entry.turnBefore && entry.side === first;
@@ -623,9 +751,9 @@ export function inningRuns(state: GameState): Record<Side, number[]> {
     list[at] += entry.delta;
   }
 
-  // 두 배열의 길이를 맞춰 둔다. 표가 이닝 수만큼 줄을 그릴 때 한쪽만 짧으면 곤란하다.
-  const length = Math.max(runs.white.length, runs.yellow.length);
-  for (const side of ['white', 'yellow'] as Side[]) {
+  // 배열의 길이를 맞춰 둔다. 표가 이닝 수만큼 줄을 그릴 때 한쪽만 짧으면 곤란하다.
+  const length = Math.max(0, ...list.map((side) => runs[side].length));
+  for (const side of list) {
     while (runs[side].length < length) runs[side].push(0);
   }
   return runs;
@@ -647,6 +775,8 @@ export interface GameSummary {
   inning: number;
   winner?: Side;
   players: Record<Side, PlayerState>;
+  /** 자리 순서. 둘이 친 판에는 없다 — 그때는 순서가 하나뿐이었다. */
+  order?: Side[];
   /**
    * 이닝별 득점. 히스토리 전체 대신 이것만 남긴다.
    *
@@ -675,6 +805,7 @@ export const summarize = (state: GameState): GameSummary => ({
   inning: state.inning,
   winner: state.winner,
   players: state.players,
+  order: state.order,
   runs: inningRuns(state),
   notes: keptNotes(state.notes),
 });
