@@ -175,32 +175,29 @@ export function SettingsPanel() {
           />
         </div>
 
-        <label className="row" style={{ justifyContent: 'space-between' }}>
+        <label className="switch-row">
           <span>점수 버튼 진동</span>
           <input
             type="checkbox"
             checked={settings.haptics}
-            style={{ width: '3rem', minHeight: 0 }}
             onChange={(event) => update({ haptics: event.target.checked })}
           />
         </label>
 
-        <label className="row" style={{ justifyContent: 'space-between' }}>
+        <label className="switch-row">
           <span>게임 중 화면 켜 두기</span>
           <input
             type="checkbox"
             checked={settings.keepAwake}
-            style={{ width: '3rem', minHeight: 0 }}
             onChange={(event) => update({ keepAwake: event.target.checked })}
           />
         </label>
 
-        <label className="row" style={{ justifyContent: 'space-between' }}>
+        <label className="switch-row">
           <span>남은 점수 소리로 알리기</span>
           <input
             type="checkbox"
             checked={settings.voice !== false}
-            style={{ width: '3rem', minHeight: 0 }}
             onChange={(event) => update({ voice: event.target.checked })}
           />
         </label>
@@ -249,7 +246,7 @@ export function SettingsPanel() {
         </p>
 
         <form
-          className="row"
+          className="add-place"
           onSubmit={(event) => {
             event.preventDefault();
             const name = adding.trim();
