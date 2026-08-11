@@ -45,6 +45,8 @@ import { SignIn } from '../sign-in';
 export function SettingsPanel() {
   const account = useAccount();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  /** 지금 적고 있는 당구장 이름. */
+  const [adding, setAdding] = useState('');
 
   useEffect(() => {
     void loadSettings().then(setSettings);
@@ -229,6 +231,68 @@ export function SettingsPanel() {
         <p style={{ fontSize: '0.78rem' }}>
           켜면 점수판 아래에 남은 시간이 막대로 흐릅니다. 초록에서 노랑을 지나 빨강이 되고,
           다 쓰면 한 번 울립니다. 일시정지하면 같이 멈춥니다.
+        </p>
+      </div>
+
+      {/*
+        다니는 당구장.
+
+        기록에서 되짚을 수도 있지만 그건 "친 적 있는 집"이고, 여기 적는 것은 "다니는
+        집"이다. 둘은 다르다 — 새로 생긴 집은 아직 기록이 없어도 오늘 갈 수 있고, 상단
+        줄의 고르개는 그 집을 알아야 한다.
+      */}
+      <div className="card">
+        <h2>당구장</h2>
+        <p>
+          자주 가는 곳을 적어 두면 첫 화면 위쪽에서 골라 둘 수 있고, 그날 친 판에 장소가
+          함께 남습니다.
+        </p>
+
+        <form
+          className="row"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const name = adding.trim();
+            if (!name) return;
+            const list = settings.venues ?? [];
+            if (!list.includes(name)) update({ venues: [...list, name] });
+            setAdding('');
+          }}
+        >
+          <input
+            value={adding}
+            placeholder="예: 대박당구장"
+            aria-label="당구장 이름"
+            onChange={(event) => setAdding(event.target.value)}
+          />
+          <button type="submit" className="secondary">
+            추가
+          </button>
+        </form>
+
+        {(settings.venues ?? []).length === 0 ? (
+          <p style={{ fontSize: '0.82rem' }}>아직 적어 둔 곳이 없습니다.</p>
+        ) : (
+          <div className="places">
+            {(settings.venues ?? []).map((name) => (
+              <div className="place" key={name}>
+                <span>{name}</span>
+                <button
+                  className="ghost"
+                  aria-label={`${name} 지우기`}
+                  onClick={() =>
+                    update({ venues: (settings.venues ?? []).filter((entry) => entry !== name) })
+                  }
+                >
+                  지우기
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+        <p style={{ fontSize: '0.78rem' }}>
+          여기서 지워도 이미 친 기록의 장소는 그대로 남습니다 — 지난 일을 고치는 자리가
+          아니라, 앞으로 고를 목록을 정하는 자리입니다.
         </p>
       </div>
 

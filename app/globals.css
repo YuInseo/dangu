@@ -2819,3 +2819,113 @@ button.record {
   gap: 0 0.6rem;
   margin-top: -0.2rem;
 }
+
+/* 상단 줄의 당구장 고르개 ------------------------------------------- */
+
+.venue-pick {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+.venue-pick .venue-button {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-height: 0;
+  padding: 0.2rem 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  font-size: 1.05rem;
+  font-weight: 800;
+  max-width: 100%;
+}
+
+.venue-pick .venue-button span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.venue-pick .caret {
+  font-size: 0.75rem;
+  opacity: 0.55;
+}
+
+/* 메뉴 뒤의 덮개. 화면 전체를 덮되 보이지는 않는다 — 바깥을 눌러 닫기 위한 자리다. */
+.venue-pick .venue-veil {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: transparent;
+  border: 0;
+  min-height: 0;
+  padding: 0;
+}
+
+.venue-pick .venue-menu {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  left: 0;
+  z-index: 41;
+  min-width: 12rem;
+  max-width: 80vw;
+  max-height: 60vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  padding: 0.3rem;
+  border-radius: 0.9rem;
+  background: #1b1f27;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+.venue-pick .venue-menu button {
+  min-height: 0;
+  padding: 0.6rem 0.7rem;
+  border-radius: 0.6rem;
+  background: none;
+  border: 0;
+  color: var(--center-ink);
+  font-size: 0.92rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.venue-pick .venue-menu button.on {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--accent);
+}
+
+.venue-pick .venue-menu button.clear {
+  opacity: 0.5;
+  font-weight: 600;
+}
+
+/* 설정의 당구장 목록. 한 줄에 하나, 지우기는 오른쪽 끝. */
+.places {
+  display: flex;
+  flex-direction: column;
+}
+
+.places .place {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.55rem 0.1rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-weight: 700;
+}
+
+.places .place:last-child {
+  border-bottom: 0;
+}
+
+.places .place button {
+  min-height: 0;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.8rem;
+}

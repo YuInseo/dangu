@@ -14,7 +14,9 @@ export const metadata = { title: '당구 점수판' };
 export default function HomePage() {
   return (
     <div className="app">
-      <TopBar title="당구 점수판" />
+      {/* 첫 화면에서는 제목 자리가 당구장 고르개가 된다 — 앱 이름을 읽으러 이 화면에
+          오는 사람은 없고, "지금 어느 집에 있나"는 그날 한 번 고를 값이다. */}
+      <TopBar title="당구 점수판" venues />
       <Lobby />
       <NavBar />
     </div>
