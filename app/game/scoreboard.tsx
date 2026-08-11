@@ -25,6 +25,7 @@ import {
   type Side,
 } from '../../lib/game';
 import { keepAwake, tap } from '../../lib/platform';
+import { hush, speak } from '../../lib/speech';
 import { Notes } from './notes';
 import {
   clearCurrentGame,
@@ -32,9 +33,10 @@ import {
   loadCurrentGame,
   loadSettings,
   recordGame,
+  removeGame,
   saveCurrentGame,
 } from '../../lib/storage';
-import { pushGame } from '../../lib/firebase';
+import { deleteGame, pushGame } from '../../lib/firebase';
 import { useAccount } from '../../lib/use-account';
 
 /**
@@ -63,6 +65,10 @@ export function Scoreboard() {
   const [limit, setLimit] = useState(0);
   /** 시간이 다 됐다고 울린 차례. 같은 차례에 두 번 울리지 않으려고 기억한다. */
   const buzzed = useRef<number | null>(null);
+  /** 남은 점수를 소리로 알릴지. 설정에서 끌 수 있다. */
+  const [voice, setVoice] = useState(false);
+  /** 마지막으로 읽어 준 시점의 기록 길이. 늘어난 만큼만 새로 읽는다. */
+  const said = useRef<number | null>(null);
 
   /* 불러오기 ------------------------------------------------------- */
 
@@ -112,6 +118,49 @@ export function Scoreboard() {
     buzzed.current = state.turnAt;
     tap('heavy');
   }, [state?.elapsedMs, state?.turnAt, state?.running, state?.finishedAt, limit]);
+
+  /* 소리로 알리기 ---------------------------------------------------- */
+
+  useEffect(() => {
+    void loadSettings().then((settings) => setVoice(settings.voice !== false));
+  }, []);
+
+  /*
+   * 점수가 올라갈 때마다 남은 점수를 읽어 준다.
+   *
+   * 기록의 길이를 보는 이유는, 어느 버튼으로 올렸든 여기 한 곳에서 잡기 위해서다 —
+   * 판을 눌렀든, +2를 눌렀든, 숫자를 직접 넣었든 기록에는 한 줄로 남는다. 줄어들었으면
+   * 되돌리기이므로 읽지 않는다: 잘못 누른 것을 고치는 동작이 다시 말을 걸면 시끄럽다.
+   *
+   * 처음 불러온 판은 길이만 기억하고 넘어간다. 앱을 다시 켰을 때 마지막 점수를 읽어
+   * 주는 것은 아무도 부탁한 적 없는 일이다.
+   */
+  useEffect(() => {
+    if (!state) return;
+    const count = state.history.length;
+    const first = said.current === null;
+    const grew = !first && count > said.current!;
+    said.current = count;
+    if (!voice || first || !grew) return;
+
+    const last = state.history.at(-1);
+    if (!last || last.delta <= 0) return;
+
+    if (state.finishedAt) {
+      speak(state.winner ? `${state.players[state.winner].name} 승리입니다` : '무승부입니다');
+      return;
+    }
+
+    // 쿠션 구간에서는 남은 것이 목표 점수가 아니라 쿠션 점수다. 화면이 그렇게 바뀌므로
+    // 소리도 같은 것을 말해야 한다 — 둘이 다른 숫자를 말하면 듣는 쪽이 화면을 본다.
+    const left = needsCushion(state, last.side)
+      ? cushionRemaining(state, last.side)
+      : remaining(state, last.side);
+    speak(`${left}점 남았습니다`);
+  }, [state?.history.length, state?.finishedAt, voice]);
+
+  // 점수판을 떠나면 읽던 것을 멈춘다. 로비에서 점수가 들리면 곤란하다.
+  useEffect(() => () => hush(), []);
 
   /* 화면 꺼짐 방지 -------------------------------------------------- */
 
@@ -297,10 +346,30 @@ export function Scoreboard() {
               me: state.me,
               lastCushion: state.lastCushion,
               equalizer: state.equalizer,
+              foul: state.foul,
             });
             await saveCurrentGame(next);
             dispatch(next);
             setSaved(false);
+          }}
+          onUndo={async () => {
+            /*
+              끝난 게임을 다시 연다.
+
+              마지막 한 점을 잘못 눌러 판이 닫히는 일이 실제로 있다. 그때 아래 되돌리기는
+              이 시트에 가려 손이 닿지 않으므로 여기에도 하나 둔다.
+
+              저장된 기록은 지운다. 게임이 끝나는 순간 이미 저장되어 있는데, 그걸 두고
+              돌아가면 아직 치고 있는 판이 기록 목록에 한 번 더 앉는다 — 다시 끝내면
+              같은 id로 덮어써지지만, 그 사이에 목록을 열어 본 사람에게는 끝나지도 않은
+              게임이 남아 있다.
+            */
+            await storing.current;
+            await removeGame(state.id);
+            if (account && (await cloudChosen())) await deleteGame(account.uid, state.id);
+            setSaved(false);
+            dispatch({ type: 'undo' });
+            tap();
           }}
           onClose={async () => {
             // 기록은 게임이 끝난 순간 이미 저장됐다. 여기서는 그게 끝나기를 기다렸다가
@@ -520,10 +589,12 @@ function ShotClock({ spent, limit }: { spent: number; limit: number }) {
 function ResultSheet({
   state,
   onAgain,
+  onUndo,
   onClose,
 }: {
   state: GameState;
   onAgain: () => Promise<void>;
+  onUndo: () => Promise<void>;
   onClose: () => Promise<void>;
 }) {
   const winner = state.winner ? state.players[state.winner] : null;
@@ -545,6 +616,16 @@ function ResultSheet({
         </button>
         <button className="secondary" onClick={() => void onClose()}>
           게임 종료
+        </button>
+        {/*
+          마지막 한 점을 잘못 눌러 판이 닫히는 일이 있다. 아래 되돌리기는 이 시트에
+          가려 손이 닿지 않으므로 여기에도 하나 둔다.
+
+          다만 셋 중 제일 조용한 자리에 둔다 — 판이 끝난 뒤 열에 아홉은 한 판 더
+          치거나 자리를 뜨는 것이고, 이건 잘못 눌렀을 때만 찾는 버튼이다.
+        */}
+        <button className="ghost" onClick={() => void onUndo()}>
+          되돌리기 — 마지막 점수 취소
         </button>
       </div>
     </div>

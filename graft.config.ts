@@ -112,6 +112,16 @@ export default defineConfig({
        * 점수판이 남의 서버에 말을 걸 이유는 없고, 업데이트는 우리 릴리스에서 온다.
        */
       '@capgo/capacitor-updater',
+      /**
+       * 소리 내어 읽기.
+       *
+       * 안드로이드 WebView에는 `speechSynthesis`가 없다 — 크롬에는 있어서 브라우저로
+       * 열면 그대로 들리지만, 앱 안에서는 같은 코드가 조용히 아무 일도 하지 않는다.
+       * 기기에 이미 깔려 있는 시스템 TTS 엔진에 닿는 길이 이 플러그인뿐이다.
+       *
+       * 부르는 곳은 `lib/speech.ts` 한 곳이고, 없으면 웹 경로로 떨어진다.
+       */
+      '@capacitor-community/text-to-speech',
     ],
 
     build: 'auto',

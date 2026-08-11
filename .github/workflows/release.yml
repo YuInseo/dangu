@@ -241,6 +241,13 @@ jobs:
           # 여기서 고정하는 이유는 graft가 모르는 플러그인에 `^6.0.0`을 주기 때문이다.
           # 한 번 적힌 값은 다음 빌드에서 건드리지 않으므로 이 줄이 끝까지 이긴다.
           npm pkg set "dependencies.@capgo/capacitor-updater=6.13.2"
+
+          # 읽어 주기 플러그인도 같은 이유로 못박는다.
+          #
+          # 이 플러그인은 6.0.0부터 Capacitor 7을 요구한다(`peerDependencies`). 이 앱은
+          # 아직 6이라, graft가 기본으로 주는 `^6.0.0`은 7용 판을 끌고 와서 네이티브가
+          # 어긋난다. 5.1.0이 Capacitor 6 계열의 마지막 판이다.
+          npm pkg set "dependencies.@capacitor-community/text-to-speech=5.1.0"
           npm install
 
           # 오버레이가 먼저 android/를 만들어 두는 경우가 있다.
