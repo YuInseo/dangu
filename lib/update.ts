@@ -180,9 +180,18 @@ export async function needsApk(release: ReleaseInfo): Promise<boolean> {
   if (!repo || !release.apk) return false;
   // 웹 번들이 아예 없는 릴리스라면 갈아끼울 방법이 APK뿐이다.
   if (!release.bundle) return true;
+
+  // 조용한 업데이트를 아예 못 하는 껍데기라면, 남은 길도 APK뿐이다.
+  //
+  // 예전에는 이 경우 `false`였다. "확신이 없으면 조용히"라는 규칙을 따른 것인데,
+  // 조용한 업데이트가 불가능한 것은 확신이 없는 게 아니라 확실히 안 되는 것이다.
+  // 그 상태에서 아무 말도 하지 않으면 앱은 새 버전을 알면서 영영 옛 화면을 띄운다.
+  const { liveUpdatable, nativeVersion } = await import('./live-update');
+  const { isNativeApp } = await import('./platform');
+  if (isNativeApp() && !liveUpdatable()) return true;
+
   if (!release.nativeKey) return false;
 
-  const { nativeVersion } = await import('./live-update');
   const native = await nativeVersion();
   if (!native) return false;
   if (native === release.version) return false;

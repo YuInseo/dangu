@@ -25,7 +25,13 @@ import {
   type InstallProgress,
   type UpdateCheck,
 } from '../../lib/update';
-import { stageWebBundle, type StageResult } from '../../lib/live-update';
+import {
+  applyNow,
+  diagnose,
+  stageWebBundle,
+  type StageResult,
+  type UpdateDiagnosis,
+} from '../../lib/live-update';
 import { syncDown, syncUp, useAccount } from '../../lib/use-account';
 import { SignIn } from '../sign-in';
 
@@ -365,6 +371,9 @@ function UpdateCard() {
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<InstallProgress | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  /** 이 앱이 업데이트에 대해 아는 것 전부. 안 될 때 볼 수 있어야 고칠 수 있다. */
+  const [info, setInfo] = useState<UpdateDiagnosis | null>(null);
+  const [showInfo, setShowInfo] = useState(false);
 
   /** `force`는 사람이 "다시 확인"을 눌렀다는 뜻이다 — 그때만 캐시를 건너뛴다. */
   const run = async (force = false) => {
@@ -376,6 +385,7 @@ function UpdateCard() {
       setStage(await stageWebBundle(result.release));
       setApk(await needsApk(result.release));
     }
+    setInfo(await diagnose());
     setBusy(false);
   };
 
@@ -411,12 +421,55 @@ function UpdateCard() {
             </p>
           )}
 
+          {/*
+            받아 둔 뒤의 자리.
+
+            예전에는 여기서 "다시 켜면 적용됩니다"만 말하고 끝이었다. 그런데 다시 켜도
+            안 바뀌는 날이 있었고, 그때 사용자가 할 수 있는 일이 하나도 없었다 — 무엇이
+            잘못됐는지 화면에 없었기 때문이다. 그래서 둘을 더했다: 지금 바로 적용하는
+            버튼과, 안 됐을 때 그 이유.
+          */}
           {stage?.state === 'ready' && (
-            <p className="notice">
-              <strong>v{stage.version}을 받아 두었습니다.</strong>
+            <>
+              <p className="notice">
+                <strong>v{stage.version}을 받아 두었습니다.</strong>
+                <br />
+                앱을 완전히 닫았다가 다시 켜면 적용됩니다. 기다리지 않으려면 아래 버튼을
+                누르세요 — 지금 갈아끼우고 화면을 새로 엽니다.
+              </p>
+              <button
+                className="primary"
+                disabled={busy}
+                onClick={async () => {
+                  setBusy(true);
+                  setMessage(null);
+                  const result = await applyNow(available.release);
+                  setBusy(false);
+                  if (result.state !== 'ready') {
+                    setMessage(
+                      result.state === 'error' ? result.reason : '지금은 적용할 수 없습니다.'
+                    );
+                  }
+                }}
+              >
+                v{stage.version} 지금 적용
+              </button>
+            </>
+          )}
+
+          {stage?.state === 'error' && (
+            <p className="notice warn">
+              <strong>받지 못했습니다.</strong>
               <br />
-              앱을 완전히 닫았다가 다시 켜면 적용됩니다 — 화면만 나갔다 오는 것으로는 바뀌지
-              않습니다.
+              {stage.reason}
+            </p>
+          )}
+
+          {/* 브라우저에는 갈아끼울 껍데기가 없다 — 그건 고장이 아니라 그냥 웹이다. */}
+          {stage?.state === 'unsupported' && getPlatform() !== 'web' && (
+            <p className="notice warn">
+              이 앱 껍데기는 화면만 갈아끼우는 방식을 쓰지 못합니다. 아래에서 APK를 한 번
+              설치하면 그다음부터는 조용히 업데이트됩니다.
             </p>
           )}
 
@@ -453,6 +506,26 @@ function UpdateCard() {
         </>
       )}
 
+      {/*
+        어떤 상태에서도 APK로 가는 길은 열어 둔다.
+
+        조용한 업데이트가 막힌 이유를 앱이 늘 알 수 있는 것은 아니다 — 플러그인이
+        없을 수도, 받다가 실패했을 수도, GitHub이 한도를 걸었을 수도 있다. 그 모든
+        경우에 공통으로 통하는 길이 하나 있으므로, 판단이 서지 않아도 그 길만은
+        가려 두지 않는다.
+      */}
+      {available?.release.apk && !apk && (
+        <a
+          className="ghost"
+          href={available.release.apk.url}
+          target="_blank"
+          rel="noreferrer"
+          style={{ display: 'block', textAlign: 'center' }}
+        >
+          APK 직접 받기 (v{available.version})
+        </a>
+      )}
+
       <button className="ghost" onClick={() => void run(true)} disabled={busy}>
         {busy ? '확인 중…' : '다시 확인'}
       </button>
@@ -463,6 +536,27 @@ function UpdateCard() {
         새 버전은 앱이 켜질 때 알아서 받아 두고 다음 실행에 적용됩니다. 앱 껍데기가 바뀔 때만
         안드로이드 설치 화면이 한 번 뜨는데, 그건 시스템이 요구하는 것이라 건너뛸 수 없습니다.
       </p>
+
+      {/* 잘 될 때는 접혀 있고, 안 될 때만 펼쳐 본다. */}
+      <button className="ghost" onClick={() => setShowInfo((open) => !open)}>
+        {showInfo ? '업데이트 상태 접기' : '업데이트 상태 보기'}
+      </button>
+      {showInfo && (
+        <p className="notice" style={{ fontSize: '0.74rem', whiteSpace: 'pre-wrap' }}>
+          {[
+            `화면 v${currentVersion()}`,
+            `업데이트 기능 ${info?.plugin ? '있음' : '없음'}`,
+            `껍데기 v${info?.native ?? '?'}`,
+            `적용된 번들 ${info?.bundle ?? '기본'}`,
+            `다음 번들 ${info?.next ?? '없음'}`,
+            `받아 둔 것 ${
+              info?.bundles.length
+                ? info.bundles.map((entry) => `${entry.version}(${entry.status})`).join(', ')
+                : '없음'
+            }`,
+          ].join('\n')}
+        </p>
+      )}
     </div>
   );
 }
