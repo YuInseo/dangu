@@ -36,7 +36,7 @@ import {
   updateGame,
 } from '../../lib/storage';
 import { deleteAllGames, deleteGame, pushGame } from '../../lib/firebase';
-import { syncDown, useAccount } from '../../lib/use-account';
+import { useAccount } from '../../lib/use-account';
 import { NotePages } from '../game/notes';
 import { tap } from '../../lib/platform';
 
@@ -51,7 +51,7 @@ import { tap } from '../../lib/platform';
  * 틀리면 조용히 틀린 채로 남기 때문에, 화면 코드 사이에 계산이 섞여 있으면 안 된다.
  */
 export function StatsView() {
-  const { account } = useAccount();
+  const { account, sync } = useAccount();
   const [games, setGames] = useState<GameSummary[] | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   /** 전체 삭제의 확인 단계. 한 번 눌러 열고, 다시 눌러야 지워진다. */
@@ -76,14 +76,13 @@ export function StatsView() {
     void cloudChosen().then(setCloud);
   }, []);
 
-  // 클라우드 저장을 고른 사람에게는 계정에 있는 것까지 합쳐 본다. 폰을 바꿨을 때
-  // 이 화면이 비어 있지 않은 이유가 이 효과다.
+  // 맞춤이 끝나면 목록을 다시 읽는다. 맞추는 일 자체는 `useAccount`가 앱 전체에 하나로
+  // 돌리므로, 이 화면은 그 결과만 받아 그린다 — 폰을 바꿨을 때 여기가 비어 있지 않은
+  // 이유가 그것이다.
   useEffect(() => {
     if (!account) return;
-    void cloudChosen().then((yes) => {
-      if (yes) void syncDown(account.uid).then(setGames);
-    });
-  }, [account]);
+    void loadHistory().then(setGames);
+  }, [account, sync.at]);
 
   const all = games ?? [];
   const byDay = useMemo(() => tallyByDay(all), [all]);

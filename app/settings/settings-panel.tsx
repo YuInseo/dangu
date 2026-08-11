@@ -32,7 +32,7 @@ import {
   type StageResult,
   type UpdateDiagnosis,
 } from '../../lib/live-update';
-import { syncDown, syncUp, useAccount } from '../../lib/use-account';
+import { useAccount } from '../../lib/use-account';
 import { SignIn } from '../sign-in';
 
 /**
@@ -45,7 +45,6 @@ import { SignIn } from '../sign-in';
 export function SettingsPanel() {
   const account = useAccount();
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
-  const [syncing, setSyncing] = useState<string | null>(null);
 
   useEffect(() => {
     void loadSettings().then(setSettings);
@@ -79,7 +78,11 @@ export function SettingsPanel() {
           <button
             className="choice"
             aria-pressed={settings.sync === 'cloud'}
-            onClick={() => update({ sync: 'cloud' })}
+            onClick={() => {
+              update({ sync: 'cloud' });
+              // 고른 그 자리에서 맞춘다. 켜 두고 다음에 앱을 켤 때까지 기다릴 이유가 없다.
+              void account.syncNow();
+            }}
           >
             구글 계정
             <small>Firebase에 사본을 둡니다. 폰을 바꿔도 남습니다.</small>
@@ -116,29 +119,40 @@ export function SettingsPanel() {
               {account.account.name}
               {account.account.email ? ` · ${account.account.email}` : ''}
             </p>
-            <div className="row">
+            {/*
+              맞추기는 자동이다. 여기 있는 것은 버튼이 아니라 그 결과다.
+
+              올리기·받기 버튼이 있던 자리인데, 그 둘을 언제 눌러야 하는지 아는 사람은
+              만든 사람뿐이었다. 폰을 바꿨을 때, 다른 기기에서 쳤을 때, 지하에서 안
+              올라갔을 때 — 전부 앱이 알 수 있는 일이다.
+            */}
+            {settings.sync === 'cloud' ? (
+              <p className={account.sync.state === 'error' ? 'notice warn' : 'notice'}>
+                {account.sync.state === 'syncing' && '기록을 맞추는 중…'}
+                {account.sync.state === 'done' &&
+                  (account.sync.up + account.sync.down === 0
+                    ? '기록이 계정과 같습니다.'
+                    : `맞췄습니다 — ${account.sync.down}건 받고 ${account.sync.up}건 올렸습니다.`)}
+                {account.sync.state === 'error' &&
+                  `맞추지 못했습니다. ${account.sync.reason ?? ''}`}
+                {account.sync.state === 'idle' && '앱을 켤 때마다 자동으로 맞춥니다.'}
+              </p>
+            ) : (
+              <p style={{ fontSize: '0.82rem' }}>
+                저장 방식이 “이 기기에만”이라 계정에는 올라가지 않습니다. 위에서 “구글 계정”을
+                고르면 그때부터 자동으로 맞춥니다.
+              </p>
+            )}
+
+            {settings.sync === 'cloud' && (
               <button
                 className="secondary"
-                onClick={async () => {
-                  setSyncing('올리는 중…');
-                  const count = await syncUp(account.account!.uid);
-                  setSyncing(`${count}건 올렸습니다.`);
-                }}
+                disabled={account.sync.state === 'syncing'}
+                onClick={() => void account.syncNow()}
               >
-                기록 올리기
+                {account.sync.state === 'syncing' ? '맞추는 중…' : '지금 맞추기'}
               </button>
-              <button
-                className="secondary"
-                onClick={async () => {
-                  setSyncing('받는 중…');
-                  const list = await syncDown(account.account!.uid);
-                  setSyncing(`${list.length}건이 이 기기에 있습니다.`);
-                }}
-              >
-                기록 받기
-              </button>
-            </div>
-            {syncing && <p className="notice">{syncing}</p>}
+            )}
             <button className="ghost" onClick={() => void account.signOutNow()}>
               로그아웃
             </button>
