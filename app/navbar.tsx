@@ -17,6 +17,11 @@ import { tap } from '../lib/platform';
  * 첫 칸이 상황에 따라 바뀌는 것이 이 줄의 핵심이다. 진행 중인 게임이 있으면 "점수판"이
  * 되어 한 번에 판으로 돌아가고, 없으면 "홈"이 되어 로비로 간다. 게임 중에 기록을 보다가
  * 돌아오는 데 두 번 눌러야 한다면 이 줄을 만든 이유가 없어진다.
+ *
+ * 그림은 없고 글자만 있다. 한때 이모지를 하나씩 얹었는데, 이모지는 기기마다 다른
+ * 그림으로 그려지고 그중 어느 것도 이 앱이 고른 그림이 아니었다 — 달력에 적힌 날짜가
+ * 오늘이 아니고, 공은 8번 공이라 4구 점수판과 상관이 없다. 세 칸짜리 줄에서는 글자가
+ * 이미 충분히 짧고 분명하다.
  */
 export function NavBar() {
   const pathname = usePathname();
@@ -34,11 +39,9 @@ export function NavBar() {
   }, [pathname]);
 
   const tabs = [
-    playing
-      ? { href: '/game', label: '점수판', icon: '🎱' }
-      : { href: '/', label: '홈', icon: '🎱' },
-    { href: '/stats', label: '기록', icon: '📅' },
-    { href: '/settings', label: '설정', icon: '⚙️' },
+    playing ? { href: '/game', label: '점수판' } : { href: '/', label: '홈' },
+    { href: '/stats', label: '기록' },
+    { href: '/settings', label: '설정' },
   ];
 
   return (
@@ -54,9 +57,6 @@ export function NavBar() {
             aria-current={active ? 'page' : undefined}
             onClick={() => tap()}
           >
-            <span className="icon" aria-hidden="true">
-              {tab.icon}
-            </span>
             {tab.label}
           </Link>
         );
