@@ -41,6 +41,13 @@ export interface AppSettings {
   haptics: boolean;
   keepAwake: boolean;
   /**
+   * 점수를 올릴 때 남은 점수를 소리 내어 읽을지.
+   *
+   * 큐를 들고 있는 사람은 화면을 보고 있지 않다. 기본은 켬 — 이 앱을 켜 두는 자리가
+   * 대개 테이블 옆이고, 거기서 제일 자주 하는 일이 "몇 개 남았지?"를 묻는 것이다.
+   */
+  voice: boolean;
+  /**
    * 한 차례에 주는 시간(초). 0이면 안 쓴다.
    *
    * 3쿠션의 공식 샷 클락이 40초라 그걸 기본으로 둔다. 동호회에서는 더 넉넉하게 잡는
@@ -59,6 +66,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastFoul: false,
   haptics: true,
   keepAwake: true,
+  voice: true,
   turnSeconds: 0,
   sync: 'local',
 };

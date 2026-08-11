@@ -173,6 +173,21 @@ export function SettingsPanel() {
           />
         </label>
 
+        <label className="row" style={{ justifyContent: 'space-between' }}>
+          <span>남은 점수 소리로 알리기</span>
+          <input
+            type="checkbox"
+            checked={settings.voice !== false}
+            style={{ width: '3rem', minHeight: 0 }}
+            onChange={(event) => update({ voice: event.target.checked })}
+          />
+        </label>
+        <p style={{ fontSize: '0.78rem' }}>
+          점수를 올릴 때마다 “17점 남았습니다”처럼 읽어 줍니다. 큐를 들고 있으면 화면을
+          볼 수 없어서 붙인 기능이고, 기기에 깔린 한국어 음성을 그대로 씁니다 — 음성이 없는
+          기기에서는 켜도 소리가 나지 않습니다.
+        </p>
+
         {/*
           샷 클락.
           3쿠션 공식이 40초라 그걸 가운데 두었다. 기본은 끔 — 동호회에서 치는 사람에게
