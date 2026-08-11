@@ -16,6 +16,7 @@ import {
   other,
   reduce,
   remaining,
+  scoreFloor,
   summarize,
   readNotes,
   turnElapsed,
@@ -402,17 +403,20 @@ function PlayerSide({
             둘을 몰아 적는 대신 각자의 판에 적는다 — 자기 숫자를 자기 쪽에서 본다. */}
         <div className="rate">
           에버 {average(state, side).toFixed(2).replace('-', '−')} · {innings(state, side)}이닝
-          {/* 뒷빡은 점수에서 깎지 않고 따로 센다. 점수판의 큰 숫자는 "몇 개를 쳤나"이고,
-              뒷빡은 "몇 번 실수했나"라 같은 자리에 섞으면 둘 다 못 읽는다. */}
-          {state.foul === true && (
-            <>
-              {' · '}
-              <span className="fouls" data-zero={!player.fouls}>
-                뒷빡 {player.fouls ? `−${player.fouls}` : 0}
-              </span>
-            </>
-          )}
         </div>
+
+        {/*
+          몇 번 냈는지.
+
+          에버 줄에 이어 붙였더니 한쪽만 줄바꿈이 되어 두 판의 높이가 어긋났다 — 같은
+          줄이어도 "뒷빡 −1"과 "뒷빡 0"의 길이가 다르기 때문이다. 한 줄을 따로 주면
+          두 판이 똑같이 한 줄씩 늘어난다.
+        */}
+        {state.foul === true && (
+          <div className="rate fouls" data-zero={!player.fouls}>
+            뒷빡 {player.fouls ? `−${player.fouls}` : 0}
+          </div>
+        )}
 
         <div className="spacer" />
 
@@ -440,9 +444,9 @@ function PlayerSide({
             key={delta}
             className="minus"
             onClick={() => onScore(side, -delta)}
-            // 뒷빡으로 0 아래에 있는 점수는 손으로 더 못 내린다. 손으로 누르는 −1은
-            // 잘못 올린 것을 되돌리는 버튼이고, 되돌릴 것이 없으면 할 일이 없다.
-            disabled={player.score <= 0}
+            // 뒷빡을 쓰는 판에서는 0에서도 눌린다. 뒷빡을 몇 점으로 물릴지는 치는
+            // 사람들이 정하는 것이고, 그걸 여기서 직접 빼기 때문이다.
+            disabled={player.score <= scoreFloor(state)}
           >
             −{delta}
           </button>
