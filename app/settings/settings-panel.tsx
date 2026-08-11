@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 
-import { clipboard, getPlatform } from '../../lib/platform';
+import { clipboard, getPlatform, tap } from '../../lib/platform';
 import {
   firebaseConfig,
   loadFirebaseConfig,
@@ -271,20 +271,45 @@ export function SettingsPanel() {
           <p style={{ fontSize: '0.82rem' }}>아직 적어 둔 곳이 없습니다.</p>
         ) : (
           <div className="places">
-            {(settings.venues ?? []).map((name) => (
-              <div className="place" key={name}>
-                <span>{name}</span>
-                <button
-                  className="ghost"
-                  aria-label={`${name} 지우기`}
-                  onClick={() =>
-                    update({ venues: (settings.venues ?? []).filter((entry) => entry !== name) })
-                  }
-                >
-                  지우기
-                </button>
-              </div>
-            ))}
+            {(settings.venues ?? []).map((name) => {
+              const home = settings.lastVenue === name;
+              return (
+                <div className="place" key={name}>
+                  <span>{name}</span>
+                  {/*
+                    기본으로 삼기.
+
+                    고른 집은 첫 화면 위쪽에 떠 있고, 새 판을 차릴 때 장소 칸에 미리
+                    채워진다. 늘 같은 집에 가는 사람은 이걸 한 번 눌러 두면 장소를
+                    다시는 고르지 않는다. 이미 기본인 것을 누르면 풀린다 — 켜는 길만
+                    있고 끄는 길이 없으면 그건 고르개가 아니다.
+                  */}
+                  <button
+                    className={home ? 'choice on' : 'choice'}
+                    aria-pressed={home}
+                    onClick={() => {
+                      update({ lastVenue: home ? '' : name });
+                      tap();
+                    }}
+                  >
+                    기본
+                  </button>
+                  <button
+                    className="ghost"
+                    aria-label={`${name} 지우기`}
+                    onClick={() =>
+                      update({
+                        venues: (settings.venues ?? []).filter((entry) => entry !== name),
+                        // 기본으로 삼았던 집을 지우면 기본도 함께 사라진다.
+                        ...(home ? { lastVenue: '' } : {}),
+                      })
+                    }
+                  >
+                    지우기
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
         <p style={{ fontSize: '0.78rem' }}>
