@@ -256,6 +256,25 @@ graft-island {
   color: var(--danger);
 }
 
+/* 0 아래로 간 점수. 부호를 색이 먼저 말한다. */
+.side .score.below {
+  color: var(--danger);
+}
+
+/*
+ * 큰 숫자 앞의 빼기표.
+ *
+ * 같은 크기로 두면 −가 숫자만 한 막대가 되어 세 자리 점수만큼 자리를 먹는다. 절반으로
+ * 줄이고 숫자의 가운데 높이에 맞춘다 — 부호는 읽는 것이 아니라 알아보는 것이라 작아도
+ * 된다. 색까지 이미 붉으므로 크기로 한 번 더 말할 필요가 없다.
+ */
+.side .score .neg {
+  font-size: 0.46em;
+  vertical-align: 0.34em;
+  margin-right: 0.06em;
+  letter-spacing: 0;
+}
+
 .side.in-cushion {
   box-shadow: inset 0 0 0 5px var(--danger);
 }
@@ -304,21 +323,6 @@ graft-island {
 /* 뒷빡 자리. 글자만 지우고 자리는 그대로 둔다. */
 .side .tap-hint[data-empty='true'] {
   visibility: hidden;
-}
-
-/* 쌓인 뒷빡. 에버 바로 아래 한 줄이고, 그 줄에서 유일하게 나쁜 소식이라 조금 더 진하다.
-   아직 하나도 없으면 붉히지 않는다 — 0을 빨갛게 적으면 없는 실수가 있어 보인다. */
-.side .rate.fouls {
-  color: var(--danger);
-  opacity: 0.85;
-  font-weight: 800;
-  margin-top: -0.25rem;
-}
-
-.side .rate.fouls[data-zero='true'] {
-  color: inherit;
-  opacity: 0.45;
-  font-weight: 600;
 }
 
 /* 상대 판이 +1이 아니라 뒷빡 버튼이 된 상태. 안내 글씨가 없는 자리라, 눌렸을 때의

@@ -585,7 +585,8 @@ function RecordSheet({
                     <strong className="who-name">{player.name}</strong>
                     <div className="big">{player.score}</div>
                     <span className="label">
-                      핸디 {player.target} · 에버 {(player.score / innings).toFixed(3)}
+                      핸디 {player.target} · 에버{' '}
+                      {(player.score / innings).toFixed(3).replace('-', '−')}
                     </span>
                     {cushion > 0 && (
                       <span className="label">
@@ -595,11 +596,6 @@ function RecordSheet({
                     {runs && (
                       <span className="label">하이런 {highRun(runs[side])}점</span>
                     )}
-                    {/* 뒷빡을 안 쓴 판에는 이 줄이 없다. 0을 적어 두면 안 쓴 판과 한
-                        번도 안 낸 판이 같아 보인다. */}
-                    {player.fouls ? (
-                      <span className="label">뒷빡 −{player.fouls}</span>
-                    ) : null}
                   </div>
                 );
               })}
