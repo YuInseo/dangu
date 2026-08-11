@@ -248,3 +248,74 @@ export function humanDuration(ms: number): string {
 export const averageOf = (tally: Tally) => (tally.innings === 0 ? 0 : tally.points / tally.innings);
 
 export const sideLabel = (side: Side) => (side === 'white' ? '흰 공' : '노란 공');
+
+/* 다시 만날 사람들 --------------------------------------------------- */
+
+/**
+ * 로비에 세울 상대 목록.
+ *
+ * `Stats.opponents`와 다른 값이다. 저쪽은 "누구와 많이 쳤나"를 세는 통계라 많이 친
+ * 순서로 늘어서지만, 로비에서 필요한 것은 "지금 앞에 있는 사람"이고 그건 대개 어제
+ * 친 사람이다 — 그래서 최근 순으로, 몇 명만.
+ *
+ * 이름과 함께 그때의 설정을 들고 온다. 같은 사람과는 대개 같은 종목을 같은 핸디로
+ * 치므로, 이름을 고르는 것이 곧 판을 차리는 것이 된다. 핸디는 실력이 바뀌면 달라지지만
+ * 그때도 마지막 값이 손대기 좋은 출발점이다.
+ */
+export interface OpponentCard {
+  name: string;
+  games: number;
+  wins: number;
+  losses: number;
+  lastPlayedAt: number;
+  last: {
+    kind: GameKind;
+    /** 내 핸디와 상대 핸디. */
+    mine: number;
+    theirs: number;
+    cushion: number;
+  };
+}
+
+export function recentOpponents(games: GameSummary[], limit = 6): OpponentCard[] {
+  const cards = new Map<string, OpponentCard>();
+
+  // 최근 것부터 본다. 그래야 `last`가 늘 마지막 판의 것이 된다 — 뒤에 오는 옛 판은
+  // 세기만 하고 설정은 덮어쓰지 않는다.
+  const ordered = [...games].sort((a, b) => b.startedAt - a.startedAt);
+
+  for (const game of ordered) {
+    const me = game.me ?? 'white';
+    const them = game.players[other(me)];
+    const name = (them?.name ?? '').trim();
+    // 이름을 적지 않은 판은 세지 않는다. "상대"라는 이름의 사람은 없다.
+    if (!name || name === '상대') continue;
+
+    const found = cards.get(name);
+    if (found) {
+      cards.set(name, {
+        ...found,
+        games: found.games + 1,
+        wins: found.wins + (game.winner === me ? 1 : 0),
+        losses: found.losses + (game.winner === other(me) ? 1 : 0),
+      });
+      continue;
+    }
+
+    cards.set(name, {
+      name,
+      games: 1,
+      wins: game.winner === me ? 1 : 0,
+      losses: game.winner === other(me) ? 1 : 0,
+      lastPlayedAt: game.startedAt,
+      last: {
+        kind: game.kind,
+        mine: game.players[me]?.target ?? 20,
+        theirs: them?.target ?? 20,
+        cushion: game.lastCushion ?? 0,
+      },
+    });
+  }
+
+  return [...cards.values()].sort((a, b) => b.lastPlayedAt - a.lastPlayedAt).slice(0, limit);
+}

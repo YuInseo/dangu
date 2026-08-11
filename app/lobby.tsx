@@ -11,11 +11,13 @@ import {
   DEFAULT_SETTINGS,
   clearCurrentGame,
   loadCurrentGame,
+  loadHistory,
   loadSettings,
   saveCurrentGame,
   saveSettings,
   type AppSettings,
 } from '../lib/storage';
+import { recentOpponents, type OpponentCard } from '../lib/stats';
 import { useAccount } from '../lib/use-account';
 import { SignIn } from './sign-in';
 
@@ -48,10 +50,17 @@ export function Lobby() {
   const [lastCushion, setLastCushion] = useState(0);
   const [equalizer, setEqualizer] = useState(false);
   const [foul, setFoul] = useState(false);
+  /** 요즘 친 사람들. 이름을 다시 적는 대신 고르는 자리다. */
+  const [recent, setRecent] = useState<OpponentCard[]>([]);
 
   useEffect(() => {
     void (async () => {
-      const [stored, current] = await Promise.all([loadSettings(), loadCurrentGame()]);
+      const [stored, current, history] = await Promise.all([
+        loadSettings(),
+        loadCurrentGame(),
+        loadHistory(),
+      ]);
+      setRecent(recentOpponents(history));
       setSettings(stored);
       setKind((stored.lastKind as GameKind) ?? 'four');
       setTargets(stored.lastTargets);
@@ -85,6 +94,22 @@ export function Lobby() {
     // 20점이 남아 있으면 그건 다른 게임이다.
     const target = kindInfo(next).defaultTarget;
     setTargets({ white: target, yellow: target });
+    tap();
+    setStep('handicap');
+  };
+
+  /**
+   * 지난 상대를 고른다.
+   *
+   * 이름만 채우는 것이 아니라 그때의 판을 되살린다 — 같은 사람과는 대개 같은 종목을
+   * 같은 핸디로 치기 때문이다. 그래서 이름·종목·핸디가 한 번에 정해지고, 남는 것은
+   * 확인뿐이라 핸디 화면으로 바로 간다. 거기서 무엇이든 고칠 수 있다.
+   */
+  const pick = (card: OpponentCard) => {
+    setOpponent(card.name);
+    setKind(card.last.kind);
+    setTargets({ white: card.last.mine, yellow: card.last.theirs });
+    setLastCushion(card.last.cushion);
     tap();
     setStep('handicap');
   };
@@ -155,6 +180,34 @@ export function Lobby() {
           {/* 기록과 설정으로 가는 길은 아래 내비게이션이 갖고 있다. 같은 곳으로 가는
               문이 한 화면에 둘이면, 둘 중 어느 것이 진짜인지 매번 고르게 된다. */}
 
+          {/*
+            요즘 친 사람들.
+
+            당구장에서 새 판을 차리는 일은 대개 "어제 그 사람과 한 판 더"다. 그런데
+            앱은 매번 이름부터 다시 물었다 — 이미 아는 것을 묻는 자리였다. 여기서
+            이름을 고르면 그때의 종목과 핸디까지 함께 살아난다.
+
+            많이 친 순서가 아니라 최근 순이다. 통계에서 알고 싶은 것은 "누구와 많이
+            쳤나"지만, 로비에서 필요한 것은 지금 앞에 있는 사람이고 그건 대개 어제 친
+            사람이다.
+          */}
+          {recent.length > 0 && (
+            <div className="card">
+              <h2>다시 한 판</h2>
+              <div className="faces">
+                {recent.map((card) => (
+                  <button key={card.name} className="face" onClick={() => pick(card)}>
+                    <strong>{card.name}</strong>
+                    <small>
+                      {kindInfo(card.last.kind).label} {card.last.theirs}점 · {card.games}게임{' '}
+                      {card.wins}승 {card.losses}패
+                    </small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="card">
             <h2>{account.account ? account.account.name : '계정'}</h2>
             {account.configured === false && (
@@ -187,6 +240,23 @@ export function Lobby() {
               }}
             />
           </div>
+          {recent.length > 0 && (
+            <div className="chips">
+              {recent.map((card) => (
+                <button
+                  key={card.name}
+                  className={opponent === card.name ? 'chip on' : 'chip'}
+                  onClick={() => {
+                    setOpponent(card.name);
+                    tap();
+                  }}
+                >
+                  {card.name}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div>
             <label className="label" htmlFor="me">
               내 이름
