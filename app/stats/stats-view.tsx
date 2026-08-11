@@ -38,6 +38,7 @@ import {
   cloudChosen,
   copyHistory,
   loadHistory,
+  loadSettings,
   removeGame,
   updateGame,
 } from '../../lib/storage';
@@ -65,6 +66,8 @@ export function StatsView() {
   const [busy, setBusy] = useState(false);
   /** 클라우드 저장을 쓰는지 — 전체 삭제가 거기까지 미치는지를 미리 말해 주려고 본다. */
   const [cloud, setCloud] = useState(false);
+  /** 설정에 적어 둔 당구장들. 아직 친 적 없는 집도 고를 수 있어야 한다. */
+  const [saved, setSaved] = useState<string[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   /** 지금 고치고 있는 기록. 펼친 것과 따로 두어야 펼치기만 해서는 폼이 뜨지 않는다. */
   const [editing, setEditing] = useState<string | null>(null);
@@ -82,6 +85,7 @@ export function StatsView() {
   useEffect(() => {
     void loadHistory().then(setGames);
     void cloudChosen().then(setCloud);
+    void loadSettings().then((settings) => setSaved(settings.venues ?? []));
   }, []);
 
   // 맞춤이 끝나면 목록을 다시 읽는다. 맞추는 일 자체는 `useAccount`가 앱 전체에 하나로
@@ -120,7 +124,7 @@ export function StatsView() {
     "지난달에 대박당구장에서 몇 승 했나"는 실제로 궁금해지는 물음이고, 둘 중 하나만
     고를 수 있으면 그 물음에 답할 수 없다.
   */
-  const places = useMemo(() => venueList(all), [all]);
+  const places = useMemo(() => venueList(all, saved), [all, saved]);
   const scoped = useMemo(
     () =>
       place === null
@@ -490,6 +494,7 @@ export function StatsView() {
         <RecordSheet
           game={opened}
           editing={editing === opened.id}
+          places={places}
           onEdit={() => {
             setEditing(opened.id);
             tap();
@@ -540,6 +545,7 @@ export function StatsView() {
 function RecordSheet({
   game,
   editing,
+  places,
   onEdit,
   onSave,
   onNotes,
@@ -548,6 +554,8 @@ function RecordSheet({
 }: {
   game: GameSummary;
   editing: boolean;
+  /** 고를 수 있는 당구장들 — 적는 대신 누르는 자리를 위해. */
+  places: string[];
   onEdit: () => void;
   onSave: (next: GameSummary) => Promise<void>;
   onNotes: (pages: NotePage[]) => Promise<void>;
@@ -622,7 +630,7 @@ function RecordSheet({
         </div>
 
         {editing ? (
-          <RecordEditor game={game} onCancel={onClose} onSave={onSave} />
+          <RecordEditor game={game} places={places} onCancel={onClose} onSave={onSave} />
         ) : (
           <>
             <div className="tabs" role="tablist">
@@ -874,10 +882,12 @@ function RecordNotes({
 
 function RecordEditor({
   game,
+  places,
   onSave,
   onCancel,
 }: {
   game: GameSummary;
+  places: string[];
   onSave: (next: GameSummary) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -1033,6 +1043,28 @@ function RecordEditor({
           onChange={(event) => setDraft((current) => ({ ...current, venue: event.target.value }))}
         />
       </label>
+
+      {/* 다녀온 집들. 고친다는 것은 대개 "빼먹은 것을 채운다"는 뜻이고, 그때 적을 이름은
+          거의 언제나 이미 아는 집이다 — 누르는 편이 적는 것보다 빠르고 정확하다. */}
+      {places.length > 0 && (
+        <div className="chips">
+          {places.map((name) => (
+            <button
+              key={name}
+              type="button"
+              className={draft.venue.trim() === name ? 'chip on' : 'chip'}
+              onClick={() =>
+                setDraft((current) => ({
+                  ...current,
+                  venue: current.venue.trim() === name ? '' : name,
+                }))
+              }
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
 
       <span className="label">승자</span>
       <div className="choices">
