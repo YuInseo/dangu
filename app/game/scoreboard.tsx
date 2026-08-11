@@ -385,7 +385,11 @@ function PlayerSide({
         </div>
 
         <div className={cushion ? 'score cushion-score' : 'score'} aria-live="polite">
-          {displayScore(state, side)}
+          {/* 뒷빡으로 0 아래에 간 점수. 빼기표는 이 앱의 다른 숫자들과 같은 −(U+2212)를
+              쓴다 — 하이픈은 이 크기에서 눈에 띄게 짧고 위치도 어긋난다. */}
+          {displayScore(state, side) < 0
+            ? `−${Math.abs(displayScore(state, side))}`
+            : displayScore(state, side)}
         </div>
 
         <div className="target">
@@ -397,7 +401,7 @@ function PlayerSide({
         {/* 에버는 자기가 친 이닝으로 나눈 값이라 사람마다 다르다. 그래서 가운데 한 줄에
             둘을 몰아 적는 대신 각자의 판에 적는다 — 자기 숫자를 자기 쪽에서 본다. */}
         <div className="rate">
-          에버 {average(state, side).toFixed(2)} · {innings(state, side)}이닝
+          에버 {average(state, side).toFixed(2).replace('-', '−')} · {innings(state, side)}이닝
           {/* 뒷빡은 점수에서 깎지 않고 따로 센다. 점수판의 큰 숫자는 "몇 개를 쳤나"이고,
               뒷빡은 "몇 번 실수했나"라 같은 자리에 섞으면 둘 다 못 읽는다. */}
           {state.foul === true && (
@@ -412,7 +416,12 @@ function PlayerSide({
 
         <div className="spacer" />
 
-        <div className="tap-hint">{foulTap ? '눌러서 뒷빡 · 차례 넘김' : '눌러서 +1'}</div>
+        {/* 뒷빡 자리에는 안내를 적지 않는다. 이 판을 누르는 사람은 방금 무슨 일이
+            있었는지 이미 알고 있고, 남는 것은 에버 줄의 −N 하나면 된다. 글자는 지우되
+            자리는 남긴다 — 한쪽만 없어지면 두 판의 숫자 높이가 어긋난다. */}
+        <div className="tap-hint" data-empty={foulTap}>
+          눌러서 +1
+        </div>
       </button>
 
       {/* 큰 것이 더하기다. 당구에서 점수는 거의 언제나 올라가고, 빼기는 잘못 눌렀을
@@ -431,7 +440,9 @@ function PlayerSide({
             key={delta}
             className="minus"
             onClick={() => onScore(side, -delta)}
-            disabled={player.score === 0}
+            // 뒷빡으로 0 아래에 있는 점수는 손으로 더 못 내린다. 손으로 누르는 −1은
+            // 잘못 올린 것을 되돌리는 버튼이고, 되돌릴 것이 없으면 할 일이 없다.
+            disabled={player.score <= 0}
           >
             −{delta}
           </button>

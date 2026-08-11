@@ -324,23 +324,31 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
      * 뒷빡.
      *
      * 친 사람의 것으로 센다. 상대 판을 누르는 것은 "저 공을 맞혔다"는 뜻이지 상대가
-     * 무엇을 했다는 뜻이 아니다 — 잘못 친 사람은 지금 치던 사람이다. 그리고 차례가
-     * 넘어간다. 잘못 친 순간 차례가 끝나는 것이 이 규칙이므로 두 가지가 늘 함께 간다.
+     * 무엇을 했다는 뜻이 아니다 — 잘못 친 사람은 지금 치던 사람이다. 그 사람의 점수가
+     * 하나 깎이고 차례가 넘어간다. 상대에게는 아무것도 가지 않는다.
+     *
+     * 여기서만 점수가 0 아래로 간다. 손으로 누르는 −1은 잘못 올린 것을 되돌리는
+     * 버튼이라 0에서 멈추는 게 맞지만, 뒷빡은 실제로 일어난 일이라 0점인 사람이 내면
+     * −1점이 된다. 그걸 0으로 붙들면 그 판만 뒷빡이 공짜가 된다.
      */
     case 'foul': {
       const { side, now = Date.now() } = action as Extract<GameAction, { type: 'foul' }>;
       if (state.finishedAt) return state;
       const player = state.players[side];
+      const score = Math.max(-999, player.score - 1);
       const next: GameState = {
         ...state,
-        players: { ...state.players, [side]: { ...player, fouls: (player.fouls ?? 0) + 1 } },
+        players: {
+          ...state.players,
+          [side]: { ...player, score, fouls: (player.fouls ?? 0) + 1 },
+        },
         history: [
           ...state.history,
           {
             at: now,
             side,
-            delta: 0,
-            scoreAfter: player.score,
+            delta: score - player.score,
+            scoreAfter: score,
             turnBefore: state.turn,
             inningBefore: state.inning,
             foul: true,
@@ -357,8 +365,14 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
         ...state,
         players: {
           ...state.players,
+          // 되돌리는 것은 언제나 점수다. 뒷빡이었으면 깎인 점수와 함께 뒷빡 수도
+          // 되돌린다 — 그 둘은 한 번의 누름으로 함께 생긴 것이다.
           [last.side]: last.foul
-            ? { ...state.players[last.side], fouls: Math.max(0, (state.players[last.side].fouls ?? 0) - 1) }
+            ? {
+                ...state.players[last.side],
+                score: last.scoreAfter - last.delta,
+                fouls: Math.max(0, (state.players[last.side].fouls ?? 0) - 1),
+              }
             : { ...state.players[last.side], score: last.scoreAfter - last.delta },
         },
         turn: last.turnBefore,

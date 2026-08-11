@@ -301,6 +301,11 @@ graft-island {
   padding-bottom: 0.15rem;
 }
 
+/* 뒷빡 자리. 글자만 지우고 자리는 그대로 둔다. */
+.side .tap-hint[data-empty='true'] {
+  visibility: hidden;
+}
+
 /* 쌓인 뒷빡. 에버 줄에 같이 있지만 그 줄에서 유일하게 나쁜 소식이라 조금 더 진하다.
    아직 하나도 없으면 붉히지 않는다 — 0을 빨갛게 적으면 없는 실수가 있어 보인다. */
 .side .fouls {
@@ -315,13 +320,8 @@ graft-island {
   font-weight: inherit;
 }
 
-/* 상대 판이 +1이 아니라 뒷빡 버튼이 된 상태. 손이 자기 쪽으로 잘못 가는 것을 막아야
-   하므로, 눌렸을 때의 색도 점수와 다른 색이어야 한다. */
-.side .tap.foul-tap .tap-hint {
-  color: var(--danger);
-  opacity: 0.6;
-}
-
+/* 상대 판이 +1이 아니라 뒷빡 버튼이 된 상태. 안내 글씨가 없는 자리라, 눌렸을 때의
+   색만이 방금 누른 것이 점수가 아니었다고 말해 준다. */
 .side .tap.foul-tap:active {
   background: rgba(220, 38, 38, 0.1);
 }
