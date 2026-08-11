@@ -385,3 +385,24 @@ export function recentVenues(games: GameSummary[], limit = 5): string[] {
   }
   return seen;
 }
+
+/**
+ * 화면에 세울 당구장 목록.
+ *
+ * 두 곳에서 온다: 설정에 적어 둔 집들과, 실제로 친 기록에 남은 집들. 앞엣것은 "다니는
+ * 집"이고 뒤엣것은 "친 적 있는 집"이라 겹치지 않는 부분이 서로 있다 — 새로 생긴 집은
+ * 아직 기록이 없고, 한 번 가 보고 만 집은 설정에 없다. 최근에 친 순서가 앞이고, 친
+ * 적 없는 집은 그 뒤에 적어 둔 순서대로 온다.
+ */
+export function venueList(games: GameSummary[], saved: readonly string[] = []): string[] {
+  const seen: string[] = [];
+  for (const game of [...games].sort((a, b) => b.startedAt - a.startedAt)) {
+    const name = (game.venue ?? '').trim();
+    if (name && !seen.includes(name)) seen.push(name);
+  }
+  for (const name of saved) {
+    const trimmed = name.trim();
+    if (trimmed && !seen.includes(trimmed)) seen.push(trimmed);
+  }
+  return seen;
+}

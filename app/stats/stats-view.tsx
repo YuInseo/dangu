@@ -29,6 +29,7 @@ import {
   monthKey,
   percent,
   tallyByDay,
+  venueList,
   venueStats,
   type Tally,
 } from '../../lib/stats';
@@ -75,6 +76,8 @@ export function StatsView() {
   });
   const [selected, setSelected] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  /** 당구장으로 좁혀 보기. `null`이면 전부. */
+  const [place, setPlace] = useState<string | null>(null);
 
   useEffect(() => {
     void loadHistory().then(setGames);
@@ -110,8 +113,24 @@ export function StatsView() {
     };
   }, [showAll, selected, all, cursor, viewMonth]);
 
-  const stats = useMemo(() => computeStats(scope.games), [scope.games]);
-  const venues = useMemo(() => venueStats(scope.games), [scope.games]);
+  /*
+    당구장으로 한 번 더 좁힌다.
+
+    달력이 "언제"를 정하고 이것이 "어디서"를 정한다. 둘을 곱해서 쓰는 것이 자연스럽다 —
+    "지난달에 대박당구장에서 몇 승 했나"는 실제로 궁금해지는 물음이고, 둘 중 하나만
+    고를 수 있으면 그 물음에 답할 수 없다.
+  */
+  const places = useMemo(() => venueList(all), [all]);
+  const scoped = useMemo(
+    () =>
+      place === null
+        ? scope.games
+        : scope.games.filter((game) => (game.venue ?? '').trim() === place),
+    [scope.games, place]
+  );
+
+  const stats = useMemo(() => computeStats(scoped), [scoped]);
+  const venues = useMemo(() => venueStats(scoped), [scoped]);
   const overall = useMemo(() => computeStats(all), [all]);
 
   /** 모달에 떠 있는 기록. 지워지거나 날짜를 옮기면 스스로 닫히도록 목록에서 찾는다. */
@@ -221,7 +240,39 @@ export function StatsView() {
       </div>
 
       <div className="card">
-        <h2>{scope.label}</h2>
+        <h2>
+          {scope.label}
+          {place ? ` · ${place}` : ''}
+        </h2>
+
+        {/* 어디서 친 것만 볼지. 장소를 적은 판이 없으면 이 줄도 없다. */}
+        {places.length > 0 && (
+          <div className="chips">
+            <button
+              className={place === null ? 'chip on' : 'chip'}
+              onClick={() => {
+                setPlace(null);
+                tap();
+              }}
+            >
+              전체
+            </button>
+            {places.map((name) => (
+              <button
+                key={name}
+                className={place === name ? 'chip on' : 'chip'}
+                onClick={() => {
+                  setPlace(place === name ? null : name);
+                  setExpanded(null);
+                  tap();
+                }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+        )}
+
         <TallyRow tally={stats.all} />
         {stats.all.games === 0 && <p>이 기간에는 친 기록이 없습니다.</p>}
         {stats.all.games > 0 && (
@@ -309,7 +360,7 @@ export function StatsView() {
 
           <div className="card">
             <h2>
-              게임 상세 <span className="count">{scope.games.length}</span>
+              게임 상세 <span className="count">{scoped.length}</span>
             </h2>
             {/*
               목록만 스크롤한다.
@@ -319,7 +370,7 @@ export function StatsView() {
               내용과 상관없이 일정하고, 화면 전체의 순서도 그대로 남는다.
             */}
             <div className="scroller">
-              {scope.games.map((game) => {
+              {scoped.map((game) => {
                 const me = game.me ?? 'white';
                 const mine = game.players[me];
                 // 셋 이상이 친 판은 상대가 하나가 아니다. 이름도 점수도 나란히 적는다.

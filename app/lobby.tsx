@@ -26,6 +26,7 @@ import {
   loadSettings,
   saveCurrentGame,
   saveSettings,
+  watchSettings,
   type AppSettings,
 } from '../lib/storage';
 import {
@@ -115,6 +116,10 @@ export function Lobby() {
       setReady(true);
     })();
   }, []);
+
+  // 상단 줄에서 당구장을 고르면 이 화면의 장소 칸도 그것을 가리킨다. 둘은 서로 다른
+  // 아일랜드라 상태를 나눠 가질 수 없어, 저장이 일어난 자리에서 알려 준다.
+  useEffect(() => watchSettings((next) => setVenue(next.lastVenue ?? '')), []);
 
   /**
    * 하드웨어 뒤로가기는 단계를 되돌린다.

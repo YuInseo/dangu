@@ -3,7 +3,9 @@
 import Link from 'graft/link';
 import { useEffect, useState } from 'react';
 
-import { isNativeApp, prepareShell } from '../lib/platform';
+import { isNativeApp, prepareShell, tap } from '../lib/platform';
+import { loadHistory, loadSettings, saveSettings, watchSettings } from '../lib/storage';
+import { venueList } from '../lib/stats';
 import { confirmBundle, stageWebBundle } from '../lib/live-update';
 import { checkForUpdate, needsApk, prefetchApk, type UpdateCheck } from '../lib/update';
 
@@ -17,7 +19,16 @@ import { checkForUpdate, needsApk, prefetchApk, type UpdateCheck } from '../lib/
  *
  * 실패는 전부 조용하다. 점수판을 켠 사람이 지금 알고 싶은 건 업데이트가 아니라 점수다.
  */
-export function TopBar({ title, back }: { title: string; back?: string }) {
+export function TopBar({
+  title,
+  back,
+  venues,
+}: {
+  title: string;
+  back?: string;
+  /** 제목 자리를 당구장 고르개로 바꾼다. 첫 화면에서만 쓴다. */
+  venues?: boolean;
+}) {
   const [update, setUpdate] = useState<UpdateCheck | null>(null);
   const [apk, setApk] = useState(false);
   /** 받아 두었고 다음 실행에 적용될 버전. 있으면 "다시 켜면 됩니다"를 띄운다. */
@@ -75,7 +86,7 @@ export function TopBar({ title, back }: { title: string; back?: string }) {
           ←
         </Link>
       )}
-      <h1>{title}</h1>
+      {venues ? <VenuePicker title={title} /> : <h1>{title}</h1>}
       <Link
         className={lit ? 'icon-button badge' : 'icon-button'}
         href="/settings#update"
@@ -93,6 +104,89 @@ export function TopBar({ title, back }: { title: string; back?: string }) {
           문이 한 화면에 둘이 된다. 업데이트는 길이 아니라 상태라서 위에 남는다 — 새
           버전이 있는지는 어느 화면에서든 보여야 한다. */}
     </header>
+  );
+}
+
+/**
+ * 제목 자리의 당구장 고르개.
+ *
+ * 첫 화면에서 제목은 매번 같은 글자다 — 앱 이름을 읽으러 이 화면에 오는 사람은 없다.
+ * 그 자리에 "지금 어느 집에 있나"를 놓으면, 그날 처음 앱을 켤 때 한 번 고르는 것으로
+ * 그날의 모든 판에 장소가 붙는다.
+ *
+ * 고른 값은 설정의 `lastVenue`에 남는다. 로비의 장소 칸이 그걸 보고 있으므로 둘은
+ * 언제나 같은 것을 가리킨다.
+ */
+function VenuePicker({ title }: { title: string }) {
+  const [open, setOpen] = useState(false);
+  const [places, setPlaces] = useState<string[]>([]);
+  const [here, setHere] = useState('');
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      const [settings, history] = await Promise.all([loadSettings(), loadHistory()]);
+      if (!alive) return;
+      setPlaces(venueList(history, settings.venues ?? []));
+      setHere(settings.lastVenue ?? '');
+    })();
+    // 설정에서 당구장을 더하거나 지우면 이 목록도 따라 바뀐다.
+    const stop = watchSettings((settings) => {
+      setHere(settings.lastVenue ?? '');
+      void loadHistory().then((history) => setPlaces(venueList(history, settings.venues ?? [])));
+    });
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, []);
+
+  const choose = async (name: string) => {
+    setHere(name);
+    setOpen(false);
+    tap();
+    const settings = await loadSettings();
+    await saveSettings({ ...settings, lastVenue: name });
+  };
+
+  // 갈 곳이 없으면 고르개도 없다. 첫 판을 치기 전에는 목록이 비어 있고, 그때 이 자리는
+  // 그냥 앱 이름이다.
+  if (places.length === 0) return <h1>{title}</h1>;
+
+  return (
+    <div className="venue-pick">
+      <button className="venue-button" onClick={() => setOpen((current) => !current)}>
+        <span>{here || title}</span>
+        <span className="caret" aria-hidden="true">
+          ▾
+        </span>
+      </button>
+
+      {open && (
+        <>
+          {/* 바깥을 누르면 닫힌다. 목록 위에 덮개를 깔지 않으면 다른 버튼을 누르려다
+              메뉴만 닫히는 일이 생긴다 — 그건 한 번 더 누르게 만드는 것과 같다. */}
+          <button className="venue-veil" aria-label="닫기" onClick={() => setOpen(false)} />
+          <div className="venue-menu" role="menu">
+            {places.map((name) => (
+              <button
+                key={name}
+                role="menuitem"
+                className={name === here ? 'on' : undefined}
+                onClick={() => void choose(name)}
+              >
+                {name}
+              </button>
+            ))}
+            {here && (
+              <button role="menuitem" className="clear" onClick={() => void choose('')}>
+                장소 없이
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

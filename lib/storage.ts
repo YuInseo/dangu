@@ -44,6 +44,14 @@ export interface AppSettings {
    * 사람은 대개 같은 집에 간다. 그래서 다음 판의 기본값이 되고, 바꾸는 날에만 손이 간다.
    */
   lastVenue: string;
+  /**
+   * 내가 다니는 당구장들.
+   *
+   * 기록에서 되짚을 수도 있지만 그건 "친 적 있는 집"이고, 이건 "다니는 집"이다. 둘은
+   * 다르다 — 새로 생긴 집은 아직 기록이 없어도 오늘 갈 수 있고, 한 번 가 보고 만 집은
+   * 기록에는 남아도 목록에 세울 이유가 없다. 화면에는 둘을 합쳐 보여 준다.
+   */
+  venues: string[];
   haptics: boolean;
   keepAwake: boolean;
   /**
@@ -71,6 +79,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastEqualizer: false,
   lastFoul: false,
   lastVenue: '',
+  venues: [],
   haptics: true,
   keepAwake: true,
   voice: true,
@@ -155,7 +164,27 @@ export async function removeGame(id: string): Promise<GameSummary[]> {
 /* 설정 -------------------------------------------------------------- */
 
 export const loadSettings = () => readJson<AppSettings>(SETTINGS, DEFAULT_SETTINGS);
-export const saveSettings = (settings: AppSettings) => writeJson(SETTINGS, settings);
+
+/**
+ * 설정이 바뀐 것을 지켜본다.
+ *
+ * 설정을 고치는 자리가 한 곳이 아니게 되면서 필요해졌다 — 상단 줄에서 당구장을 고르면
+ * 로비의 장소 칸도 그걸 따라야 하는데, 둘은 서로 다른 아일랜드라 상태를 나눠 가질 수
+ * 없다. 저장이 일어난 자리에서 알려 주는 편이 각자 다시 읽는 것보다 정확하다.
+ */
+const watchers = new Set<(settings: AppSettings) => void>();
+
+export function watchSettings(listener: (settings: AppSettings) => void): () => void {
+  watchers.add(listener);
+  return () => {
+    watchers.delete(listener);
+  };
+}
+
+export async function saveSettings(settings: AppSettings): Promise<void> {
+  await writeJson(SETTINGS, settings);
+  for (const listener of watchers) listener(settings);
+}
 
 /* 내보내기 ---------------------------------------------------------- */
 
