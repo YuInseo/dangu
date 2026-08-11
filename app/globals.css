@@ -429,17 +429,15 @@ graft-island {
   justify-content: center;
   gap: 0.15rem;
   padding: 0.45rem 0.25rem 0.5rem;
-  font-size: 0.7rem;
+  /* 그림이 빠진 자리를 글자가 받는다. 세 칸짜리 줄에서 0.7rem은 남는 자리에 비해
+     작았고, 그때는 이모지가 시선을 먼저 받아서 그게 티나지 않았을 뿐이다. */
+  font-size: 0.86rem;
   font-weight: 700;
+  letter-spacing: -0.01em;
   text-decoration: none;
   color: rgba(243, 244, 246, 0.45);
   /* 손가락이 닿는 칸이므로 글자 높이가 아니라 손 높이로 잡는다. */
   min-height: 52px;
-}
-
-.navbar .tab .icon {
-  font-size: 1.15rem;
-  line-height: 1;
 }
 
 .navbar .tab.on {
@@ -463,7 +461,7 @@ graft-island {
   background: rgba(255, 255, 255, 0.06);
 }
 
-/* 가로 화면에서는 높이가 귀하다. 아이콘과 글자를 한 줄로 눕힌다. */
+/* 가로 화면에서는 높이가 귀하다. 칸을 더 낮게 잡는다. */
 @media (orientation: landscape) and (min-width: 720px) {
   .navbar .tab {
     flex-direction: row;
