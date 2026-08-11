@@ -159,6 +159,13 @@ export interface GameState {
    */
   foul: boolean;
   /**
+   * 어디서 친 판인지 — 당구장 이름.
+   *
+   * 적지 않아도 된다. 다만 적어 두면 기록이 "언제 누구와"에 "어디서"를 더해 가지므로,
+   * 나중에 같은 자리에서 얼마나 쳤는지, 어느 집 테이블에서 잘 맞았는지를 볼 수 있다.
+   */
+  venue?: string;
+  /**
    * 지금 차례가 시작된 시점 — 벽시계가 아니라 `elapsedMs` 위의 눈금이다.
    *
    * 벽시계로 재면 일시정지한 동안에도 시간이 흐른다. 담배 한 대 피우고 오면 샷 클락이
@@ -304,8 +311,10 @@ export interface NewGameOptions {
   lastCushion?: number;
   /** 후구 — 선공이 먼저 채우면 후공에게 마지막 한 차례. */
   equalizer?: boolean;
-  /** 뒷빡 — 상대 수구를 맞히면 차례를 넘기고 횟수를 센다. */
+  /** 뒷빡 — 상대 수구를 맞히면 차례를 넘긴다. */
   foul?: boolean;
+  /** 당구장 이름. 빈 값이면 아예 남기지 않는다. */
+  venue?: string;
   now?: number;
   id?: string;
 }
@@ -320,6 +329,7 @@ export function createGame({
   lastCushion = 0,
   equalizer = false,
   foul = false,
+  venue,
   now = Date.now(),
   id,
 }: NewGameOptions): GameState {
@@ -346,8 +356,12 @@ export function createGame({
   });
 
   const opening = first && order.includes(first) ? first : order[0];
+  const place = venue?.trim();
 
   return {
+    // 빈 장소는 키를 만들지 않는다 — 없는 값과 빈 문자열은 다르고, 기록 화면은 그 둘을
+    // 같은 뜻으로 읽을 이유가 없다.
+    ...(place ? { venue: place } : {}),
     id: id ?? `g-${now.toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
     kind,
     me,
@@ -733,6 +747,39 @@ export function innings(state: GameState, side: Side): number {
   return Math.max(0, mine <= now ? state.inning : state.inning - 1);
 }
 
+/**
+ * 팀 자리 안에서 사람별로 나눈 성적.
+ *
+ * 팀은 점수를 함께 쓰지만 친 사람은 각각이다. 누가 몇 점을 쳤는지는 따로 저장하지 않고
+ * 이닝에서 되짚는다 — 이 자리의 n번째 이닝은 언제나 `(n-1) % 인원`번째 사람의 것이기
+ * 때문이다. 저장하지 않는 쪽을 고른 이유는 되돌리기다: 두 벌로 두면 한쪽만 되돌아가는
+ * 날이 반드시 온다.
+ *
+ * `runs`는 이 자리의 이닝별 득점이고, `played`는 지금까지 친 이닝 수다.
+ */
+export interface MemberLine {
+  name: string;
+  points: number;
+  innings: number;
+  average: number;
+}
+
+export function memberLines(
+  members: readonly string[],
+  runs: readonly number[],
+  played: number
+): MemberLine[] {
+  return members.map((name, index) => {
+    let points = 0;
+    let count = 0;
+    for (let at = index; at < Math.max(runs.length, played); at += members.length) {
+      points += runs[at] ?? 0;
+      if (at < played) count += 1;
+    }
+    return { name, points, innings: count, average: count === 0 ? 0 : points / count };
+  });
+}
+
 /** 한 게임의 평균 애버리지 — 당구장에서 실제로 보는 숫자. 자기가 친 이닝으로 나눈다. */
 export function average(state: GameState, side: Side): number {
   const played = innings(state, side);
@@ -790,6 +837,8 @@ export interface GameSummary {
   players: Record<Side, PlayerState>;
   /** 자리 순서. 둘이 친 판에는 없다 — 그때는 순서가 하나뿐이었다. */
   order?: Side[];
+  /** 어디서 친 판인지. 적지 않은 판에는 없다. */
+  venue?: string;
   /**
    * 이닝별 득점. 히스토리 전체 대신 이것만 남긴다.
    *
@@ -819,6 +868,7 @@ export const summarize = (state: GameState): GameSummary => ({
   winner: state.winner,
   players: state.players,
   order: state.order,
+  venue: state.venue,
   runs: inningRuns(state),
   notes: keptNotes(state.notes),
 });

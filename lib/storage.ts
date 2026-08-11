@@ -38,6 +38,12 @@ export interface AppSettings {
   lastEqualizer: boolean;
   /** 뒷빡을 쓸지. 후구와 같은 이유로 기억해 둔다. */
   lastFoul: boolean;
+  /**
+   * 마지막으로 친 당구장.
+   *
+   * 사람은 대개 같은 집에 간다. 그래서 다음 판의 기본값이 되고, 바꾸는 날에만 손이 간다.
+   */
+  lastVenue: string;
   haptics: boolean;
   keepAwake: boolean;
   /**
@@ -64,6 +70,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastCushion: 0,
   lastEqualizer: false,
   lastFoul: false,
+  lastVenue: '',
   haptics: true,
   keepAwake: true,
   voice: true,

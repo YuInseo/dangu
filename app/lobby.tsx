@@ -33,6 +33,7 @@ import {
   computeStats,
   humanDuration,
   recentOpponents,
+  recentVenues,
   type OpponentCard,
   type Stats,
 } from '../lib/stats';
@@ -85,6 +86,8 @@ export function Lobby() {
   const [recent, setRecent] = useState<OpponentCard[]>([]);
   /** 첫 화면에 세울 숫자들. 기록 화면까지 가지 않고도 오늘이 어땠는지는 알아야 한다. */
   const [history, setHistory] = useState<GameSummary[]>([]);
+  /** 어디서 치는지. 적어 두면 기록에 남고, 다음 판의 기본값이 된다. */
+  const [venue, setVenue] = useState('');
 
   useEffect(() => {
     void (async () => {
@@ -106,6 +109,7 @@ export function Lobby() {
       setLastCushion(stored.lastCushion ?? 0);
       setEqualizer(stored.lastEqualizer ?? false);
       setFoul(stored.lastFoul ?? false);
+      setVenue(stored.lastVenue ?? '');
       // 끝난 게임은 이어하기로 제안하지 않는다.
       setResume(current && !current.finishedAt ? current : null);
       setReady(true);
@@ -165,6 +169,7 @@ export function Lobby() {
   // 첫 화면의 숫자들. 기록이 없으면 아무것도 세우지 않는다 — 빈 카드는 없느니만 못하다.
   const stats: Stats | null = history.length > 0 ? computeStats(history) : null;
   const lastGames = history.filter((game) => game.finishedAt).slice(0, 3);
+  const places = recentVenues(history);
 
   const chooseKind = (next: GameKind) => {
     setKind(next);
@@ -205,6 +210,7 @@ export function Lobby() {
       lastCushion: kind === 'four' ? lastCushion : 0,
       equalizer,
       foul,
+      venue,
     });
     await saveCurrentGame(game);
     await saveSettings({
@@ -214,6 +220,7 @@ export function Lobby() {
       lastCushion,
       lastEqualizer: equalizer,
       lastFoul: foul,
+      lastVenue: venue.trim(),
     });
     tap('medium');
     router.push('/game');
@@ -722,6 +729,44 @@ export function Lobby() {
                   '직접 빼세요 — 0점에서도 눌려서 −1, −2로 내려갑니다.'
                 : '상대 판을 누르면 상대에게 한 점이 올라갑니다.'}
             </p>
+          </div>
+
+          {/*
+            어디서 치는지.
+
+            마지막에 두는 이유는 이것이 판을 정하는 값이 아니기 때문이다 — 종목이나 핸디를
+            잘못 고르면 게임이 달라지지만, 장소는 적어도 안 적어도 게임은 똑같이 돌아간다.
+            그래서 눈이 마지막에 닿는 자리, 시작 버튼 바로 위에 둔다.
+
+            대개는 늘 가던 집이라 지난번 값이 그대로 채워져 있고, 다른 집에 간 날에만
+            손이 간다.
+          */}
+          <div>
+            <label className="label" htmlFor="venue">
+              당구장 (선택)
+            </label>
+            <input
+              id="venue"
+              value={venue}
+              placeholder="예: 대박당구장"
+              onChange={(event) => setVenue(event.target.value)}
+            />
+            {places.length > 0 && (
+              <div className="chips" style={{ marginTop: '0.4rem' }}>
+                {places.map((name) => (
+                  <button
+                    key={name}
+                    className={venue.trim() === name ? 'chip on' : 'chip'}
+                    onClick={() => {
+                      setVenue(venue.trim() === name ? '' : name);
+                      tap();
+                    }}
+                  >
+                    {name}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           <button className="primary" onClick={() => void start()}>

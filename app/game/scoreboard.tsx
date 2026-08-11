@@ -17,6 +17,8 @@ import {
   reduce,
   remaining,
   ballOf,
+  inningRuns,
+  memberLines,
   scoreFloor,
   shooter,
   sides,
@@ -518,6 +520,22 @@ function PlayerSide({
         <div className="rate">
           에버 {average(state, side).toFixed(2).replace('-', '−')} · {innings(state, side)}이닝
         </div>
+
+        {/* 팀은 점수를 함께 쓰지만 친 사람은 각각이다. 팀 에버 아래에 사람별 에버를
+            한 줄 더 놓는다 — 같은 팀이어도 자기 숫자는 자기 것이다. */}
+        {player.members?.length ? (
+          <div className="rate mates">
+            {memberLines(
+              player.members,
+              inningRuns(state)[side] ?? [],
+              innings(state, side)
+            ).map((line) => (
+              <span key={line.name}>
+                {line.name} {line.average.toFixed(2)}
+              </span>
+            ))}
+          </div>
+        ) : null}
 
         <div className="spacer" />
 
