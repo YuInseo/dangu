@@ -277,6 +277,9 @@ export interface OpponentCard {
   };
 }
 
+/** 사람이 적은 이름이 아니라 앱이 대신 붙인 이름들. */
+const DEFAULT_NAMES = new Set(['상대', '흰 공', '노란 공', '빨간 공', '파란 공']);
+
 export function recentOpponents(games: GameSummary[], limit = 6): OpponentCard[] {
   const cards = new Map<string, OpponentCard>();
 
@@ -288,8 +291,9 @@ export function recentOpponents(games: GameSummary[], limit = 6): OpponentCard[]
     const me = game.me ?? 'white';
     const them = game.players[other(me)];
     const name = (them?.name ?? '').trim();
-    // 이름을 적지 않은 판은 세지 않는다. "상대"라는 이름의 사람은 없다.
-    if (!name || name === '상대') continue;
+    // 이름을 적지 않은 판은 세지 않는다. 앱이 대신 붙인 이름들이라, 그걸 목록에 세우면
+    // "노란 공과 한 판 더"가 된다 — 그런 사람은 없다.
+    if (!name || DEFAULT_NAMES.has(name)) continue;
 
     const found = cards.get(name);
     if (found) {

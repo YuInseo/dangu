@@ -2647,3 +2647,37 @@ button.record {
   opacity: 0.4;
   font-variant-numeric: tabular-nums;
 }
+
+/* 처음 오신 분께 ----------------------------------------------------- */
+
+/*
+ * 세 줄짜리 안내.
+ *
+ * 목록 점을 찍지 않는다. 세 줄뿐이라 점이 없어도 셋인 게 보이고, 있으면 굵은 제목
+ * 앞이 지저분해진다. 대신 제목과 설명을 위아래로 두어 눈이 제목만 훑을 수 있게 한다.
+ */
+.tips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.tips li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.tips strong {
+  font-size: 0.92rem;
+  font-weight: 700;
+}
+
+.tips span {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: rgba(243, 244, 246, 0.55);
+}
