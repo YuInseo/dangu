@@ -334,6 +334,7 @@ function PlayerSide({
   const [manual, setManual] = useState('');
   const active = state.turn === side;
   const cushion = needsCushion(state, side);
+  const shown = displayScore(state, side);
 
   /*
     뒷빡을 쓰는 판에서 상대 판을 누르는 일.
@@ -385,12 +386,25 @@ function PlayerSide({
           쿠션
         </div>
 
-        <div className={cushion ? 'score cushion-score' : 'score'} aria-live="polite">
-          {/* 뒷빡으로 0 아래에 간 점수. 빼기표는 이 앱의 다른 숫자들과 같은 −(U+2212)를
-              쓴다 — 하이픈은 이 크기에서 눈에 띄게 짧고 위치도 어긋난다. */}
-          {displayScore(state, side) < 0
-            ? `−${Math.abs(displayScore(state, side))}`
-            : displayScore(state, side)}
+        {/*
+          0 아래로 간 점수는 붉게, 빼기표는 작게.
+
+          이 크기에서 −는 숫자만 한 검은 막대가 되어 버려서, 멀리서 보면 −6이 6인지
+          아닌지가 아니라 "무슨 기호가 하나 더 있다"로 읽힌다. 색이 부호를 먼저
+          말하게 하고 막대는 절반으로 줄인다.
+        */}
+        <div
+          className={`score${cushion ? ' cushion-score' : ''}${shown < 0 ? ' below' : ''}`}
+          aria-live="polite"
+        >
+          {shown < 0 ? (
+            <>
+              <span className="neg">−</span>
+              {Math.abs(shown)}
+            </>
+          ) : (
+            shown
+          )}
         </div>
 
         <div className="target">

@@ -256,6 +256,25 @@ graft-island {
   color: var(--danger);
 }
 
+/* 0 아래로 간 점수. 부호를 색이 먼저 말한다. */
+.side .score.below {
+  color: var(--danger);
+}
+
+/*
+ * 큰 숫자 앞의 빼기표.
+ *
+ * 같은 크기로 두면 −가 숫자만 한 막대가 되어 세 자리 점수만큼 자리를 먹는다. 절반으로
+ * 줄이고 숫자의 가운데 높이에 맞춘다 — 부호는 읽는 것이 아니라 알아보는 것이라 작아도
+ * 된다. 색까지 이미 붉으므로 크기로 한 번 더 말할 필요가 없다.
+ */
+.side .score .neg {
+  font-size: 0.46em;
+  vertical-align: 0.34em;
+  margin-right: 0.06em;
+  letter-spacing: 0;
+}
+
 .side.in-cushion {
   box-shadow: inset 0 0 0 5px var(--danger);
 }
