@@ -306,18 +306,19 @@ graft-island {
   visibility: hidden;
 }
 
-/* 쌓인 뒷빡. 에버 줄에 같이 있지만 그 줄에서 유일하게 나쁜 소식이라 조금 더 진하다.
+/* 쌓인 뒷빡. 에버 바로 아래 한 줄이고, 그 줄에서 유일하게 나쁜 소식이라 조금 더 진하다.
    아직 하나도 없으면 붉히지 않는다 — 0을 빨갛게 적으면 없는 실수가 있어 보인다. */
-.side .fouls {
+.side .rate.fouls {
   color: var(--danger);
   opacity: 0.85;
   font-weight: 800;
+  margin-top: -0.25rem;
 }
 
-.side .fouls[data-zero='true'] {
+.side .rate.fouls[data-zero='true'] {
   color: inherit;
-  opacity: 1;
-  font-weight: inherit;
+  opacity: 0.45;
+  font-weight: 600;
 }
 
 /* 상대 판이 +1이 아니라 뒷빡 버튼이 된 상태. 안내 글씨가 없는 자리라, 눌렸을 때의

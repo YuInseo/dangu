@@ -302,13 +302,13 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
     case 'score': {
       const { side, delta, now = Date.now() } = action as Extract<GameAction, { type: 'score' }>;
       if (state.finishedAt || delta === 0) return state;
-      return applyScore(state, side, clampScore(state.players[side].score + delta), now);
+      return applyScore(state, side, clampScore(state.players[side].score + delta, scoreFloor(state)), now);
     }
 
     case 'setScore': {
       const { side, score, now = Date.now() } = action as Extract<GameAction, { type: 'setScore' }>;
       if (state.finishedAt) return state;
-      const next = clampScore(score);
+      const next = clampScore(score, scoreFloor(state));
       if (next === state.players[side].score) return state;
       return applyScore(state, side, next, now);
     }
@@ -323,32 +323,25 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
     /*
      * 뒷빡.
      *
-     * 친 사람의 것으로 센다. 상대 판을 누르는 것은 "저 공을 맞혔다"는 뜻이지 상대가
-     * 무엇을 했다는 뜻이 아니다 — 잘못 친 사람은 지금 치던 사람이다. 그 사람의 점수가
-     * 하나 깎이고 차례가 넘어간다. 상대에게는 아무것도 가지 않는다.
-     *
-     * 여기서만 점수가 0 아래로 간다. 손으로 누르는 −1은 잘못 올린 것을 되돌리는
-     * 버튼이라 0에서 멈추는 게 맞지만, 뒷빡은 실제로 일어난 일이라 0점인 사람이 내면
-     * −1점이 된다. 그걸 0으로 붙들면 그 판만 뒷빡이 공짜가 된다.
+     * 점수는 건드리지 않는다. 상대 판을 누르는 것은 "저 공을 맞혔다"는 뜻이고, 그때
+     * 일어나는 일은 차례가 넘어가는 것뿐이다 — 상대에게 한 점이 가지도 않고, 친
+     * 사람의 점수가 저절로 깎이지도 않는다. 몇 점을 물릴지는 치는 사람들이 정하는
+     * 것이라 −1 버튼으로 직접 뺀다. 여기서 세어 두는 것은 몇 번 냈는지 하나뿐이다.
      */
     case 'foul': {
       const { side, now = Date.now() } = action as Extract<GameAction, { type: 'foul' }>;
       if (state.finishedAt) return state;
       const player = state.players[side];
-      const score = Math.max(-999, player.score - 1);
       const next: GameState = {
         ...state,
-        players: {
-          ...state.players,
-          [side]: { ...player, score, fouls: (player.fouls ?? 0) + 1 },
-        },
+        players: { ...state.players, [side]: { ...player, fouls: (player.fouls ?? 0) + 1 } },
         history: [
           ...state.history,
           {
             at: now,
             side,
-            delta: score - player.score,
-            scoreAfter: score,
+            delta: 0,
+            scoreAfter: player.score,
             turnBefore: state.turn,
             inningBefore: state.inning,
             foul: true,
@@ -486,7 +479,19 @@ function applyScore(state: GameState, side: Side, score: number, now: number): G
   return next;
 }
 
-const clampScore = (value: number) => Math.max(0, Math.min(999, Math.round(value)));
+/**
+ * 점수가 들어갈 수 있는 범위.
+ *
+ * 아래 끝이 판마다 다르다. 보통은 0이다 — 점수는 0부터 올라가는 것이고, −1은 잘못
+ * 올린 것을 되돌리는 버튼이라 되돌릴 것이 없으면 할 일도 없다. 뒷빡을 쓰는 판에서는
+ * 아래가 열린다. 뒷빡을 몇 점으로 물릴지는 치는 사람들이 정하고, 그걸 −1로 직접
+ * 빼는 사람에게 0은 벽이 된다.
+ */
+const clampScore = (value: number, floor = 0) =>
+  Math.max(floor, Math.min(999, Math.round(value)));
+
+/** 이 판에서 점수가 내려갈 수 있는 바닥. */
+export const scoreFloor = (state: GameState) => (state.foul ? -999 : 0);
 
 export const other = (side: Side): Side => (side === 'white' ? 'yellow' : 'white');
 
