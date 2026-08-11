@@ -8,6 +8,7 @@ import { useEffect, useState } from 'react';
 import {
   GAME_KINDS,
   SIDES,
+  SIDE_LABELS,
   createGame,
   kindInfo,
   other,
@@ -34,7 +35,7 @@ import {
   computeStats,
   humanDuration,
   recentOpponents,
-  recentVenues,
+  venueList,
   type OpponentCard,
   type Stats,
 } from '../lib/stats';
@@ -119,7 +120,15 @@ export function Lobby() {
 
   // 상단 줄에서 당구장을 고르면 이 화면의 장소 칸도 그것을 가리킨다. 둘은 서로 다른
   // 아일랜드라 상태를 나눠 가질 수 없어, 저장이 일어난 자리에서 알려 준다.
-  useEffect(() => watchSettings((next) => setVenue(next.lastVenue ?? '')), []);
+  useEffect(
+    () =>
+      watchSettings((next) => {
+        setVenue(next.lastVenue ?? '');
+        // 설정에서 방금 적은 집도 배지 목록에 선다.
+        setSettings((current) => ({ ...current, venues: next.venues ?? [] }));
+      }),
+    []
+  );
 
   /**
    * 하드웨어 뒤로가기는 단계를 되돌린다.
@@ -165,6 +174,16 @@ export function Lobby() {
         })),
       ];
 
+  /*
+    화면에 부를 이름.
+
+    이름을 적지 않고 시작하는 사람이 있다 — 그때 `seat.name`은 빈 문자열이고, 선공
+    고르개의 버튼 하나가 글자 없이 비어 버린다. 게임을 만들 때는 `createGame`이 같은
+    자리를 공 색으로 채우므로, 화면도 미리 그 이름으로 부른다.
+  */
+  const seatName = (index: number) =>
+    seats[index]?.name?.trim() || SIDE_LABELS[SIDES[index]] || `${index + 1}번`;
+
   const setTarget = (at: number, value: number) =>
     setTargets((current) => current.map((entry, index) => (index === at ? value : entry)));
 
@@ -174,7 +193,14 @@ export function Lobby() {
   // 첫 화면의 숫자들. 기록이 없으면 아무것도 세우지 않는다 — 빈 카드는 없느니만 못하다.
   const stats: Stats | null = history.length > 0 ? computeStats(history) : null;
   const lastGames = history.filter((game) => game.finishedAt).slice(0, 3);
-  const places = recentVenues(history);
+  /*
+    고를 수 있는 당구장들.
+
+    친 기록에 남은 집과 설정에 적어 둔 집을 합친다 — 첫 화면의 고르개와 같은 목록이다.
+    기록만 보던 동안에는 설정에 방금 적은 집이 여기에 없었다: 아직 그 집에서 친 판이
+    하나도 없으니 기록에 있을 리가 없는데, 정작 그 집에 가려고 적어 둔 것이었다.
+  */
+  const places = venueList(history, settings.venues ?? []);
 
   const chooseKind = (next: GameKind) => {
     setKind(next);
@@ -610,7 +636,7 @@ export function Lobby() {
               <HandicapBox
                 key={index}
                 ball={index % 2 === 1 ? 'yellow' : 'white'}
-                name={seat.name}
+                name={seatName(index)}
                 value={targets[index]}
                 onChange={(value) => setTarget(index, value)}
               />
@@ -657,7 +683,7 @@ export function Lobby() {
                     tap();
                   }}
                 >
-                  {seat.name}
+                  {seatName(index)}
                 </button>
               ))}
             </div>
@@ -690,7 +716,7 @@ export function Lobby() {
             </div>
             <p style={{ fontSize: '0.78rem', color: 'rgba(243,244,246,0.55)', margin: '0.4rem 0 0' }}>
               {equalizer
-                ? `선공(${seats[Math.min(firstAt, seats.length - 1)]?.name ?? '선공'})이 먼저 목표를 채워도 ` +
+                ? `선공(${seatName(Math.min(firstAt, seats.length - 1))})이 먼저 목표를 채워도 ` +
                   '거기서 끝나지 않고 나머지가 한 차례씩 더 칩니다. 따라붙으면 매치포인트로 이어져, ' +
                   '한 이닝에서 더 친 쪽이 나올 때까지 계속됩니다.'
                 : '선공이 목표를 채우는 순간 끝납니다.'}
