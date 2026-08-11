@@ -17,6 +17,9 @@ import {
   reduce,
   remaining,
   scoreFloor,
+  shooter,
+  sides,
+  nextSide,
   summarize,
   readNotes,
   turnElapsed,
@@ -233,32 +236,39 @@ export function Scoreboard() {
   if (!state) return <div className="page" />;
 
   const info = kindInfo(state.kind);
+  const list = sides(state);
+  /** 셋 이상이면 판 하나가 좁아진다. 그때는 화면에 세우는 것을 줄인다. */
+  const tight = list.length > 2;
 
   // 뒷빡을 쓰는 판에서 상대 판을 누르면 하는 일. 차례를 넘기는 것뿐이다 — 점수는
   // 아무 데도 움직이지 않고, 몇 점을 물릴지는 −1 버튼으로 사람이 직접 뺀다.
   const foul = () => {
-    dispatch({ type: 'turn', side: other(state.turn) });
+    dispatch({ type: 'turn', side: nextSide(state, state.turn) });
     tap('heavy');
   };
 
   return (
     <>
-      <div className="board">
-        <PlayerSide
-          side="white"
-          state={state}
-          onScore={score}
-          onFoul={foul}
-          onTurn={() => dispatch({ type: 'turn', side: 'white' })}
-        />
+      {/*
+        판이 자리 수만큼 늘어난다.
 
-        <PlayerSide
-          side="yellow"
-          state={state}
-          onScore={score}
-          onFoul={foul}
-          onTurn={() => dispatch({ type: 'turn', side: 'yellow' })}
-        />
+        둘일 때는 화면을 세로로 반씩 나눈 그대로다 — 마주 보고 서서 각자 자기 쪽을 누르는
+        배치이고, 그게 이 앱에서 가장 흔한 판이다. 셋 이상이면 그 배치가 성립하지 않는다:
+        폰 하나를 셋이 둘러쌀 수는 없으므로 한 사람이 들고 누르게 되고, 그러면 중요한 것은
+        "각자 앞에 있는가"가 아니라 "세 숫자가 다 읽히는가"다. 그래서 격자로 접는다.
+      */}
+      <div className="board" data-count={list.length}>
+        {list.map((side) => (
+          <PlayerSide
+            key={side}
+            side={side}
+            state={state}
+            tight={tight}
+            onScore={score}
+            onFoul={foul}
+            onTurn={() => dispatch({ type: 'turn', side })}
+          />
+        ))}
       </div>
 
       {/*
@@ -397,12 +407,15 @@ export function Scoreboard() {
 function PlayerSide({
   side,
   state,
+  tight,
   onScore,
   onFoul,
   onTurn,
 }: {
   side: Side;
   state: GameState;
+  /** 셋 이상이 치는 판 — 칸이 좁아 세울 것을 줄인다. */
+  tight: boolean;
   onScore: (side: Side, delta: number) => void;
   onFoul: () => void;
   onTurn: () => void;
@@ -436,6 +449,14 @@ function PlayerSide({
       <button className="name" onClick={onTurn} title="이 사람 차례로">
         {player.name}
       </button>
+
+      {/* 팀전에서 지금 칠 사람. 팀은 점수를 함께 쓰므로 판이 하나이고, 그 안에서 누구
+          차례인지는 이 줄만이 말해 준다. */}
+      {player.members?.length ? (
+        <div className="shooter" data-active={active}>
+          {shooter(state, side)} 차례
+        </div>
+      ) : null}
 
       {/*
         자기 쪽의 빈 곳은 전부 +1 버튼이다.
@@ -505,10 +526,15 @@ function PlayerSide({
         </div>
       </button>
 
-      {/* 큰 것이 더하기다. 당구에서 점수는 거의 언제나 올라가고, 빼기는 잘못 눌렀을
-          때만 쓴다 — 크기 차이가 그 빈도 차이를 말한다. */}
-      <div className="pad">
-        {[1, 2, 3].map((delta) => (
+      {/*
+        큰 것이 더하기다. 당구에서 점수는 거의 언제나 올라가고, 빼기는 잘못 눌렀을
+        때만 쓴다 — 크기 차이가 그 빈도 차이를 말한다.
+
+        셋 이상이 치는 판에서는 +1을 뺀다. 판 전체가 이미 +1이고, 좁아진 칸에서 같은
+        일을 하는 버튼 둘은 자리만 먹는다.
+      */}
+      <div className={tight ? 'pad two' : 'pad'}>
+        {(tight ? [2, 3] : [1, 2, 3]).map((delta) => (
           <button key={delta} className="plus" onClick={() => onScore(side, delta)}>
             +{delta}
           </button>
@@ -531,7 +557,9 @@ function PlayerSide({
       </div>
 
       {/* 3점을 넘겨 한 번에 올릴 때. 포켓볼에서 한 큐에 여러 개를 넣거나, 점수를
-          잘못 세어 통째로 고칠 때 쓴다. */}
+          잘못 세어 통째로 고칠 때 쓴다. 좁은 판에서는 접는다 — 자주 쓰는 것이 아니고,
+          그 한 줄이 없으면 숫자가 그만큼 커진다. */}
+      {!tight && (
       <form
         className="manual"
         onSubmit={(event) => {
@@ -552,6 +580,7 @@ function PlayerSide({
         />
         <button type="submit">더하기</button>
       </form>
+      )}
     </section>
   );
 }

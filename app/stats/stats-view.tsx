@@ -8,6 +8,8 @@ import {
   highRun,
   kindInfo,
   other,
+  sides,
+  SIDE_LABELS,
   type GameKind,
   keptNotes,
   readNotes,
@@ -295,8 +297,11 @@ export function StatsView() {
             <div className="scroller">
               {scope.games.map((game) => {
                 const me = game.me ?? 'white';
-                const opponent = game.players[other(me)];
                 const mine = game.players[me];
+                // 셋 이상이 친 판은 상대가 하나가 아니다. 이름도 점수도 나란히 적는다.
+                const rivals = sides(game)
+                  .filter((side) => side !== me)
+                  .map((side) => game.players[side]);
                 const won = game.winner === me;
 
                 return (
@@ -312,7 +317,7 @@ export function StatsView() {
                   >
                     <span className="pill">{kindInfo(game.kind).label}</span>
                     <span className="who">
-                      <strong>{opponent.name}</strong>
+                      <strong>{rivals.map((player) => player?.name ?? '상대').join(' · ')}</strong>
                       <span>
                         {new Date(game.startedAt).toLocaleString('ko-KR', {
                           month: 'numeric',
@@ -323,7 +328,7 @@ export function StatsView() {
                       </span>
                     </span>
                     <span className="result" style={{ color: won ? '#4ade80' : '#f87171' }}>
-                      {mine.score}:{opponent.score}
+                      {[mine?.score ?? 0, ...rivals.map((player) => player?.score ?? 0)].join(':')}
                     </span>
                   </button>
                 );
@@ -499,11 +504,10 @@ function RecordSheet({
    */
   const runs = useMemo(() => {
     const stored = game.runs;
-    if (!stored?.white || !stored?.yellow) return null;
-    const sum = (list: number[]) => list.reduce((total, points) => total + points, 0);
-    const matches = (['white', 'yellow'] as Side[]).every(
-      (side) => sum(stored[side]) === game.players[side].score
-    );
+    const list = sides(game);
+    if (!stored || list.some((side) => !stored[side])) return null;
+    const sum = (points: number[]) => points.reduce((total, value) => total + value, 0);
+    const matches = list.every((side) => sum(stored[side]) === game.players[side].score);
     return matches ? stored : null;
   }, [game]);
 
@@ -568,8 +572,8 @@ function RecordSheet({
             {/* 두 사람을 점수판과 같은 색으로. 어느 쪽이 누구였는지 색이 먼저 말해 준다. */}
             {tab === 'summary' && (
             <>
-            <div className="pair">
-              {(['white', 'yellow'] as Side[]).map((side) => {
+            <div className="pair" data-count={sides(game).length}>
+              {sides(game).map((side) => {
                 const player = game.players[side];
                 const won = game.winner === side;
                 // 목표를 넘긴 점수가 곧 쿠션으로 친 점수다. 규칙에 걸린 만큼까지만 센다 —
@@ -581,6 +585,10 @@ function RecordSheet({
                       {side === me ? '나' : '상대'}
                       {won ? ' · 승' : game.winner ? ' · 패' : ''}
                     </span>
+                    {/* 팀은 자리 하나에 두 사람이다. 누가 있었는지는 여기서만 알 수 있다. */}
+                    {player.members?.length ? (
+                      <span className="label">{player.members.join(' · ')}</span>
+                    ) : null}
                     <strong className="who-name">{player.name}</strong>
                     <div className="big">{player.score}</div>
                     <span className="label">
@@ -649,22 +657,34 @@ function RecordSheet({
                     표에서 잘려 나가는 것보다 빈 줄 하나가 낫다.
                   */}
                   {Array.from(
-                    { length: Math.max(innings, runs.white.length, runs.yellow.length) },
-                    (_, index) => {
-                      const white = runs.white[index] ?? 0;
-                      const yellow = runs.yellow[index] ?? 0;
-                      return (
-                        <div className="line" key={index}>
-                          <span className="no">{index + 1}이닝</span>
-                          <span className={white > 0 ? 'points white' : 'points'}>
-                            {white > 0 ? white : '·'}
-                          </span>
-                          <span className={yellow > 0 ? 'points yellow' : 'points'}>
-                            {yellow > 0 ? yellow : '·'}
-                          </span>
-                        </div>
-                      );
-                    }
+                    {
+                      length: Math.max(
+                        innings,
+                        ...sides(game).map((side) => runs[side]?.length ?? 0)
+                      ),
+                    },
+                    (_, index) => (
+                      <div
+                        className="line"
+                        key={index}
+                        style={{
+                          gridTemplateColumns: `3.2rem repeat(${sides(game).length}, 1fr)`,
+                        }}
+                      >
+                        <span className="no">{index + 1}이닝</span>
+                        {sides(game).map((side) => {
+                          const points = runs[side]?.[index] ?? 0;
+                          return (
+                            <span
+                              key={side}
+                              className={points > 0 ? `points ${side}` : 'points'}
+                            >
+                              {points > 0 ? points : '·'}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )
                   )}
                 </div>
               </div>
@@ -780,18 +800,21 @@ function RecordEditor({
 
   // 숫자도 문자열로 들고 있는다. 입력 중에 숫자로 바꿔 버리면 칸을 비우는 순간 0이
   // 들어차서, 20을 30으로 고치려고 지웠을 때 "0"부터 다시 치게 된다.
+  const list = sides(game);
+
   const [draft, setDraft] = useState(() => ({
     kind: game.kind,
-    white: {
-      name: game.players.white.name,
-      score: String(game.players.white.score),
-      target: String(game.players.white.target),
-    },
-    yellow: {
-      name: game.players.yellow.name,
-      score: String(game.players.yellow.score),
-      target: String(game.players.yellow.target),
-    },
+    // 자리마다 한 벌. 셋이 친 판도 넷이 친 판도 같은 모양이라, 칸 수만 달라진다.
+    seats: Object.fromEntries(
+      list.map((side) => [
+        side,
+        {
+          name: game.players[side]?.name ?? '',
+          score: String(game.players[side]?.score ?? 0),
+          target: String(game.players[side]?.target ?? 20),
+        },
+      ])
+    ) as Record<Side, { name: string; score: string; target: string }>,
     inning: String(game.inning),
     minutes: String(Math.round(game.elapsedMs / 60000)),
     winner: (game.winner ?? '') as Side | '',
@@ -799,7 +822,10 @@ function RecordEditor({
   const [busy, setBusy] = useState(false);
 
   const edit = (side: Side, field: 'name' | 'score' | 'target', value: string) =>
-    setDraft((current) => ({ ...current, [side]: { ...current[side], [field]: value } }));
+    setDraft((current) => ({
+      ...current,
+      seats: { ...current.seats, [side]: { ...current.seats[side], [field]: value } },
+    }));
 
   /** 빈 칸이나 헛소리는 고치기 전 값으로 되돌린다 — 저장 한 번으로 기록이 망가지지 않게. */
   const number = (value: string, fallback: number, min: number) => {
@@ -809,16 +835,17 @@ function RecordEditor({
   };
 
   const box = (side: Side) => {
-    const player = draft[side];
+    const player = draft.seats[side];
+    const label = SIDE_LABELS[side] ?? side;
     return (
       <div className={`box ${side}`} key={side}>
         <span className="label">
-          {side === 'white' ? '흰 공' : '노란 공'}
+          {label}
           {side === me ? ' (나)' : ''}
         </span>
         <input
           value={player.name}
-          aria-label={`${side === 'white' ? '흰 공' : '노란 공'} 이름`}
+          aria-label={`${label} 이름`}
           onChange={(event) => edit(side, 'name', event.target.value)}
         />
         <div className="pair">
@@ -858,18 +885,17 @@ function RecordEditor({
           inning: number(draft.inning, game.inning, 1),
           elapsedMs: number(draft.minutes, Math.round(game.elapsedMs / 60000), 0) * 60000,
           winner: draft.winner || undefined,
-          players: {
-            white: {
-              name: draft.white.name.trim() || '흰 공',
-              score: number(draft.white.score, game.players.white.score, 0),
-              target: number(draft.white.target, game.players.white.target, 1),
-            },
-            yellow: {
-              name: draft.yellow.name.trim() || '노란 공',
-              score: number(draft.yellow.score, game.players.yellow.score, 0),
-              target: number(draft.yellow.target, game.players.yellow.target, 1),
-            },
-          },
+          players: Object.fromEntries(
+            list.map((side) => [
+              side,
+              {
+                ...game.players[side],
+                name: draft.seats[side].name.trim() || SIDE_LABELS[side] || side,
+                score: number(draft.seats[side].score, game.players[side]?.score ?? 0, 0),
+                target: number(draft.seats[side].target, game.players[side]?.target ?? 20, 1),
+              },
+            ])
+          ),
         });
         setBusy(false);
       }}
@@ -889,7 +915,7 @@ function RecordEditor({
         ))}
       </div>
 
-      <div className="pair">{(['white', 'yellow'] as Side[]).map(box)}</div>
+      <div className="pair" data-count={list.length}>{list.map(box)}</div>
 
       <div className="pair">
         <label>
@@ -914,7 +940,12 @@ function RecordEditor({
 
       <span className="label">승자</span>
       <div className="choices">
-        {([['white', draft.white.name || '흰 공'], ['yellow', draft.yellow.name || '노란 공'], ['', '무승부']] as const).map(
+        {([
+          ...list.map(
+            (side): [Side | '', string] => [side, draft.seats[side].name || SIDE_LABELS[side] || side]
+          ),
+          ['', '무승부'] as [Side | '', string],
+        ]).map(
           ([value, label]) => (
             <button
               key={value || 'draw'}

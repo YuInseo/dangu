@@ -7,12 +7,14 @@ import { useEffect, useState } from 'react';
 
 import {
   GAME_KINDS,
+  SIDES,
   createGame,
   kindInfo,
   other,
   type GameKind,
   type GameState,
   type GameSummary,
+  type Seat,
   type Side,
 } from '../lib/game';
 import { tap } from '../lib/platform';
@@ -59,10 +61,23 @@ export function Lobby() {
   const [ready, setReady] = useState(false);
 
   const [step, setStep] = useState<Step>('idle');
-  const [opponent, setOpponent] = useState('');
+  /**
+   * 몇 명이 치는지, 그리고 팀으로 치는지.
+   *
+   * 둘은 서로 다른 물음처럼 보이지만 한 줄에서 고른다 — 사람이 판을 차릴 때 하는 생각이
+   * "둘이서? 셋이서? 아니면 편 갈라서?" 하나이기 때문이다.
+   */
+  const [count, setCount] = useState(2);
+  const [team, setTeam] = useState(false);
+  /** 상대들의 이름. 팀전이면 상대 팀 두 사람이다. */
+  const [foes, setFoes] = useState<string[]>(['', '', '']);
+  /** 팀전에서 내 편. */
+  const [mate, setMate] = useState('');
   const [kind, setKind] = useState<GameKind>('four');
-  const [targets, setTargets] = useState({ white: 20, yellow: 20 });
-  const [first, setFirst] = useState<Side>('white');
+  /** 자리별 핸디. 0번이 나(또는 우리 팀)다. */
+  const [targets, setTargets] = useState<number[]>([20, 20, 20, 20]);
+  /** 선공 — 자리 번호. */
+  const [firstAt, setFirstAt] = useState(0);
   const [lastCushion, setLastCushion] = useState(0);
   const [equalizer, setEqualizer] = useState(false);
   const [foul, setFoul] = useState(false);
@@ -82,7 +97,12 @@ export function Lobby() {
       setHistory(history);
       setSettings(stored);
       setKind((stored.lastKind as GameKind) ?? 'four');
-      setTargets(stored.lastTargets);
+      setTargets([
+        stored.lastTargets.white,
+        stored.lastTargets.yellow,
+        stored.lastTargets.yellow,
+        stored.lastTargets.yellow,
+      ]);
       setLastCushion(stored.lastCushion ?? 0);
       setEqualizer(stored.lastEqualizer ?? false);
       setFoul(stored.lastFoul ?? false);
@@ -106,6 +126,41 @@ export function Lobby() {
   });
 
   const info = kindInfo(kind);
+  const myName = settings.myName || '나';
+
+  /**
+   * 이 판에 앉을 자리들 — 치는 순서대로.
+   *
+   * 개인전이면 나부터, 그다음이 상대들이다. 팀전이면 자리가 둘뿐이고 각 자리가 두
+   * 사람을 담는다: 팀은 점수를 함께 쓰므로 점수판에서 한 칸이고, 그 안에서 누가 칠
+   * 차례인지는 점수판이 이닝으로 센다.
+   */
+  const seats: Seat[] = team
+    ? [
+        {
+          name: `${myName} · ${mate || '파트너'}`,
+          target: targets[0],
+          members: [myName, mate || '파트너'],
+        },
+        {
+          name: `${foes[0] || '상대 1'} · ${foes[1] || '상대 2'}`,
+          target: targets[1],
+          members: [foes[0] || '상대 1', foes[1] || '상대 2'],
+        },
+      ]
+    : [
+        { name: myName, target: targets[0] },
+        ...Array.from({ length: count - 1 }, (_, index) => ({
+          name: foes[index],
+          target: targets[index + 1],
+        })),
+      ];
+
+  const setTarget = (at: number, value: number) =>
+    setTargets((current) => current.map((entry, index) => (index === at ? value : entry)));
+
+  const setFoe = (at: number, value: string) =>
+    setFoes((current) => current.map((entry, index) => (index === at ? value : entry)));
 
   // 첫 화면의 숫자들. 기록이 없으면 아무것도 세우지 않는다 — 빈 카드는 없느니만 못하다.
   const stats: Stats | null = history.length > 0 ? computeStats(history) : null;
@@ -116,7 +171,7 @@ export function Lobby() {
     // 종목을 바꾸면 핸디의 출발점도 그 종목의 것으로 바뀐다 — 4구 20점에서 3구로 갔는데
     // 20점이 남아 있으면 그건 다른 게임이다.
     const target = kindInfo(next).defaultTarget;
-    setTargets({ white: target, yellow: target });
+    setTargets([target, target, target, target]);
     tap();
     setStep('handicap');
   };
@@ -129,10 +184,13 @@ export function Lobby() {
    * 확인뿐이라 핸디 화면으로 바로 간다. 거기서 무엇이든 고칠 수 있다.
    */
   const pick = (card: OpponentCard) => {
-    setOpponent(card.name);
+    setCount(2);
+    setTeam(false);
+    setFoes([card.name, '', '']);
     setKind(card.last.kind);
-    setTargets({ white: card.last.mine, yellow: card.last.theirs });
+    setTargets([card.last.mine, card.last.theirs, card.last.theirs, card.last.theirs]);
     setLastCushion(card.last.cushion);
+    setFirstAt(0);
     tap();
     setStep('handicap');
   };
@@ -140,9 +198,8 @@ export function Lobby() {
   const start = async () => {
     const game = createGame({
       kind,
-      white: { name: settings.myName || '나', target: targets.white },
-      yellow: { name: opponent, target: targets.yellow },
-      first,
+      seats,
+      first: SIDES[Math.min(firstAt, seats.length - 1)],
       me: 'white',
       // 쿠션 규칙은 4구의 관습이다. 다른 종목에 붙이면 화면에 뜻 없는 배지만 는다.
       lastCushion: kind === 'four' ? lastCushion : 0,
@@ -153,7 +210,7 @@ export function Lobby() {
     await saveSettings({
       ...settings,
       lastKind: kind,
-      lastTargets: targets,
+      lastTargets: { white: targets[0], yellow: targets[1] },
       lastCushion,
       lastEqualizer: equalizer,
       lastFoul: foul,
@@ -264,9 +321,11 @@ export function Lobby() {
                 className="secondary"
                 onClick={async () => {
                   // 이름도 핸디도 묻지 않고 4구 20:20으로 바로. 판 위에서 다 고칠 수 있다.
-                  setOpponent('');
+                  setCount(2);
+                  setTeam(false);
+                  setFoes(['', '', '']);
                   setKind('four');
-                  setTargets({ white: 20, yellow: 20 });
+                  setTargets([20, 20, 20, 20]);
                   tap();
                   setStep('handicap');
                 }}
@@ -392,37 +451,43 @@ export function Lobby() {
       {step === 'name' && (
         <div className="card">
           <h2>누구와 치나요?</h2>
-          <div>
-            <label className="label" htmlFor="opponent">
-              상대 이름
-            </label>
-            <input
-              id="opponent"
-              autoFocus
-              value={opponent}
-              placeholder="예: 김프로"
-              onChange={(event) => setOpponent(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') setStep('kind');
+
+          {/*
+            몇 명이 치는지.
+
+            "둘이서? 셋이서? 아니면 편 갈라서?"는 판을 차릴 때 하는 한 가지 생각이라
+            한 줄에 둔다. 팀은 2:2 하나뿐이다 — 3:3은 여섯 명이고, 그건 점수판 하나로
+            돌아가는 판이 아니다.
+          */}
+          <div className="choices" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+            {[2, 3, 4].map((value) => (
+              <button
+                key={value}
+                className="choice"
+                aria-pressed={!team && count === value}
+                onClick={() => {
+                  setTeam(false);
+                  setCount(value);
+                  setFirstAt(0);
+                  tap();
+                }}
+              >
+                {value}명
+              </button>
+            ))}
+            <button
+              className="choice"
+              aria-pressed={team}
+              onClick={() => {
+                setTeam(true);
+                setCount(4);
+                setFirstAt(0);
+                tap();
               }}
-            />
+            >
+              2:2
+            </button>
           </div>
-          {recent.length > 0 && (
-            <div className="chips">
-              {recent.map((card) => (
-                <button
-                  key={card.name}
-                  className={opponent === card.name ? 'chip on' : 'chip'}
-                  onClick={() => {
-                    setOpponent(card.name);
-                    tap();
-                  }}
-                >
-                  {card.name}
-                </button>
-              ))}
-            </div>
-          )}
 
           <div>
             <label className="label" htmlFor="me">
@@ -434,6 +499,59 @@ export function Lobby() {
               onChange={(event) => setSettings({ ...settings, myName: event.target.value })}
             />
           </div>
+
+          {team && (
+            <div>
+              <label className="label" htmlFor="mate">
+                내 편
+              </label>
+              <input
+                id="mate"
+                value={mate}
+                placeholder="같은 팀 사람"
+                onChange={(event) => setMate(event.target.value)}
+              />
+            </div>
+          )}
+
+          {Array.from({ length: team ? 2 : count - 1 }, (_, index) => (
+            <div key={index}>
+              <label className="label" htmlFor={`foe-${index}`}>
+                {team ? `상대 팀 ${index + 1}` : count === 2 ? '상대 이름' : `상대 ${index + 1}`}
+              </label>
+              <input
+                id={`foe-${index}`}
+                autoFocus={index === 0 && !team}
+                value={foes[index]}
+                placeholder={index === 0 ? '예: 김프로' : '이름'}
+                onChange={(event) => setFoe(index, event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && index === 0 && count === 2 && !team) setStep('kind');
+                }}
+              />
+            </div>
+          ))}
+
+          {/* 지난 상대들. 여러 명이 치는 판에서는 첫 칸에 넣는다 — 대개 그 사람이 있고,
+              나머지는 그날 처음 만난 사람인 경우가 많다. */}
+          {recent.length > 0 && (
+            <div className="chips">
+              {recent.map((card) => (
+                <button
+                  key={card.name}
+                  className={foes.includes(card.name) ? 'chip on' : 'chip'}
+                  onClick={() => {
+                    const at = foes.findIndex((name) => !name.trim());
+                    setFoe(at === -1 ? 0 : at, card.name);
+                    tap();
+                  }}
+                >
+                  {card.name}
+                </button>
+              ))}
+            </div>
+          )}
+
           <div className="row">
             <button className="ghost" onClick={() => setStep('idle')}>
               취소
@@ -474,19 +592,17 @@ export function Lobby() {
             {info.label} · 먼저 자기 점수에 닿는 사람이 이깁니다. 실력 차이는 여기서 맞춥니다.
           </p>
 
+          {/* 자리마다 한 칸. 둘일 때는 나란히 둘, 셋 이상이면 두 줄로 접힌다. */}
           <div className="handicap">
-            <HandicapBox
-              side="white"
-              name={settings.myName || '나'}
-              value={targets.white}
-              onChange={(value) => setTargets((current) => ({ ...current, white: value }))}
-            />
-            <HandicapBox
-              side="yellow"
-              name={opponent || '상대'}
-              value={targets.yellow}
-              onChange={(value) => setTargets((current) => ({ ...current, yellow: value }))}
-            />
+            {seats.map((seat, index) => (
+              <HandicapBox
+                key={index}
+                side={SIDES[index]}
+                name={seat.name}
+                value={targets[index]}
+                onChange={(value) => setTarget(index, value)}
+              />
+            ))}
           </div>
 
           {kind === 'four' && (
@@ -511,28 +627,27 @@ export function Lobby() {
                 {lastCushion === 0
                   ? '목표 점수에 닿으면 바로 끝납니다.'
                   : `목표 점수를 채운 다음, 쿠션으로 ${lastCushion}점을 더 쳐야 이깁니다 — ` +
-                    `${targets.white}점이면 실제로는 ${targets.white + lastCushion}점입니다. 판정은 사람이 하고, 점수판은 쿠션 구간과 남은 점수를 보여 줍니다.`}
+                    `${targets[0]}점이면 실제로는 ${targets[0] + lastCushion}점입니다. 판정은 사람이 하고, 점수판은 쿠션 구간과 남은 점수를 보여 줍니다.`}
               </p>
             </div>
           )}
 
           <div>
             <span className="label">선공</span>
-            <div className="row">
-              <button
-                className="choice"
-                aria-pressed={first === 'white'}
-                onClick={() => setFirst('white')}
-              >
-                {settings.myName || '나'} (흰 공)
-              </button>
-              <button
-                className="choice"
-                aria-pressed={first === 'yellow'}
-                onClick={() => setFirst('yellow')}
-              >
-                {opponent || '상대'} (노란 공)
-              </button>
+            <div className="choices" style={{ gridTemplateColumns: `repeat(${seats.length}, 1fr)` }}>
+              {seats.map((seat, index) => (
+                <button
+                  key={index}
+                  className="choice"
+                  aria-pressed={firstAt === index}
+                  onClick={() => {
+                    setFirstAt(index);
+                    tap();
+                  }}
+                >
+                  {seat.name}
+                </button>
+              ))}
             </div>
           </div>
 
@@ -563,8 +678,8 @@ export function Lobby() {
             </div>
             <p style={{ fontSize: '0.78rem', color: 'rgba(243,244,246,0.55)', margin: '0.4rem 0 0' }}>
               {equalizer
-                ? `선공(${first === 'white' ? settings.myName || '나' : opponent || '상대'})이 먼저 목표를 채워도 ` +
-                  '거기서 끝나지 않고 후공이 한 차례를 더 칩니다. 후공이 따라붙으면 매치포인트로 이어져, ' +
+                ? `선공(${seats[Math.min(firstAt, seats.length - 1)]?.name ?? '선공'})이 먼저 목표를 채워도 ` +
+                  '거기서 끝나지 않고 나머지가 한 차례씩 더 칩니다. 따라붙으면 매치포인트로 이어져, ' +
                   '한 이닝에서 더 친 쪽이 나올 때까지 계속됩니다.'
                 : '선공이 목표를 채우는 순간 끝납니다.'}
             </p>
