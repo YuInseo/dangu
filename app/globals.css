@@ -11,11 +11,6 @@
   --white-ink: #16181d;
   --yellow-bg: #ffd43a;
   --yellow-ink: #2a2000;
-  /* 셋째와 넷째 자리. 당구공의 색을 그대로 쓴다 — 판을 구분하는 것이 색이기 때문이다. */
-  --red-bg: #e0483c;
-  --red-ink: #2a0704;
-  --blue-bg: #3d7be0;
-  --blue-ink: #041428;
   --center-bg: #0f1115;
   --center-ink: #f3f4f6;
   --muted: rgba(0, 0, 0, 0.45);
@@ -275,14 +270,17 @@ graft-island {
   color: var(--yellow-ink);
 }
 
-.side.red {
-  background: var(--red-bg);
-  color: #fff;
-}
-
-.side.blue {
-  background: var(--blue-bg);
-  color: #fff;
+/*
+ * 같은 색 판이 맞닿는 자리.
+ *
+ * 넷이 치면 흰 판 둘이 대각선이 아니라 위아래로 붙는 일이 생긴다. 배경이 같으면 둘이
+ * 한 칸으로 보이므로, 칸마다 옅은 테두리를 하나 둘러 경계를 남긴다.
+ */
+.board[data-count='3'] > .side,
+.board[data-count='4'] > .side {
+  /* 테두리로 그린다. 그림자로 그렸더니 지금 치는 사람의 초록 테두리(같은 속성)를
+     덮어써서, 넷이 치는 판에서만 차례 표시가 사라졌다. */
+  border: 1px solid rgba(0, 0, 0, 0.18);
 }
 
 /* 지금 치는 사람. 색만으로는 밝은 조명 아래에서 구분이 안 되므로 안쪽 테두리까지 준다. */
@@ -855,16 +853,6 @@ graft-island {
   grid-template-columns: repeat(2, 1fr);
 }
 
-.handicap .box.red {
-  background: var(--red-bg);
-  color: #fff;
-}
-
-.handicap .box.blue {
-  background: var(--blue-bg);
-  color: #fff;
-}
-
 .handicap .box {
   border-radius: 14px;
   padding: 0.7rem;
@@ -1347,14 +1335,6 @@ button.record {
   color: var(--yellow-bg);
 }
 
-.runs .points.red {
-  color: var(--red-bg);
-}
-
-.runs .points.blue {
-  color: #7aa8f0;
-}
-
 /* 이닝 줄의 칸 수는 자리 수를 따라간다 — 칸 폭은 인라인 스타일이 정하고, 여기서는
    숫자가 오른쪽에 모이는 것만 지킨다. */
 .runs .line .points {
@@ -1404,16 +1384,6 @@ button.record {
 .sheet .pair[data-count='3'] .big,
 .sheet .pair[data-count='4'] .big {
   font-size: 1.7rem;
-}
-
-.sheet .box.red {
-  background: var(--red-bg);
-  color: #fff;
-}
-
-.sheet .box.blue {
-  background: var(--blue-bg);
-  color: #fff;
 }
 
 .sheet .box {

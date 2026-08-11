@@ -19,16 +19,29 @@
  */
 export type Side = string;
 
-/** 자리에 붙는 색 — 순서대로 쓴다. 넷을 넘는 판은 점수판 화면이 감당하지 못한다. */
+/** 자리의 키 — 순서대로 쓴다. 넷을 넘는 판은 점수판 화면이 감당하지 못한다. */
 export const SIDES: readonly Side[] = ['white', 'yellow', 'red', 'blue'];
 
-/** 자리마다의 기본 이름. 아무것도 적지 않은 사람은 자기 공 색으로 불린다. */
+/** 자리마다의 기본 이름. 아무것도 적지 않은 사람은 이렇게 불린다. */
 export const SIDE_LABELS: Record<Side, string> = {
   white: '흰 공',
   yellow: '노란 공',
-  red: '빨간 공',
-  blue: '파란 공',
+  red: '3번',
+  blue: '4번',
 };
+
+/**
+ * 이 자리가 잡는 공의 색.
+ *
+ * 테이블에는 수구가 둘뿐이다 — 흰 공과 노란 공. 셋이 쳐도 넷이 쳐도 그건 그대로이고,
+ * 세 번째 사람은 없는 색의 공을 잡는 것이 아니라 앞사람이 놓은 공을 이어 잡는다. 그래서
+ * 자리 키는 넷이지만 색은 둘이고, 순서대로 번갈아 간다.
+ *
+ * 키와 색을 따로 두는 이유는 저장된 기록 때문이다. 키는 그 판에서 누가 누구였는지를
+ * 가리키는 이름이라 바뀌면 안 되고, 색은 화면이 그리는 방식이라 언제든 바뀔 수 있다.
+ */
+export const ballOf = (list: readonly Side[], side: Side): 'white' | 'yellow' =>
+  list.indexOf(side) % 2 === 1 ? 'yellow' : 'white';
 
 export type GameKind = 'four' | 'three' | 'pocket';
 

@@ -597,7 +597,7 @@ export function Lobby() {
             {seats.map((seat, index) => (
               <HandicapBox
                 key={index}
-                side={SIDES[index]}
+                ball={index % 2 === 1 ? 'yellow' : 'white'}
                 name={seat.name}
                 value={targets[index]}
                 onChange={(value) => setTarget(index, value)}
@@ -743,12 +743,13 @@ export function Lobby() {
  * 버튼으로 누르는 게 고문이라서.
  */
 function HandicapBox({
-  side,
+  ball,
   name,
   value,
   onChange,
 }: {
-  side: Side;
+  /** 이 자리가 잡는 공. 셋째부터는 흰·노랑을 다시 쓴다 — 테이블의 수구가 둘뿐이라서. */
+  ball: 'white' | 'yellow';
   name: string;
   value: number;
   onChange: (value: number) => void;
@@ -759,7 +760,7 @@ function HandicapBox({
   };
 
   return (
-    <div className={`box ${side}`}>
+    <div className={`box ${ball}`}>
       <strong style={{ fontSize: '0.9rem' }}>{name}</strong>
       <span className="value">{value}</span>
       <div className="row">
