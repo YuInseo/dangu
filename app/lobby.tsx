@@ -5,7 +5,16 @@ import { useHardwareBack } from 'graft/native';
 import { useRouter } from 'graft/navigation';
 import { useEffect, useState } from 'react';
 
-import { GAME_KINDS, createGame, kindInfo, type GameKind, type GameState, type Side } from '../lib/game';
+import {
+  GAME_KINDS,
+  createGame,
+  kindInfo,
+  other,
+  type GameKind,
+  type GameState,
+  type GameSummary,
+  type Side,
+} from '../lib/game';
 import { tap } from '../lib/platform';
 import {
   DEFAULT_SETTINGS,
@@ -17,7 +26,14 @@ import {
   saveSettings,
   type AppSettings,
 } from '../lib/storage';
-import { recentOpponents, type OpponentCard } from '../lib/stats';
+import {
+  averageOf,
+  computeStats,
+  humanDuration,
+  recentOpponents,
+  type OpponentCard,
+  type Stats,
+} from '../lib/stats';
 import { useAccount } from '../lib/use-account';
 import { SignIn } from './sign-in';
 
@@ -52,6 +68,8 @@ export function Lobby() {
   const [foul, setFoul] = useState(false);
   /** 요즘 친 사람들. 이름을 다시 적는 대신 고르는 자리다. */
   const [recent, setRecent] = useState<OpponentCard[]>([]);
+  /** 첫 화면에 세울 숫자들. 기록 화면까지 가지 않고도 오늘이 어땠는지는 알아야 한다. */
+  const [history, setHistory] = useState<GameSummary[]>([]);
 
   useEffect(() => {
     void (async () => {
@@ -61,6 +79,7 @@ export function Lobby() {
         loadHistory(),
       ]);
       setRecent(recentOpponents(history));
+      setHistory(history);
       setSettings(stored);
       setKind((stored.lastKind as GameKind) ?? 'four');
       setTargets(stored.lastTargets);
@@ -87,6 +106,10 @@ export function Lobby() {
   });
 
   const info = kindInfo(kind);
+
+  // 첫 화면의 숫자들. 기록이 없으면 아무것도 세우지 않는다 — 빈 카드는 없느니만 못하다.
+  const stats: Stats | null = history.length > 0 ? computeStats(history) : null;
+  const lastGames = history.filter((game) => game.finishedAt).slice(0, 3);
 
   const chooseKind = (next: GameKind) => {
     setKind(next);
@@ -204,6 +227,104 @@ export function Lobby() {
                     </small>
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/*
+            오늘.
+
+            기록 화면까지 가지 않고도 알아야 하는 것이 하나 있다 — 오늘 몇 판 쳤고 몇 판
+            이겼나. 당구장에서 이 앱을 여는 사람은 대개 그걸 궁금해하며 열고, 그때마다
+            달력을 지나 아래로 내려가야 했다.
+
+            오늘 친 판이 없으면 이번 달을 대신 적는다. "0게임 0승 0패"는 아무 말도 하지
+            않는 카드이고, 그런 카드는 없느니만 못하다.
+          */}
+          {stats && (
+            <div className="card">
+              <h2>{stats.today.games > 0 ? '오늘' : '이번 달'}</h2>
+              {(() => {
+                const tally = stats.today.games > 0 ? stats.today : stats.month;
+                return (
+                  <>
+                    <div className="glance">
+                      <div>
+                        <strong>{tally.games}</strong>
+                        <small>게임</small>
+                      </div>
+                      <div>
+                        <strong>{tally.wins}</strong>
+                        <small>승</small>
+                      </div>
+                      <div>
+                        <strong>{tally.losses}</strong>
+                        <small>패</small>
+                      </div>
+                      <div>
+                        <strong>{averageOf(tally).toFixed(3)}</strong>
+                        <small>에버</small>
+                      </div>
+                    </div>
+                    <p style={{ fontSize: '0.8rem' }}>
+                      {humanDuration(tally.elapsedMs)} 쳤습니다
+                      {stats.currentStreak > 1 ? ` · ${stats.currentStreak}연승 중` : ''}
+                    </p>
+                  </>
+                );
+              })()}
+
+              {/* 최근 열 판의 승패. 숫자보다 이 점들이 요즘 어떤지를 먼저 말해 준다. */}
+              {stats.recentForm.length > 0 && (
+                <div className="form">
+                  {[...stats.recentForm].reverse().map((result, index) => (
+                    <span key={index} className={`dot ${result.toLowerCase()}`} aria-hidden="true" />
+                  ))}
+                  <span className="form-label">최근 {stats.recentForm.length}판</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/*
+            마지막 판들.
+
+            누구와 몇 대 몇이었는지 세 줄이면 어제 저녁이 떠오른다. 눌러서 기록으로
+            가는 문이기도 하다 — 아래 내비게이션과 같은 곳이지만, 이쪽은 "그 판"을
+            보러 가는 길이라 뜻이 다르다.
+          */}
+          {lastGames.length > 0 && (
+            <div className="card">
+              <h2>마지막 판</h2>
+              <div className="last-games">
+                {lastGames.map((game) => {
+                  const me = game.me ?? 'white';
+                  const mine = game.players[me];
+                  const them = game.players[other(me)];
+                  const won = game.winner === me;
+                  const lost = game.winner === other(me);
+                  return (
+                    <button
+                      key={game.id}
+                      className="last-game"
+                      onClick={() => {
+                        tap();
+                        router.push('/stats');
+                      }}
+                    >
+                      <span className="who">{them?.name || '상대'}</span>
+                      <span className={won ? 'score win' : lost ? 'score lose' : 'score'}>
+                        {mine?.score ?? 0} : {them?.score ?? 0}
+                      </span>
+                      <span className="when">
+                        {new Date(game.startedAt).toLocaleDateString('ko-KR', {
+                          month: 'numeric',
+                          day: 'numeric',
+                        })}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
