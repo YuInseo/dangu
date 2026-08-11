@@ -337,3 +337,51 @@ export function recentOpponents(games: GameSummary[], limit = 6): OpponentCard[]
 
   return [...cards.values()].sort((a, b) => b.lastPlayedAt - a.lastPlayedAt).slice(0, limit);
 }
+
+/* 어디서 쳤나 -------------------------------------------------------- */
+
+export interface VenueTally extends Tally {
+  name: string;
+  lastPlayedAt: number;
+}
+
+/**
+ * 당구장별 성적.
+ *
+ * 같은 이름은 한 집으로 본다. 장소를 적지 않은 판은 세지 않는다 — "어디서 쳤는지 모르는
+ * 판"을 한 줄로 묶어 두면 그 줄이 대개 제일 길고, 그건 아무 이야기도 하지 않는다.
+ *
+ * 많이 친 순서다. 로비의 상대 목록과 달리 이건 통계이고, 여기서 알고 싶은 것은 "어느
+ * 집에서 자주 치나, 그 집에서 잘 치나"이기 때문이다.
+ */
+export function venueStats(games: GameSummary[]): VenueTally[] {
+  const found = new Map<string, VenueTally>();
+
+  for (const game of games) {
+    if (!game.finishedAt) continue;
+    const name = (game.venue ?? '').trim();
+    if (!name) continue;
+    const previous = found.get(name) ?? { ...emptyTally(), name, lastPlayedAt: 0 };
+    found.set(name, {
+      ...add(previous, game),
+      name,
+      lastPlayedAt: Math.max(previous.lastPlayedAt, game.startedAt),
+    });
+  }
+
+  return [...found.values()]
+    .map((entry): VenueTally => ({ ...entry, ...settle(entry) }))
+    .sort((a, b) => b.games - a.games || b.lastPlayedAt - a.lastPlayedAt);
+}
+
+/** 최근에 간 당구장들 — 로비에서 고르는 자리. 최근 순으로 몇 곳만. */
+export function recentVenues(games: GameSummary[], limit = 5): string[] {
+  const seen: string[] = [];
+  for (const game of [...games].sort((a, b) => b.startedAt - a.startedAt)) {
+    const name = (game.venue ?? '').trim();
+    if (!name || seen.includes(name)) continue;
+    seen.push(name);
+    if (seen.length >= limit) break;
+  }
+  return seen;
+}

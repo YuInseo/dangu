@@ -2810,3 +2810,12 @@ button.record {
   line-height: 1.45;
   color: rgba(243, 244, 246, 0.55);
 }
+
+/* 팀 안의 사람별 숫자. 에버 줄 바로 아래, 이름과 숫자가 붙어 다닌다. */
+.side .rate.mates {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0 0.6rem;
+  margin-top: -0.2rem;
+}

@@ -8,6 +8,7 @@ import {
   highRun,
   kindInfo,
   ballOf,
+  memberLines,
   other,
   sides,
   SIDE_LABELS,
@@ -28,6 +29,7 @@ import {
   monthKey,
   percent,
   tallyByDay,
+  venueStats,
   type Tally,
 } from '../../lib/stats';
 import {
@@ -109,6 +111,7 @@ export function StatsView() {
   }, [showAll, selected, all, cursor, viewMonth]);
 
   const stats = useMemo(() => computeStats(scope.games), [scope.games]);
+  const venues = useMemo(() => venueStats(scope.games), [scope.games]);
   const overall = useMemo(() => computeStats(all), [all]);
 
   /** 모달에 떠 있는 기록. 지워지거나 날짜를 옮기면 스스로 닫히도록 목록에서 찾는다. */
@@ -268,6 +271,26 @@ export function StatsView() {
               </div>
             ))}
           </div>
+
+          {/* 어디서 쳤나. 장소를 적은 판이 하나도 없으면 이 카드는 서지 않는다 —
+              적지 않는 사람에게 빈 카드를 보여 줄 이유가 없다. */}
+          {venues.length > 0 && (
+            <div className="card">
+              <h2>당구장별</h2>
+              {venues.map((place) => (
+                <div className="record" key={place.name}>
+                  <div className="who">
+                    <strong>{place.name}</strong>
+                    <span>
+                      {place.games}게임 · {place.wins}승 {place.losses}패 · 에버{' '}
+                      {averageOf(place).toFixed(3)}
+                    </span>
+                  </div>
+                  <div className="result">{percent(place.rate)}</div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="card">
             <h2>종목별</h2>
@@ -586,10 +609,14 @@ function RecordSheet({
                       {side === me ? '나' : '상대'}
                       {won ? ' · 승' : game.winner ? ' · 패' : ''}
                     </span>
-                    {/* 팀은 자리 하나에 두 사람이다. 누가 있었는지는 여기서만 알 수 있다. */}
-                    {player.members?.length ? (
-                      <span className="label">{player.members.join(' · ')}</span>
-                    ) : null}
+                    {/* 팀은 자리 하나에 두 사람이다. 누가 몇 점을 쳤는지는 이 줄에만 남는다. */}
+                    {player.members?.length
+                      ? memberLines(player.members, runs?.[side] ?? [], innings).map((line) => (
+                          <span className="label" key={line.name}>
+                            {line.name} {line.points}점 · 에버 {line.average.toFixed(3)}
+                          </span>
+                        ))
+                      : null}
                     <strong className="who-name">{player.name}</strong>
                     <div className="big">{player.score}</div>
                     <span className="label">
@@ -614,6 +641,12 @@ function RecordSheet({
                 <dt>결과</dt>
                 <dd>{game.winner ? `${game.players[game.winner].name} 승리` : '무승부'}</dd>
               </div>
+              {game.venue ? (
+                <div>
+                  <dt>장소</dt>
+                  <dd>{game.venue}</dd>
+                </div>
+              ) : null}
               <div>
                 <dt>이닝</dt>
                 <dd>{game.inning}이닝</dd>
@@ -818,6 +851,7 @@ function RecordEditor({
     ) as Record<Side, { name: string; score: string; target: string }>,
     inning: String(game.inning),
     minutes: String(Math.round(game.elapsedMs / 60000)),
+    venue: game.venue ?? '',
     winner: (game.winner ?? '') as Side | '',
   }));
   const [busy, setBusy] = useState(false);
@@ -885,6 +919,7 @@ function RecordEditor({
           kind: draft.kind,
           inning: number(draft.inning, game.inning, 1),
           elapsedMs: number(draft.minutes, Math.round(game.elapsedMs / 60000), 0) * 60000,
+          venue: draft.venue.trim() || undefined,
           winner: draft.winner || undefined,
           players: Object.fromEntries(
             list.map((side) => [
@@ -938,6 +973,15 @@ function RecordEditor({
           />
         </label>
       </div>
+
+      <label>
+        <span className="label">당구장</span>
+        <input
+          value={draft.venue}
+          placeholder="적지 않아도 됩니다"
+          onChange={(event) => setDraft((current) => ({ ...current, venue: event.target.value }))}
+        />
+      </label>
 
       <span className="label">승자</span>
       <div className="choices">
