@@ -217,7 +217,8 @@ export function Lobby() {
               </p>
             )}
             {account.configured === true && !account.account && <SignIn account={account} />}
-            {account.account && <p>기록이 계정에 저장되고 있습니다.</p>}
+            {/* 로그인한 사람에게는 이름만 남는다. 기록이 계정에 올라간다는 것은 로그인의
+                뜻이지 새 소식이 아니고, 매번 읽을 문장도 아니다 — 자세한 것은 설정에 있다. */}
           </div>
         </>
       )}
