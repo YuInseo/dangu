@@ -157,6 +157,7 @@ export function Scoreboard() {
     [dispatch]
   );
 
+
   if (missing) {
     return (
       <div className="page">
@@ -175,15 +176,29 @@ export function Scoreboard() {
 
   const info = kindInfo(state.kind);
 
+  // 뒷빡. 치던 사람이 상대 수구를 맞혔다는 뜻이라, 어느 판을 눌렀든 기록은 *치던 쪽*에
+  // 남는다 — 상대 판을 누르는 것은 "네 공을 맞혔다"는 신고이지 상대의 득점이 아니다.
+  const foul = () => {
+    dispatch({ type: 'foul', side: state.turn });
+    tap('heavy');
+  };
+
   return (
     <>
       <div className="board">
-        <PlayerSide side="white" state={state} onScore={score} onTurn={() => dispatch({ type: 'turn', side: 'white' })} />
+        <PlayerSide
+          side="white"
+          state={state}
+          onScore={score}
+          onFoul={foul}
+          onTurn={() => dispatch({ type: 'turn', side: 'white' })}
+        />
 
         <PlayerSide
           side="yellow"
           state={state}
           onScore={score}
+          onFoul={foul}
           onTurn={() => dispatch({ type: 'turn', side: 'yellow' })}
         />
       </div>
@@ -305,17 +320,31 @@ function PlayerSide({
   side,
   state,
   onScore,
+  onFoul,
   onTurn,
 }: {
   side: Side;
   state: GameState;
   onScore: (side: Side, delta: number) => void;
+  onFoul: () => void;
   onTurn: () => void;
 }) {
   const player = state.players[side];
   const [manual, setManual] = useState('');
   const active = state.turn === side;
   const cushion = needsCushion(state, side);
+
+  /*
+    뒷빡을 쓰는 판에서 상대 판을 누르는 일.
+
+    상대 수구를 맞혔을 때 누른다. 그런데 이건 상대가 한 점을 얻은 것이 아니다 — 친
+    사람의 실수이므로 그 사람 쪽에 −1이 쌓이고 차례가 넘어간다. 그래서 지금 치고 있지
+    않은 쪽의 넓은 자리는 +1이 아니라 "뒷빡"이 된다. 자기 차례인 쪽은 그대로 +1이다.
+
+    뒷빡을 안 쓰기로 한 판에서는 이 자리가 예전처럼 +1로 남는다. 두 사람의 점수를 한
+    사람이 몰아서 넣는 일이 흔하기 때문이다.
+  */
+  const foulTap = state.foul === true && !active && !state.finishedAt;
 
   return (
     <section
@@ -334,9 +363,13 @@ function PlayerSide({
         아무 데나 치면 1점 — 잘못 눌러도 가운데 되돌리기가 그대로 받는다.
       */}
       <button
-        className="tap"
-        onClick={() => onScore(side, 1)}
-        aria-label={`${player.name} 1점 더하기`}
+        className={foulTap ? 'tap foul-tap' : 'tap'}
+        onClick={() => (foulTap ? onFoul() : onScore(side, 1))}
+        aria-label={
+          foulTap
+            ? `${state.players[state.turn].name} 뒷빡, 차례 넘기기`
+            : `${player.name} 1점 더하기`
+        }
       >
         {/*
           목표 점수를 채우면 숫자가 0으로 돌아가고 쿠션 점수를 센다. 그래서 지금 보이는
@@ -365,11 +398,21 @@ function PlayerSide({
             둘을 몰아 적는 대신 각자의 판에 적는다 — 자기 숫자를 자기 쪽에서 본다. */}
         <div className="rate">
           에버 {average(state, side).toFixed(2)} · {innings(state, side)}이닝
+          {/* 뒷빡은 점수에서 깎지 않고 따로 센다. 점수판의 큰 숫자는 "몇 개를 쳤나"이고,
+              뒷빡은 "몇 번 실수했나"라 같은 자리에 섞으면 둘 다 못 읽는다. */}
+          {state.foul === true && (
+            <>
+              {' · '}
+              <span className="fouls" data-zero={!player.fouls}>
+                뒷빡 {player.fouls ? `−${player.fouls}` : 0}
+              </span>
+            </>
+          )}
         </div>
 
         <div className="spacer" />
 
-        <div className="tap-hint">눌러서 +1</div>
+        <div className="tap-hint">{foulTap ? '눌러서 뒷빡 · 차례 넘김' : '눌러서 +1'}</div>
       </button>
 
       {/* 큰 것이 더하기다. 당구에서 점수는 거의 언제나 올라가고, 빼기는 잘못 눌렀을

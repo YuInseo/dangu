@@ -34,6 +34,13 @@ export interface PlayerState {
   /** 핸디 — 이 사람이 몇 점을 쳐야 이기는지. 두 사람이 서로 다른 게 정상이다. */
   target: number;
   score: number;
+  /**
+   * 뒷빡을 낸 횟수. 이 사람이 상대 수구를 맞힌 횟수다.
+   *
+   * 점수와 따로 센다. 점수판의 큰 숫자는 "몇 점을 쳤나"이고 이건 "몇 번 잘못 쳤나"라서,
+   * 한 숫자에 섞으면 둘 다 읽을 수 없게 된다 — 화면에는 `뒷빡 −2`로 따로 선다.
+   */
+  fouls?: number;
 }
 
 /** 되돌리기가 있는 이유: 잘못 누른 걸 빼기 버튼으로 고치면 이닝 수가 틀어진다. */
@@ -46,6 +53,8 @@ export interface ScoreEntry {
   /** 이 득점이 차례를 넘겼는지 — 되돌리면 차례도 같이 돌아와야 한다. */
   turnBefore: Side;
   inningBefore: number;
+  /** 득점이 아니라 뒷빡이었으면 참. 되돌릴 때 점수가 아니라 뒷빡을 되돌린다. */
+  foul?: boolean;
 }
 
 export interface GameState {
@@ -94,6 +103,14 @@ export interface GameState {
    * 이닝씩 더 치고, 한 이닝에서 한쪽이 더 친 순간 끝난다.
    */
   equalizer: boolean;
+  /**
+   * 뒷빡을 쓰는지.
+   *
+   * 4구에서 상대 수구를 맞히면 잘못 친 것이다. 켜 두면 지금 치는 사람이 상대 판을 눌러
+   * 그것을 적는다 — 상대에게 점수가 가는 게 아니라, 친 사람의 뒷빡이 하나 늘고 차례가
+   * 넘어간다. 누르는 자리가 "내가 맞힌 공"이라는 뜻이 되는 것이 이 규칙의 전부다.
+   */
+  foul: boolean;
   /**
    * 지금 차례가 시작된 시점 — 벽시계가 아니라 `elapsedMs` 위의 눈금이다.
    *
@@ -225,6 +242,8 @@ export interface NewGameOptions {
   lastCushion?: number;
   /** 후구 — 선공이 먼저 채우면 후공에게 마지막 한 차례. */
   equalizer?: boolean;
+  /** 뒷빡 — 상대 수구를 맞히면 차례를 넘기고 횟수를 센다. */
+  foul?: boolean;
   now?: number;
   id?: string;
 }
@@ -237,6 +256,7 @@ export function createGame({
   me = 'white',
   lastCushion = 0,
   equalizer = false,
+  foul = false,
   now = Date.now(),
   id,
 }: NewGameOptions): GameState {
@@ -251,6 +271,7 @@ export function createGame({
     turn: first,
     first,
     equalizer,
+    foul,
     turnAt: 0,
     inning: 1,
     players: {
@@ -273,6 +294,7 @@ export type GameAction =
   | { type: 'rename'; side: Side; name: string }
   | { type: 'setTarget'; side: Side; target: number }
   | { type: 'setLastCushion'; value: number }
+  | { type: 'foul'; side: Side; now?: number }
   | { type: 'notes'; pages: NotePage[] };
 
 export function reduce(state: GameState, action: GameState | GameAction): GameState {
@@ -298,6 +320,36 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
       return handOver(state, next, now);
     }
 
+    /*
+     * 뒷빡.
+     *
+     * 친 사람의 것으로 센다. 상대 판을 누르는 것은 "저 공을 맞혔다"는 뜻이지 상대가
+     * 무엇을 했다는 뜻이 아니다 — 잘못 친 사람은 지금 치던 사람이다. 그리고 차례가
+     * 넘어간다. 잘못 친 순간 차례가 끝나는 것이 이 규칙이므로 두 가지가 늘 함께 간다.
+     */
+    case 'foul': {
+      const { side, now = Date.now() } = action as Extract<GameAction, { type: 'foul' }>;
+      if (state.finishedAt) return state;
+      const player = state.players[side];
+      const next: GameState = {
+        ...state,
+        players: { ...state.players, [side]: { ...player, fouls: (player.fouls ?? 0) + 1 } },
+        history: [
+          ...state.history,
+          {
+            at: now,
+            side,
+            delta: 0,
+            scoreAfter: player.score,
+            turnBefore: state.turn,
+            inningBefore: state.inning,
+            foul: true,
+          },
+        ],
+      };
+      return handOver(next, other(side), now);
+    }
+
     case 'undo': {
       const last = state.history.at(-1);
       if (!last) return state;
@@ -305,7 +357,9 @@ export function reduce(state: GameState, action: GameState | GameAction): GameSt
         ...state,
         players: {
           ...state.players,
-          [last.side]: { ...state.players[last.side], score: last.scoreAfter - last.delta },
+          [last.side]: last.foul
+            ? { ...state.players[last.side], fouls: Math.max(0, (state.players[last.side].fouls ?? 0) - 1) }
+            : { ...state.players[last.side], score: last.scoreAfter - last.delta },
         },
         turn: last.turnBefore,
         inning: last.inningBefore,

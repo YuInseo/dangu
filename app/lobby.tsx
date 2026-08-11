@@ -47,6 +47,7 @@ export function Lobby() {
   const [first, setFirst] = useState<Side>('white');
   const [lastCushion, setLastCushion] = useState(0);
   const [equalizer, setEqualizer] = useState(false);
+  const [foul, setFoul] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -56,6 +57,7 @@ export function Lobby() {
       setTargets(stored.lastTargets);
       setLastCushion(stored.lastCushion ?? 0);
       setEqualizer(stored.lastEqualizer ?? false);
+      setFoul(stored.lastFoul ?? false);
       // 끝난 게임은 이어하기로 제안하지 않는다.
       setResume(current && !current.finishedAt ? current : null);
       setReady(true);
@@ -97,6 +99,7 @@ export function Lobby() {
       // 쿠션 규칙은 4구의 관습이다. 다른 종목에 붙이면 화면에 뜻 없는 배지만 는다.
       lastCushion: kind === 'four' ? lastCushion : 0,
       equalizer,
+      foul,
     });
     await saveCurrentGame(game);
     await saveSettings({
@@ -105,6 +108,7 @@ export function Lobby() {
       lastTargets: targets,
       lastCushion,
       lastEqualizer: equalizer,
+      lastFoul: foul,
     });
     tap('medium');
     router.push('/game');
@@ -326,6 +330,45 @@ export function Lobby() {
                   '거기서 끝나지 않고 후공이 한 차례를 더 칩니다. 후공이 따라붙으면 매치포인트로 이어져, ' +
                   '한 이닝에서 더 친 쪽이 나올 때까지 계속됩니다.'
                 : '선공이 목표를 채우는 순간 끝납니다.'}
+            </p>
+          </div>
+
+          {/*
+            뒷빡.
+
+            누르는 자리의 뜻이 바뀌는 규칙이라 시작 전에 정해야 한다 — 켜져 있으면 상대
+            판을 누르는 것이 "상대에게 한 점"이 아니라 "저 공을 맞혔다"가 된다. 판을 치는
+            도중에 그 뜻이 바뀌면 이미 누른 것들이 무슨 뜻이었는지 알 수 없게 된다.
+          */}
+          <div>
+            <span className="label">뒷빡</span>
+            <div className="row">
+              <button
+                className="choice"
+                aria-pressed={!foul}
+                onClick={() => {
+                  setFoul(false);
+                  tap();
+                }}
+              >
+                없음
+              </button>
+              <button
+                className="choice"
+                aria-pressed={foul}
+                onClick={() => {
+                  setFoul(true);
+                  tap();
+                }}
+              >
+                사용
+              </button>
+            </div>
+            <p style={{ fontSize: '0.78rem', color: 'rgba(243,244,246,0.55)', margin: '0.4rem 0 0' }}>
+              {foul
+                ? '치는 사람이 상대 수구를 맞히면 상대 판을 누릅니다. 상대에게 점수가 가는 게 아니라 ' +
+                  '내 뒷빡이 하나 늘고(−1, −2…) 차례가 넘어갑니다.'
+                : '상대 판을 누르면 상대에게 한 점이 올라갑니다.'}
             </p>
           </div>
 

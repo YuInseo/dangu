@@ -36,6 +36,8 @@ export interface AppSettings {
   lastCushion: number;
   /** 후구를 쓸지. 같이 치는 사람들끼리는 대개 늘 같은 규칙으로 친다. */
   lastEqualizer: boolean;
+  /** 뒷빡을 쓸지. 후구와 같은 이유로 기억해 둔다. */
+  lastFoul: boolean;
   haptics: boolean;
   keepAwake: boolean;
   /**
@@ -54,6 +56,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   lastTargets: { white: 20, yellow: 20 },
   lastCushion: 0,
   lastEqualizer: false,
+  lastFoul: false,
   haptics: true,
   keepAwake: true,
   turnSeconds: 0,
