@@ -1,5 +1,5 @@
 import { clipboard, preferencesGet, preferencesSet } from './platform';
-import type { GameState, GameSummary } from './game';
+import { SCHEMA, migrateAll, type GameState, type GameSummary } from './game';
 
 /**
  * 저장. 로컬이 먼저고 클라우드는 나중이다.
@@ -122,15 +122,58 @@ export const clearCurrentGame = () => preferencesSet(CURRENT, '');
 
 /* 기록 -------------------------------------------------------------- */
 
+/**
+ * 기기에 있는 기록.
+ *
+ * 읽으면서 옛 모양을 지금 모양으로 옮긴다. 옮길 것이 있었을 때만 다시 쓴다 — 앱을 켤
+ * 때마다 오십 줄을 다시 저장하면 그건 읽기가 아니라 쓰기다.
+ */
 export async function loadHistory(): Promise<GameSummary[]> {
   const list = await readJson<GameSummary[]>(HISTORY, []);
-  return Array.isArray(list) ? list : [];
+  if (!Array.isArray(list)) return [];
+  const { games, changed } = migrateAll(list);
+  if (changed.length) await writeJson(HISTORY, games);
+  return games;
 }
 
 /** 끝난 게임을 기록에 넣는다. 같은 id가 이미 있으면 덮어쓴다 — 되돌리고 다시 끝낸 경우다. */
 export async function recordGame(summary: GameSummary): Promise<GameSummary[]> {
   const list = (await loadHistory()).filter((entry) => entry.id !== summary.id);
-  const next = [summary, ...list].slice(0, HISTORY_LIMIT);
+  const stamped = { ...summary, schema: SCHEMA, updatedAt: Date.now() };
+  const next = [stamped, ...list].slice(0, HISTORY_LIMIT);
+  await writeJson(HISTORY, next);
+  return next;
+}
+
+/**
+ * 클라우드에서 온 기록을 기기 목록에 얹는다.
+ *
+ * 같은 id가 이미 있으면 나중에 고쳐진 쪽을 남긴다. 자리는 원래 있던 자리 그대로다 —
+ * 목록의 순서는 친 날짜의 것이고, 어느 기기에서 언제 내려왔는지와는 상관이 없다.
+ * 새로 온 것은 날짜 순서에 맞춰 끼운다.
+ */
+export async function mergeGames(incoming: GameSummary[]): Promise<GameSummary[]> {
+  const list = await loadHistory();
+  const byId = new Map(list.map((entry) => [entry.id, entry]));
+  let touched = false;
+
+  for (const game of incoming) {
+    const here = byId.get(game.id);
+    if (!here) {
+      byId.set(game.id, game);
+      touched = true;
+      continue;
+    }
+    if ((game.updatedAt ?? 0) > (here.updatedAt ?? 0)) {
+      byId.set(game.id, game);
+      touched = true;
+    }
+  }
+
+  if (!touched) return list;
+  const next = [...byId.values()]
+    .sort((a, b) => b.startedAt - a.startedAt)
+    .slice(0, HISTORY_LIMIT);
   await writeJson(HISTORY, next);
   return next;
 }
@@ -144,7 +187,8 @@ export async function recordGame(summary: GameSummary): Promise<GameSummary[]> {
  */
 export async function updateGame(summary: GameSummary): Promise<GameSummary[]> {
   const list = await loadHistory();
-  const next = list.map((entry) => (entry.id === summary.id ? summary : entry));
+  const stamped = { ...summary, schema: SCHEMA, updatedAt: Date.now() };
+  const next = list.map((entry) => (entry.id === summary.id ? stamped : entry));
   await writeJson(HISTORY, next);
   return next;
 }

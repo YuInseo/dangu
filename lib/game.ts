@@ -840,6 +840,21 @@ export interface GameSummary {
   /** 어디서 친 판인지. 적지 않은 판에는 없다. */
   venue?: string;
   /**
+   * 이 줄이 어느 모양인지. 없으면 번호가 붙기 전의 기록이다.
+   *
+   * 여러 버전의 앱이 같은 계정을 나눠 쓰는 것을 전제로 둔 값이다 — 자세한 것은 이
+   * 파일 아래쪽의 `SCHEMA`.
+   */
+  schema?: number;
+  /**
+   * 마지막으로 고쳐진 시각.
+   *
+   * 두 기기가 같은 판을 서로 다르게 고쳤을 때 어느 쪽을 남길지 정하는 값이다. 나중에
+   * 고친 것이 이긴다 — 사람이 마지막으로 한 말이 그 사람의 뜻이라고 보는 것이 제일
+   * 덜 틀린다.
+   */
+  updatedAt?: number;
+  /**
    * 이닝별 득점. 히스토리 전체 대신 이것만 남긴다.
    *
    * 히스토리는 한 판에 수십 줄이고 그 안의 대부분은 되돌리기를 위한 것이라, 게임이
@@ -882,4 +897,62 @@ export function keptNotes(pages: NotePage[] | undefined): NotePage[] | undefined
       (page.balls ?? []).length > 0
   );
   return kept.length ? kept : undefined;
+}
+
+/* 판올림 -------------------------------------------------------------- */
+
+/**
+ * 기록 한 줄의 모양 번호.
+ *
+ * 이 앱은 버전이 여러 개 동시에 살아 있다. 기기마다 업데이트가 닿는 시점이 다르고,
+ * 같은 계정을 두 폰에서 쓰면 옛 앱이 쓴 기록과 새 앱이 쓴 기록이 한 목록에 섞인다.
+ * 그때 필요한 것은 "어느 모양인지"를 말해 주는 숫자 하나다 — 값을 하나하나 넘겨짚는
+ * 대신 번호를 보고 한 번에 옮긴다.
+ *
+ * 1) 번호가 붙기 전. 자리 순서(`order`)가 없고, 노트가 예전 모양일 수 있다.
+ * 2) 자리 순서를 언제나 적는다. 노트는 읽을 때가 아니라 저장할 때 지금 모양으로 맞춘다.
+ */
+export const SCHEMA = 2;
+
+/**
+ * 옛 기록을 지금 모양으로.
+ *
+ * 값이 바뀌지 않으면 *같은 객체를 그대로* 돌려준다. 부르는 쪽이 그 동일성으로 "옮길
+ * 것이 있었는지"를 판단하고, 있을 때만 저장한다 — 안 그러면 앱을 켤 때마다 기록 오십
+ * 개를 다시 쓰게 된다.
+ */
+export function migrate(game: GameSummary): GameSummary {
+  if (game.schema === SCHEMA) return game;
+
+  const players = game.players ?? {};
+  const keys = Object.keys(players);
+  const next: GameSummary = {
+    ...game,
+    schema: SCHEMA,
+    // 자리 순서는 이제 언제나 적는다. 없던 기록은 키 순서가 곧 순서였다 — 둘이 치던
+    // 시절의 `{white, yellow}`가 그대로 흰 공 다음 노란 공이다.
+    order: game.order?.length ? game.order : keys.length ? keys : ['white', 'yellow'],
+  };
+
+  // 노트는 읽는 자리에서 맞춰 왔다. 한 번 옮겨 두면 그다음부터는 맞출 것이 없다.
+  const notes = keptNotes(readNotes(game.notes));
+  if (notes) next.notes = notes;
+  else delete next.notes;
+
+  const venue = (game.venue ?? '').trim();
+  if (venue) next.venue = venue;
+  else delete next.venue;
+
+  return next;
+}
+
+/** 여러 줄을 한 번에. 하나도 안 바뀌면 받은 배열을 그대로 돌려준다. */
+export function migrateAll(games: GameSummary[]): { games: GameSummary[]; changed: GameSummary[] } {
+  const changed: GameSummary[] = [];
+  const next = games.map((game) => {
+    const moved = migrate(game);
+    if (moved !== game) changed.push(moved);
+    return moved;
+  });
+  return { games: changed.length ? next : games, changed };
 }

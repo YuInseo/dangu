@@ -3,7 +3,7 @@ import type { Auth, User } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
 
 import { isNativeApp, plugin, preferencesGet, preferencesSet } from './platform';
-import type { GameSummary } from './game';
+import { SCHEMA, migrate, type GameSummary } from './game';
 
 /**
  * Firebase — 있으면 쓰고 없으면 없는 대로 돈다.
@@ -333,7 +333,10 @@ export async function pushGame(uid: string, summary: GameSummary): Promise<boole
   try {
     const { doc, setDoc } = await import('firebase/firestore');
     await setDoc(doc(instance.db, 'users', uid, 'games', summary.id), {
-      ...summary,
+      ...migrate(summary),
+      schema: SCHEMA,
+      // 고쳐진 시각. 두 기기가 같은 판을 서로 다르게 고쳤을 때 나중 것이 이긴다.
+      updatedAt: summary.updatedAt ?? Date.now(),
       syncedAt: Date.now(),
     });
     return true;
@@ -351,9 +354,44 @@ export async function fetchGames(uid: string, max = 100): Promise<GameSummary[]>
     const snapshot = await getDocs(
       query(collection(instance.db, 'users', uid, 'games'), orderBy('startedAt', 'desc'), limit(max))
     );
-    return snapshot.docs.map((entry) => entry.data() as GameSummary);
+    return snapshot.docs.map((entry) => migrate(entry.data() as GameSummary));
   } catch {
     return [];
+  }
+}
+
+/**
+ * 클라우드의 기록을 지켜본다 — 바뀌는 대로.
+ *
+ * 한 번 읽고 마는 것과 다른 점은 "다른 기기에서 방금 친 판"이다. 그건 이 폰이 아무것도
+ * 하지 않는 동안 생기는 일이라, 물어보는 방식으로는 언제 물어야 할지를 알 수 없다.
+ * Firestore는 붙어 있는 동안 바뀐 것을 밀어 주므로 그쪽을 쓴다.
+ *
+ * 돌려주는 함수를 부르면 끊는다. 끊지 않으면 화면을 옮겨도 리스너가 남아 배터리와
+ * 읽기 할당량을 계속 쓴다.
+ */
+export async function watchGames(
+  uid: string,
+  listener: (games: GameSummary[]) => void,
+  max = 200
+): Promise<() => void> {
+  const instance = await firebase();
+  if (!instance) return () => {};
+  try {
+    const { collection, limit, onSnapshot, orderBy, query } = await import('firebase/firestore');
+    return onSnapshot(
+      query(
+        collection(instance.db, 'users', uid, 'games'),
+        orderBy('startedAt', 'desc'),
+        limit(max)
+      ),
+      (snapshot) => listener(snapshot.docs.map((entry) => migrate(entry.data() as GameSummary))),
+      // 규칙에 막혔거나 네트워크가 끊긴 경우. 조용히 둔다 — 기기에 있는 기록으로 앱은
+      // 그대로 돌아가고, 다음에 붙으면 다시 흐른다.
+      () => {}
+    );
+  } catch {
+    return () => {};
   }
 }
 
