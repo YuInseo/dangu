@@ -16,6 +16,7 @@ import {
   other,
   reduce,
   remaining,
+  SIDES,
   ballOf,
   inningRuns,
   memberLines,
@@ -356,18 +357,53 @@ export function Scoreboard() {
         <ResultSheet
           state={state}
           onAgain={async () => {
-            // 같은 사람, 같은 종목, 같은 핸디로 한 판 더 — 당구장에서 제일 흔한 다음 행동이다.
-            const { createGame } = await import('../../lib/game');
+            /*
+              같은 사람, 같은 종목, 같은 핸디로 한 판 더 — 당구장에서 제일 흔한 다음
+              행동이다. 바뀌는 것은 자리다.
+
+              진 사람이 선공이고, 선공은 지난 판의 선공이 잡던 공을 그대로 잡는다. 그래서
+              둘이 치는 판에서는 이긴 사람과 진 사람의 공이 서로 바뀐다 — 이긴 사람이
+              흰 공이었으면 이번엔 노란 공이다. 지난 판의 선공이 노란 공이었으면 그
+              반대가 된다: 자리는 사람을 따라가는 것이 아니라 역할을 따라간다.
+
+              셋 이상이 친 판에는 "진 사람"이 하나가 아니므로 자리를 그대로 둔다. 순서를
+              흔들 근거가 없는 자리에서 흔들면 그건 규칙이 아니라 변덕이다.
+            */
+            const { createGame, ballOf, sides } = await import('../../lib/game');
+            const list = sides(state);
+            const two = list.length === 2;
+            // 셋 이상이면 "진 사람"이 하나가 아니다 — 그때는 선공도 자리도 그대로 둔다.
+            const loser =
+              two && state.winner ? list.find((side) => side !== state.winner) : undefined;
+
+            // 선공이 잡던 공이 흰 공이면 [진 사람, 이긴 사람] 순서다 — 첫 자리가 흰 공이다.
+            const keepWhite = ballOf(list, state.first ?? list[0]) === 'white';
+            const seated =
+              two && loser && state.winner
+                ? keepWhite
+                  ? [loser, state.winner]
+                  : [state.winner, loser]
+                : list;
+
             const next = createGame({
               kind: state.kind,
-              white: { name: state.players.white.name, target: state.players.white.target },
-              yellow: { name: state.players.yellow.name, target: state.players.yellow.target },
+              seats: seated.map((side) => {
+                const player = state.players[side];
+                const seat: { name: string; target: number; members?: string[] } = {
+                  name: player.name,
+                  target: player.target,
+                };
+                if (player.members?.length) seat.members = player.members;
+                return seat;
+              }),
               // 진 사람이 선공. 이것도 당구장 관습이다.
-              first: state.winner ? other(state.winner) : 'white',
-              me: state.me,
+              first: SIDES[Math.max(0, seated.indexOf(loser ?? state.first ?? list[0]))],
+              // 내가 앉은 자리가 바뀌었을 수 있다. 통계가 "내 승률"을 낼 때 보는 값이다.
+              me: SIDES[Math.max(0, seated.indexOf(state.me ?? list[0]))],
               lastCushion: state.lastCushion,
               equalizer: state.equalizer,
               foul: state.foul,
+              venue: state.venue,
             });
             await saveCurrentGame(next);
             dispatch(next);
