@@ -193,23 +193,34 @@ export const dayKey = (at: number | Date): string => {
 /** `2026-08`. */
 export const monthKey = (at: number | Date): string => dayKey(at).slice(0, 7);
 
-export interface DayCell {
+export interface DayTally {
+  games: number;
+  wins: number;
+  losses: number;
+}
+
+export interface DayCell extends DayTally {
   /** 그 달의 날짜가 아니면 `null` — 앞뒤 빈 칸이다. */
   key: string | null;
   day: number;
-  games: number;
-  wins: number;
 }
 
-/** 하루에 몇 게임을 쳤고 몇 번 이겼는지. 달력 칸이 읽는 값이다. */
-export function tallyByDay(games: GameSummary[]): Map<string, { games: number; wins: number }> {
-  const out = new Map<string, { games: number; wins: number }>();
+/**
+ * 하루에 몇 게임을 쳤고 몇 번 이기고 졌는지. 달력 칸이 읽는 값이다.
+ *
+ * 무승부는 어느 쪽에도 세지 않는다 — `games`에서 이긴 수와 진 수를 빼면 남는 수다.
+ * 칸에 찍히는 점의 색이 셋이라 그 셋을 다 알아야 한다.
+ */
+export function tallyByDay(games: GameSummary[]): Map<string, DayTally> {
+  const out = new Map<string, DayTally>();
   for (const game of games) {
     if (!game.finishedAt) continue;
     const key = dayKey(game.startedAt);
-    const entry = out.get(key) ?? { games: 0, wins: 0 };
+    const entry = out.get(key) ?? { games: 0, wins: 0, losses: 0 };
+    const me = game.me ?? 'white';
     entry.games += 1;
-    if (game.winner === (game.me ?? 'white')) entry.wins += 1;
+    if (game.winner === me) entry.wins += 1;
+    else if (game.winner) entry.losses += 1;
     out.set(key, entry);
   }
   return out;
@@ -221,7 +232,7 @@ export function tallyByDay(games: GameSummary[]): Map<string, { games: number; w
  * 주 수를 달마다 바꾸면 달을 넘길 때 아래 카드들이 위아래로 뛴다. 한 줄이 비더라도
  * 높이가 일정한 편이 손가락으로 넘기기에 낫다.
  */
-export function monthGrid(year: number, month: number, tally: Map<string, { games: number; wins: number }>): DayCell[] {
+export function monthGrid(year: number, month: number, tally: Map<string, DayTally>): DayCell[] {
   const first = new Date(year, month, 1);
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const lead = first.getDay();
@@ -230,12 +241,18 @@ export function monthGrid(year: number, month: number, tally: Map<string, { game
   for (let i = 0; i < 42; i++) {
     const day = i - lead + 1;
     if (day < 1 || day > daysInMonth) {
-      cells.push({ key: null, day: 0, games: 0, wins: 0 });
+      cells.push({ key: null, day: 0, games: 0, wins: 0, losses: 0 });
       continue;
     }
     const key = `${year}-${pad(month + 1)}-${pad(day)}`;
     const entry = tally.get(key);
-    cells.push({ key, day, games: entry?.games ?? 0, wins: entry?.wins ?? 0 });
+    cells.push({
+      key,
+      day,
+      games: entry?.games ?? 0,
+      wins: entry?.wins ?? 0,
+      losses: entry?.losses ?? 0,
+    });
   }
   return cells;
 }
