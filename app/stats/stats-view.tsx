@@ -162,7 +162,8 @@ export function StatsView() {
             ‹
           </button>
           <strong>
-            {cursor.year}년 {cursor.month + 1}월
+            {cursor.month + 1}월
+            <small>{cursor.year}</small>
           </strong>
           <button className="calendar-nav" onClick={() => shiftMonth(1)} aria-label="다음 달">
             ›
@@ -187,6 +188,7 @@ export function StatsView() {
                   cell.games > 0 ? 'played' : '',
                   cell.key === selected && !showAll ? 'selected' : '',
                   cell.key === today ? 'today' : '',
+                  cell.key > today ? 'ahead' : '',
                 ]
                   .filter(Boolean)
                   .join(' ')}
@@ -201,11 +203,43 @@ export function StatsView() {
                 }}
               >
                 <span className="n">{cell.day}</span>
-                {cell.games > 0 && (
-                  <span className="dots" aria-label={`${cell.games}게임`}>
-                    {cell.games > 3 ? `${cell.games}` : '•'.repeat(cell.games)}
-                  </span>
-                )}
+                {/*
+                  그날의 승패를 점으로.
+
+                  이긴 판이 초록, 진 판이 빨강, 비긴 판이 회색이다. 개수를 세는 것이
+                  아니라 색의 비율을 보는 자리라 — 달력을 훑을 때 눈에 남는 것은 "몇
+                  판"이 아니라 "그날 잘 쳤나"이다.
+
+                  다섯 판이 넘으면 점 대신 숫자다. 여섯 개짜리 점 줄은 칸을 넘고, 넘지
+                  않게 줄이면 색이 안 보인다.
+                */}
+                {/* 점 줄은 친 날이 아니어도 자리를 지킨다. 있는 날만 그리면 그날의
+                    날짜만 위로 밀려서, 한 줄 안의 숫자들이 서로 다른 높이에 선다. */}
+                <span
+                  className="dots"
+                  aria-label={
+                    cell.games > 0
+                      ? `${cell.games}게임 ${cell.wins}승 ${cell.losses}패`
+                      : undefined
+                  }
+                >
+                  {cell.games > 0 &&
+                    (cell.games > 5 ? (
+                      <span className="many">{cell.games}판</span>
+                    ) : (
+                      [
+                        ...Array.from({ length: cell.wins }, (_, i) => (
+                          <i className="win" key={`w${i}`} />
+                        )),
+                        ...Array.from({ length: cell.losses }, (_, i) => (
+                          <i className="lose" key={`l${i}`} />
+                        )),
+                      ...Array.from({ length: cell.games - cell.wins - cell.losses }, (_, i) => (
+                        <i className="draw" key={`d${i}`} />
+                      )),
+                    ]
+                  ))}
+                </span>
               </button>
             )
           )}
