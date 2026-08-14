@@ -8,11 +8,12 @@ import {
   signInWithGoogle,
   signOut,
   watchAccount,
+  watchGames,
   type Account,
   type SignInResult,
 } from './firebase';
-import { cloudChosen, loadHistory, recordGame } from './storage';
-import type { GameSummary } from './game';
+import { cloudChosen, loadHistory, mergeGames, recordGame } from './storage';
+import { SCHEMA, type GameSummary } from './game';
 
 /**
  * 로그인 상태와, 로그인했을 때만 일어나는 일들.
@@ -172,6 +173,36 @@ export function useAccount(): AccountState {
     await runSync(account.uid);
   }, [account]);
 
+  /*
+   * 클라우드를 계속 지켜본다.
+   *
+   * 맞추기가 "지금 빠진 것을 채우는" 일이라면 이쪽은 "그다음에 생기는 일"이다 — 다른
+   * 폰에서 방금 끝낸 판은 이 폰이 아무것도 하지 않는 동안 생기므로, 물어보는 방식으로는
+   * 언제 물어야 할지 알 수 없다. 붙어 있는 동안 밀어 주는 쪽을 쓴다.
+   *
+   * 화면을 옮기거나 로그아웃하면 끊는다. 남겨 두면 리스너가 쌓여 배터리와 읽기 할당량을
+   * 계속 쓴다.
+   */
+  useEffect(() => {
+    if (!account) return;
+    let stop: (() => void) | null = null;
+    let alive = true;
+
+    void (async () => {
+      if (!(await cloudChosen())) return;
+      const off = await watchGames(account.uid, (remote) => {
+        void absorb(account.uid, remote);
+      });
+      if (alive) stop = off;
+      else off();
+    })();
+
+    return () => {
+      alive = false;
+      stop?.();
+    };
+  }, [account]);
+
   /** 로그인 결과 하나를 받아 상태에 반영한다. 어느 방법으로 들어왔든 그다음은 같다. */
   const settle = useCallback((result: SignInResult) => {
     setSigningIn(false);
@@ -219,6 +250,46 @@ export function useAccount(): AccountState {
     sync,
     syncNow,
   };
+}
+
+/**
+ * 클라우드에서 밀려온 것을 받아 넣는다.
+ *
+ * 세 가지를 한다. 기기에 없거나 더 오래된 판을 갈아 끼우고, 클라우드에 없는 판을 올리고,
+ * 옛 모양으로 저장된 판을 지금 모양으로 다시 올린다. 마지막 것이 이 앱의 판올림이다 —
+ * 새 앱이 붙는 순간 그 계정의 기록이 조용히 최신 모양이 되고, 아직 옛 앱을 쓰는 폰은
+ * 자기가 아는 값만 읽으면 되므로 아무 일도 일어나지 않는다.
+ *
+ * 올린 것은 다시 스냅숏으로 돌아오지만, 그때는 바뀐 것이 없어 아무 일도 하지 않는다.
+ */
+async function absorb(uid: string, remote: GameSummary[]): Promise<void> {
+  const before = await loadHistory();
+  const merged = await mergeGames(remote);
+
+  const there = new Map(remote.map((game) => [game.id, game]));
+  const now = Date.now();
+
+  for (const game of merged) {
+    const cloud = there.get(game.id);
+
+    // 클라우드에 없는 판 — 이 폰에서만 친 것이다.
+    if (!cloud) {
+      await pushGame(uid, game);
+      continue;
+    }
+
+    // 옛 모양으로 저장되어 있던 판. 옮긴 값을 되돌려 준다.
+    if ((cloud.schema ?? 0) < SCHEMA) {
+      await pushGame(uid, { ...game, updatedAt: game.updatedAt ?? now });
+      continue;
+    }
+
+    // 이 폰의 것이 더 새것이면 올린다.
+    if ((game.updatedAt ?? 0) > (cloud.updatedAt ?? 0)) await pushGame(uid, game);
+  }
+
+  // 목록이 실제로 달라졌을 때만 화면에 알린다.
+  if (merged !== before) publish({ ...shared, state: 'done', at: Date.now() });
 }
 
 export interface SyncReport {
