@@ -83,6 +83,22 @@ export function StatsView() {
   const [place, setPlace] = useState<string | null>(null);
   /** 달 고르개가 열려 있는지. */
   const [picking, setPicking] = useState(false);
+  /**
+   * 골라 둔 기록들.
+   *
+   * 비어 있으면 평소 목록이고, 하나라도 있으면 고르는 중이다. 따로 "고르기 모드"를
+   * 두지 않은 이유는 그 둘이 늘 같이 움직이기 때문이다 — 마지막 하나를 풀면 모드도
+   * 끝나는 것이 사람이 기대하는 동작이다.
+   */
+  const [chosen, setChosen] = useState<string[]>([]);
+  /** 고른 것들을 어느 당구장으로 옮길지 고르는 시트. */
+  const [moving, setMoving] = useState(false);
+  /** 고른 것들을 지우기 전의 확인 단계. */
+  const [dropping, setDropping] = useState(false);
+
+  /** 길게 누르기. 손을 뗄 때까지 기다렸다가 고르기를 연다. */
+  const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const held = useRef(false);
 
   useEffect(() => {
     void loadHistory().then(setGames);
@@ -179,6 +195,59 @@ export function StatsView() {
       return { year: date.getFullYear(), month: date.getMonth() };
     });
     tap();
+  };
+
+  const choosing = chosen.length > 0;
+
+  const startHold = (id: string) => {
+    held.current = false;
+    hold.current = setTimeout(() => {
+      held.current = true;
+      setChosen((current) => (current.includes(id) ? current : [...current, id]));
+      tap('heavy');
+    }, 450);
+  };
+
+  const endHold = () => {
+    if (hold.current) clearTimeout(hold.current);
+    hold.current = null;
+  };
+
+  const toggle = (id: string) =>
+    setChosen((current) =>
+      current.includes(id) ? current.filter((entry) => entry !== id) : [...current, id]
+    );
+
+  /** 고른 판들을 한 당구장으로 옮긴다. `null`이면 장소를 지운다. */
+  const moveChosen = async (venue: string | null) => {
+    setBusy(true);
+    let list = games ?? [];
+    for (const id of chosen) {
+      const game = list.find((entry) => entry.id === id);
+      if (!game) continue;
+      const next = { ...game };
+      if (venue) next.venue = venue;
+      else delete next.venue;
+      list = await updateGame(next);
+      if (account && cloud) await pushGame(account.uid, next);
+    }
+    setGames(list);
+    setChosen([]);
+    setMoving(false);
+    setBusy(false);
+  };
+
+  const dropChosen = async () => {
+    setBusy(true);
+    let list = games ?? [];
+    for (const id of chosen) {
+      list = await removeGame(id);
+      if (account) await deleteGame(account.uid, id);
+    }
+    setGames(list);
+    setChosen([]);
+    setDropping(false);
+    setBusy(false);
   };
 
   if (!games) return <div className="page" />;
@@ -446,6 +515,64 @@ export function StatsView() {
             <h2>
               게임 상세 <span className="count">{scoped.length}</span>
             </h2>
+
+            {/*
+              고르는 중일 때만 서는 줄.
+
+              길게 눌러 열리고, 마지막 하나를 풀면 사라진다. 목록 위에 두는 이유는 여기서
+              하는 일이 "이 목록에 대한" 일이기 때문이다 — 화면 아래 띄우면 무엇에 대한
+              버튼인지가 목록과 멀어진다.
+            */}
+            {choosing && (
+              <div className="chosen-bar">
+                <strong>{chosen.length}개 선택</strong>
+                <button
+                  className="ghost"
+                  onClick={() => {
+                    setChosen(scoped.map((game) => game.id));
+                    tap();
+                  }}
+                >
+                  전체
+                </button>
+                <button
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => {
+                    setMoving(true);
+                    tap();
+                  }}
+                >
+                  당구장 이동
+                </button>
+                <button
+                  className="danger"
+                  disabled={busy}
+                  onClick={() => {
+                    setDropping(true);
+                    tap();
+                  }}
+                >
+                  삭제
+                </button>
+                <button className="ghost" onClick={() => setChosen([])}>
+                  취소
+                </button>
+              </div>
+            )}
+
+            {dropping && (
+              <p className="notice error">
+                고른 {chosen.length}게임을 지웁니다. 되돌릴 수 없습니다.
+                <br />
+                <button className="danger" disabled={busy} onClick={() => void dropChosen()}>
+                  정말 지웁니다
+                </button>{' '}
+                <button className="secondary" onClick={() => setDropping(false)}>
+                  취소
+                </button>
+              </p>
+            )}
             {/*
               목록만 스크롤한다.
 
@@ -463,18 +590,38 @@ export function StatsView() {
                   .map((side) => game.players[side]);
                 const won = game.winner === me;
 
+                const on = chosen.includes(game.id);
+
                 return (
                   <button
                     key={game.id}
-                    className="record"
+                    className={on ? 'record on' : 'record'}
                     style={{ width: '100%', background: 'none', textAlign: 'left', minHeight: 0 }}
+                    // 길게 누르면 고르기가 열린다. 손을 떼거나 목록을 굴리면 취소된다 —
+                    // 스크롤하려던 손가락이 고르기를 여는 것만큼 성가신 일이 없다.
+                    onPointerDown={() => startHold(game.id)}
+                    onPointerUp={endHold}
+                    onPointerLeave={endHold}
+                    onPointerCancel={endHold}
                     onClick={() => {
+                      // 길게 눌러 열린 직후의 클릭. 그 한 번은 삼킨다.
+                      if (held.current) {
+                        held.current = false;
+                        return;
+                      }
+                      if (choosing) {
+                        toggle(game.id);
+                        tap();
+                        return;
+                      }
                       setExpanded(game.id);
                       setEditing(null);
                       tap();
                     }}
                   >
-                    <span className="pill">{kindInfo(game.kind).label}</span>
+                    <span className={on ? 'pill picked' : 'pill'}>
+                      {on ? '✓' : kindInfo(game.kind).label}
+                    </span>
                     <span className="who">
                       <strong>{rivals.map((player) => player?.name ?? '상대').join(' · ')}</strong>
                       <span>
@@ -570,6 +717,15 @@ export function StatsView() {
         않고, 좁은 줄에 욱여넣을 수 없던 것들 — 핸디, 각자의 에버, 시작과 끝 시각 —
         까지 담을 자리를 준다.
       */}
+      {moving && (
+        <PlaceSheet
+          places={places}
+          count={chosen.length}
+          onPick={(name) => void moveChosen(name)}
+          onClose={() => setMoving(false)}
+        />
+      )}
+
       {picking && (
         <MonthSheet
           months={months}
@@ -914,6 +1070,66 @@ function RecordSheet({
               </div>
             )}
           </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* 당구장 옮기기 ------------------------------------------------------- */
+
+/**
+ * 고른 판들을 어느 집으로 옮길지 고르는 시트.
+ *
+ * 달 고르개와 같은 모양이다. 둘 다 "목록에서 하나 고르기"이고, 같은 일이 같은 모양으로
+ * 보이면 두 번째 것은 배울 것이 없다.
+ */
+function PlaceSheet({
+  places,
+  count,
+  onPick,
+  onClose,
+}: {
+  places: string[];
+  count: number;
+  onPick: (venue: string | null) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-label="당구장 옮기기"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="inner month-sheet">
+        <div className="head">
+          <strong>{count}게임을 옮길 곳</strong>
+          <button className="icon-round" onClick={onClose} aria-label="닫기">
+            ×
+          </button>
+        </div>
+
+        <div className="months">
+          {places.map((name) => (
+            <button key={name} onClick={() => onPick(name)}>
+              <span>{name}</span>
+            </button>
+          ))}
+          {/* 잘못 붙은 장소를 떼는 길. 옮기는 것과 지우는 것은 같은 자리에서 하는 일이다. */}
+          <button className="clear" onClick={() => onPick(null)}>
+            <span>장소 지우기</span>
+          </button>
+        </div>
+
+        {places.length === 0 && (
+          <p style={{ fontSize: '0.82rem' }}>
+            아직 적어 둔 당구장이 없습니다. 설정에서 더하거나, 판을 시작할 때 적으면 여기에
+            뜹니다.
+          </p>
         )}
       </div>
     </div>
