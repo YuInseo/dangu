@@ -81,6 +81,14 @@ export function Lobby() {
   const [targets, setTargets] = useState<number[]>([20, 20, 20, 20]);
   /** 선공 — 자리 번호. */
   const [firstAt, setFirstAt] = useState(0);
+  /**
+   * 누가 어느 자리에 앉는지 — 자리 순서대로 적은 사람 번호.
+   *
+   * 0번이 나(팀전이면 우리 팀)이고 1번부터가 상대다. 자리는 곧 공이라 이 순서가 흰
+   * 공과 노란 공을 정한다: 첫 자리가 흰 공, 그다음이 노란 공, 다시 흰 공… 기본값은
+   * 적은 순서 그대로이고, 바꾸고 싶은 날에만 손이 간다.
+   */
+  const [arrange, setArrange] = useState<number[]>([0, 1, 2, 3]);
   const [lastCushion, setLastCushion] = useState(0);
   const [equalizer, setEqualizer] = useState(false);
   const [foul, setFoul] = useState(false);
@@ -153,7 +161,7 @@ export function Lobby() {
    * 사람을 담는다: 팀은 점수를 함께 쓰므로 점수판에서 한 칸이고, 그 안에서 누가 칠
    * 차례인지는 점수판이 이닝으로 센다.
    */
-  const seats: Seat[] = team
+  const people: Seat[] = team
     ? [
         {
           name: `${myName} · ${mate || '파트너'}`,
@@ -173,6 +181,31 @@ export function Lobby() {
           target: targets[index + 1],
         })),
       ];
+
+  /** 지금의 자리 배치 — 인원이 줄면 남는 사람은 빠진다. */
+  const order = arrange.filter((person) => person < people.length);
+  const seats: Seat[] = order.map((person) => people[person]);
+
+  /**
+   * 이 자리와 다음 자리를 맞바꾼다.
+   *
+   * 자리가 곧 공이므로 이것이 "공 바꾸기"다. 둘이 치는 판에서는 어느 쪽을 눌러도 흰
+   * 공과 노란 공이 뒤집히고, 셋 이상이면 한 칸씩 밀어 어떤 배치든 만들 수 있다.
+   *
+   * 핸디는 자리가 아니라 사람의 것이라 함께 따라간다 — 25점짜리가 노란 공으로 옮겼다고
+   * 20점이 되지는 않는다.
+   */
+  const swap = (at: number) => {
+    setArrange((current) => {
+      const list = current.filter((person) => person < people.length);
+      const rest = current.filter((person) => person >= people.length);
+      const next = [...list];
+      const other = (at + 1) % next.length;
+      [next[at], next[other]] = [next[other], next[at]];
+      return [...next, ...rest];
+    });
+    tap();
+  };
 
   /*
     화면에 부를 이름.
@@ -223,6 +256,7 @@ export function Lobby() {
     setCount(2);
     setTeam(false);
     setFoes([card.name, '', '']);
+    setArrange([0, 1, 2, 3]);
     setKind(card.last.kind);
     setTargets([card.last.mine, card.last.theirs, card.last.theirs, card.last.theirs]);
     setLastCushion(card.last.cushion);
@@ -236,7 +270,9 @@ export function Lobby() {
       kind,
       seats,
       first: SIDES[Math.min(firstAt, seats.length - 1)],
-      me: 'white',
+      // 내가 앉은 자리가 곧 내 공이다. 통계가 "내 승률"을 낼 때 보는 값이라 틀리면
+      // 조용히 남의 성적이 내 것이 된다.
+      me: SIDES[Math.max(0, order.indexOf(0))],
       // 쿠션 규칙은 4구의 관습이다. 다른 종목에 붙이면 화면에 뜻 없는 배지만 는다.
       lastCushion: kind === 'four' ? lastCushion : 0,
       equalizer,
@@ -362,6 +398,7 @@ export function Lobby() {
                   setCount(2);
                   setTeam(false);
                   setFoes(['', '', '']);
+                  setArrange([0, 1, 2, 3]);
                   setKind('four');
                   setTargets([20, 20, 20, 20]);
                   tap();
@@ -507,6 +544,7 @@ export function Lobby() {
                   setTeam(false);
                   setCount(value);
                   setFirstAt(0);
+                  setArrange([0, 1, 2, 3]);
                   tap();
                 }}
               >
@@ -520,6 +558,7 @@ export function Lobby() {
                 setTeam(true);
                 setCount(4);
                 setFirstAt(0);
+                setArrange([0, 1, 2, 3]);
                 tap();
               }}
             >
@@ -637,11 +676,20 @@ export function Lobby() {
                 key={index}
                 ball={index % 2 === 1 ? 'yellow' : 'white'}
                 name={seatName(index)}
-                value={targets[index]}
-                onChange={(value) => setTarget(index, value)}
+                value={targets[order[index]]}
+                onChange={(value) => setTarget(order[index], value)}
+                onSwap={seats.length > 1 ? () => swap(index) : undefined}
               />
             ))}
           </div>
+
+          {/* 공은 자리에서 온다. 바꿀 수 있다는 것을 한 줄로 말해 둔다 — 칸 위의 ↔가
+              무엇을 하는 것인지 눌러 보기 전에는 알 수 없다. */}
+          {seats.length > 1 && (
+            <p style={{ fontSize: '0.78rem', color: 'rgba(243,244,246,0.55)', margin: '-0.25rem 0 0' }}>
+              왼쪽이 흰 공, 그다음이 노란 공입니다. 칸 위의 ↔를 누르면 옆자리와 공을 바꿉니다.
+            </p>
+          )}
 
           {kind === 'four' && (
             <div>
@@ -823,12 +871,15 @@ function HandicapBox({
   name,
   value,
   onChange,
+  onSwap,
 }: {
   /** 이 자리가 잡는 공. 셋째부터는 흰·노랑을 다시 쓴다 — 테이블의 수구가 둘뿐이라서. */
   ball: 'white' | 'yellow';
   name: string;
   value: number;
   onChange: (value: number) => void;
+  /** 옆자리와 공을 바꾼다. 혼자 있는 판에는 바꿀 자리가 없다. */
+  onSwap?: () => void;
 }) {
   const set = (next: number) => {
     onChange(Math.max(1, Math.min(999, next)));
@@ -837,7 +888,14 @@ function HandicapBox({
 
   return (
     <div className={`box ${ball}`}>
-      <strong style={{ fontSize: '0.9rem' }}>{name}</strong>
+      <div className="head">
+        <strong>{name}</strong>
+        {onSwap && (
+          <button className="swap" onClick={onSwap} aria-label={`${name}의 공 바꾸기`}>
+            ↔
+          </button>
+        )}
+      </div>
       <span className="value">{value}</span>
       <div className="row">
         <button onClick={() => set(value - 5)} aria-label="5점 빼기">

@@ -872,6 +872,37 @@ graft-island {
   color: var(--yellow-ink);
 }
 
+.handicap .box .head {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  width: 100%;
+  min-width: 0;
+}
+
+.handicap .box .head strong {
+  font-size: 0.9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 옆자리와 공 바꾸기. 이름 옆의 작은 자리라, 눌리는 넓이는 글자보다 넉넉하게 준다. */
+.handicap .box .swap {
+  flex: 0 0 auto;
+  min-height: 0;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.12);
+  color: inherit;
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
 .handicap .box .value {
   font-size: 2rem;
   font-weight: 800;
