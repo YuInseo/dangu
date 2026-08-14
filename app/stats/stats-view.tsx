@@ -81,6 +81,8 @@ export function StatsView() {
   const [showAll, setShowAll] = useState(false);
   /** 당구장으로 좁혀 보기. `null`이면 전부. */
   const [place, setPlace] = useState<string | null>(null);
+  /** 달 고르개가 열려 있는지. */
+  const [picking, setPicking] = useState(false);
 
   useEffect(() => {
     void loadHistory().then(setGames);
@@ -137,6 +139,35 @@ export function StatsView() {
   const venues = useMemo(() => venueStats(scoped), [scoped]);
   const overall = useMemo(() => computeStats(all), [all]);
 
+  /**
+   * 고를 수 있는 달들 — 최근이 앞.
+   *
+   * 처음 친 달부터 이번 달까지 빠짐없이 세운다. 친 판이 없는 달도 사이에 두는 이유는,
+   * 목록에서 사라진 달은 "그때 안 쳤다"가 아니라 "그런 달은 없다"로 읽히기 때문이다.
+   * 기록이 하나도 없으면 최근 열두 달을 보여 준다.
+   */
+  const months = useMemo(() => {
+    const now = new Date();
+    const oldest = all.length
+      ? new Date(Math.min(...all.map((game) => game.startedAt)))
+      : new Date(now.getFullYear(), now.getMonth() - 11, 1);
+
+    const list: { year: number; month: number }[] = [];
+    const walk = new Date(now.getFullYear(), now.getMonth(), 1);
+    const end = new Date(oldest.getFullYear(), oldest.getMonth(), 1);
+    while (walk >= end && list.length < 60) {
+      list.push({ year: walk.getFullYear(), month: walk.getMonth() });
+      walk.setMonth(walk.getMonth() - 1);
+    }
+
+    // 화살표로 앞질러 간 달도 목록에 있어야 한다 — 지금 보고 있는 것이 목록에 없으면
+    // 어느 것에도 체크가 없다.
+    if (!list.some((entry) => entry.year === cursor.year && entry.month === cursor.month)) {
+      list.unshift({ year: cursor.year, month: cursor.month });
+    }
+    return list;
+  }, [all, cursor.year, cursor.month]);
+
   /** 모달에 떠 있는 기록. 지워지거나 날짜를 옮기면 스스로 닫히도록 목록에서 찾는다. */
   const opened = useMemo(() => all.find((game) => game.id === expanded), [all, expanded]);
 
@@ -161,10 +192,25 @@ export function StatsView() {
           <button className="calendar-nav" onClick={() => shiftMonth(-1)} aria-label="이전 달">
             ‹
           </button>
-          <strong>
+          {/*
+            달 이름이 곧 버튼이다.
+
+            연도를 지웠다. 한 해를 넘나드는 일은 드물고, 그때마다 읽히던 "2026"은 매번
+            같은 자리에서 같은 값으로 서 있었다. 몇 년도인지 알아야 하는 순간은 달을
+            고를 때뿐이고, 그건 이 버튼이 여는 목록에 적혀 있다.
+          */}
+          <button
+            className="calendar-month"
+            onClick={() => {
+              setPicking(true);
+              tap();
+            }}
+          >
             {cursor.month + 1}월
-            <small>{cursor.year}</small>
-          </strong>
+            <span className="caret" aria-hidden="true">
+              ▾
+            </span>
+          </button>
           <button className="calendar-nav" onClick={() => shiftMonth(1)} aria-label="다음 달">
             ›
           </button>
@@ -524,6 +570,23 @@ export function StatsView() {
         않고, 좁은 줄에 욱여넣을 수 없던 것들 — 핸디, 각자의 에버, 시작과 끝 시각 —
         까지 담을 자리를 준다.
       */}
+      {picking && (
+        <MonthSheet
+          months={months}
+          year={cursor.year}
+          month={cursor.month}
+          onPick={(year, month) => {
+            setCursor({ year, month });
+            setSelected(null);
+            setShowAll(false);
+            setExpanded(null);
+            setPicking(false);
+            tap();
+          }}
+          onClose={() => setPicking(false)}
+        />
+      )}
+
       {opened && (
         <RecordSheet
           game={opened}
@@ -852,6 +915,72 @@ function RecordSheet({
             )}
           </>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* 달 고르개 ---------------------------------------------------------- */
+
+/**
+ * 달을 고르는 시트.
+ *
+ * 화살표로 한 달씩 넘기는 길은 지난달을 볼 때는 편하지만 작년 이맘때를 볼 때는 열두 번을
+ * 누르게 한다. 목록이 있으면 한 번이다. 그래서 둘 다 둔다 — 옆으로 한 칸은 화살표가,
+ * 멀리 가는 것은 이 목록이.
+ *
+ * 아래에서 올라오는 시트인 이유는 손이 거기에 있기 때문이다. 달력은 화면 위쪽에 있고
+ * 목록은 길어서, 위에서 펼치면 고르려는 달이 손가락이 닿지 않는 자리에 선다.
+ */
+function MonthSheet({
+  months,
+  year,
+  month,
+  onPick,
+  onClose,
+}: {
+  months: { year: number; month: number }[];
+  year: number;
+  month: number;
+  onPick: (year: number, month: number) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="sheet"
+      role="dialog"
+      aria-modal="true"
+      aria-label="월 선택하기"
+      onClick={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div className="inner month-sheet">
+        <div className="head">
+          <strong>월 선택하기</strong>
+          <button className="icon-round" onClick={onClose} aria-label="닫기">
+            ×
+          </button>
+        </div>
+
+        <div className="months">
+          {months.map((entry) => {
+            const here = entry.year === year && entry.month === month;
+            return (
+              <button
+                key={`${entry.year}-${entry.month}`}
+                className={here ? 'on' : undefined}
+                aria-current={here ? 'true' : undefined}
+                onClick={() => onPick(entry.year, entry.month)}
+              >
+                <span>
+                  {entry.year}년 {entry.month + 1}월
+                </span>
+                {here && <span className="check">✓</span>}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

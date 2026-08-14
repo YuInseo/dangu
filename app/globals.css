@@ -3155,3 +3155,83 @@ button.record {
   padding: 0.75rem 1.1rem;
   white-space: nowrap;
 }
+
+/* 달 고르개 ---------------------------------------------------------- */
+
+.calendar-month {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+  min-height: 0;
+  padding: 0.3rem 0.5rem;
+  background: none;
+  border: 0;
+  color: var(--center-ink);
+  font-size: 1.25rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.calendar-month .caret {
+  font-size: 0.7rem;
+  opacity: 0.45;
+}
+
+.calendar-month:active {
+  opacity: 0.6;
+  background: none;
+}
+
+/*
+ * 아래에서 올라오는 목록.
+ *
+ * 달력은 화면 위쪽에 있고 이 목록은 길다. 위에서 펼치면 고르려는 달이 손가락이 닿지
+ * 않는 자리에 서므로, 시트로 올린다.
+ */
+.month-sheet .head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-bottom: 0.2rem;
+}
+
+.month-sheet .head strong {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.month-sheet .months {
+  display: flex;
+  flex-direction: column;
+  max-height: 58dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.month-sheet .months button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  min-height: 52px;
+  padding: 0.5rem 0.2rem;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  color: rgba(243, 244, 246, 0.62);
+  font-size: 1rem;
+  font-weight: 600;
+  text-align: left;
+}
+
+.month-sheet .months button.on {
+  color: var(--center-ink);
+  font-weight: 800;
+}
+
+.month-sheet .months .check {
+  color: var(--accent);
+  font-size: 1.1rem;
+  font-weight: 800;
+}
