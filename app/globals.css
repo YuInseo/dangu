@@ -1467,6 +1467,87 @@ button.record {
   color: var(--yellow-bg);
 }
 
+/* 고치는 중의 이닝별 표 -------------------------------------------------- */
+
+.runs-edit .runs-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.runs-edit .runs-head .label {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+.runs-edit .runs-head button {
+  min-height: 0;
+  padding: 0.35rem 0.6rem;
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+/* 보기용 표는 `1fr auto auto`로 오른쪽에 붙지만, 고칠 때는 칸이 자리를 차지해야
+   한다 — 줄마다 넓이가 달라지면 위아래 칸이 어긋나 보인다. */
+.runs-edit .line {
+  display: grid;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.runs-edit .line.head .who {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(243, 244, 246, 0.55);
+}
+
+.runs-edit .line.head .who.white {
+  color: var(--white-bg);
+}
+
+.runs-edit .line.head .who.yellow {
+  color: var(--yellow-bg);
+}
+
+.runs-edit .line input {
+  min-height: 36px;
+  padding: 0.25rem 0.2rem;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+/* 합계는 읽는 값이지 치는 값이 아니다. 눌러도 커서가 서지 않게 두면 손이 헛돌아서,
+   대신 눌리지 않는다는 것이 보이도록 흐리게 깐다. */
+.editor .box input.sum {
+  opacity: 0.75;
+  cursor: default;
+}
+
+/* 이닝을 더하고 빼는 두 버튼은 짝이다. 크기가 다르면 하나가 본 버튼처럼 보인다. */
+.runs-edit .row {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.runs-edit .row button {
+  flex: 1;
+  min-height: 0;
+  padding: 0.5rem 0.4rem;
+  font-size: 0.82rem;
+}
+
+.runs-edit .hint {
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: rgba(243, 244, 246, 0.45);
+}
+
 /* 이닝 줄의 칸 수는 자리 수를 따라간다 — 칸 폭은 인라인 스타일이 정하고, 여기서는
    숫자가 오른쪽에 모이는 것만 지킨다. */
 .runs .line .points {

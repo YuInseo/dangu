@@ -1293,6 +1293,14 @@ function RecordEditor({
     minutes: String(Math.round(game.elapsedMs / 60000)),
     venue: game.venue ?? '',
     winner: (game.winner ?? '') as Side | '',
+    /**
+     * 이닝별 득점. 표가 없는 기록에서는 `null`이고, 그때는 점수를 직접 친다.
+     *
+     * 표가 있으면 점수는 표의 합이 된다 — 둘을 따로 고칠 수 있게 두면 "12점인데
+     * 이닝 합은 9점"인 기록이 만들어지고, 그런 기록의 이닝별 표는 상세에서 아예
+     * 숨겨진다. 고칠 수 있는 곳을 하나로 두는 편이 낫다.
+     */
+    runs: seedRuns(game, list),
   }));
   const [busy, setBusy] = useState(false);
 
@@ -1308,6 +1316,73 @@ function RecordEditor({
     if (value.trim() === '' || !Number.isFinite(parsed)) return fallback;
     return Math.max(min, Math.round(parsed));
   };
+
+  /** 이닝 칸의 값. 뒷빡이 있는 판은 한 이닝의 득점이 음수일 수 있어 아래를 막지 않는다. */
+  const points = (value: string) => {
+    const parsed = Number(value);
+    if (value.trim() === '' || !Number.isFinite(parsed)) return 0;
+    return Math.round(parsed);
+  };
+
+  const rows = draft.runs ? draft.runs[list[0]].length : 0;
+  const total = (side: Side) =>
+    (draft.runs?.[side] ?? []).reduce((sum, value) => sum + points(value), 0);
+
+  /** 표의 줄 수를 맞춘다. 늘리면 0으로 채우고, 줄이면 뒤에서 자른다. */
+  const resize = (size: number) =>
+    setDraft((current) => {
+      const next = Math.max(1, Math.min(MAX_INNINGS, size));
+      if (!current.runs) return { ...current, inning: String(next) };
+      return {
+        ...current,
+        inning: String(next),
+        runs: sizedRuns(current.runs, list, next),
+      };
+    });
+
+  // 이닝 칸과 표는 같은 것을 가리킨다. 한쪽만 고치면 "8이닝인데 표는 세 줄"이 된다.
+  const setInning = (value: string) =>
+    setDraft((current) => {
+      const parsed = Number(value);
+      const size =
+        value.trim() === '' || !Number.isFinite(parsed)
+          ? null
+          : Math.max(1, Math.min(MAX_INNINGS, Math.round(parsed)));
+      if (!current.runs || size === null) return { ...current, inning: value };
+      return { ...current, inning: value, runs: sizedRuns(current.runs, list, size) };
+    });
+
+  const editRun = (side: Side, index: number, value: string) =>
+    setDraft((current) => {
+      if (!current.runs) return current;
+      const line = [...current.runs[side]];
+      line[index] = value;
+      return { ...current, runs: { ...current.runs, [side]: line } };
+    });
+
+  /*
+    표가 없던 기록에 표를 세운다.
+
+    이미 있는 점수를 1이닝에 몰아넣고 시작한다. 0으로 채우고 시작하면 이 판의 점수가
+    표를 세우는 순간 사라져서, 고치려다 지운 꼴이 된다. 한 칸에 몰려 있는 숫자는
+    누가 봐도 아직 안 나눈 것이라 고치라는 말도 같이 된다.
+  */
+  const startRuns = () =>
+    setDraft((current) => {
+      const size = Math.max(1, Math.min(MAX_INNINGS, number(current.inning, game.inning, 1)));
+      return {
+        ...current,
+        inning: String(size),
+        runs: Object.fromEntries(
+          list.map((side) => [
+            side,
+            Array.from({ length: size }, (_, index) =>
+              index === 0 ? String(number(current.seats[side].score, 0, -9999)) : '0'
+            ),
+          ])
+        ) as Record<Side, string[]>,
+      };
+    });
 
   const box = (side: Side) => {
     const player = draft.seats[side];
@@ -1325,13 +1400,23 @@ function RecordEditor({
         />
         <div className="pair">
           <label>
-            <span className="label">점수</span>
-            <input
-              type="number"
-              inputMode="numeric"
-              value={player.score}
-              onChange={(event) => edit(side, 'score', event.target.value)}
-            />
+            <span className="label">{draft.runs ? '점수 (합)' : '점수'}</span>
+            {draft.runs ? (
+              <input
+                type="text"
+                readOnly
+                className="sum"
+                aria-label={`${label} 점수 합계`}
+                value={String(total(side))}
+              />
+            ) : (
+              <input
+                type="number"
+                inputMode="numeric"
+                value={player.score}
+                onChange={(event) => edit(side, 'score', event.target.value)}
+              />
+            )}
           </label>
           <label>
             <span className="label">목표</span>
@@ -1354,10 +1439,17 @@ function RecordEditor({
         event.preventDefault();
         if (busy) return;
         setBusy(true);
-        await onSave({
+
+        const kept = draft.runs
+          ? (Object.fromEntries(
+              list.map((side) => [side, draft.runs![side].map(points)])
+            ) as Record<Side, number[]>)
+          : null;
+
+        const next: GameSummary = {
           ...game,
           kind: draft.kind,
-          inning: number(draft.inning, game.inning, 1),
+          inning: kept ? rows : number(draft.inning, game.inning, 1),
           elapsedMs: number(draft.minutes, Math.round(game.elapsedMs / 60000), 0) * 60000,
           venue: draft.venue.trim() || undefined,
           winner: draft.winner || undefined,
@@ -1367,12 +1459,20 @@ function RecordEditor({
               {
                 ...game.players[side],
                 name: draft.seats[side].name.trim() || SIDE_LABELS[side] || side,
-                score: number(draft.seats[side].score, game.players[side]?.score ?? 0, 0),
+                score: kept
+                  ? kept[side].reduce((sum, value) => sum + value, 0)
+                  : number(draft.seats[side].score, game.players[side]?.score ?? 0, 0),
                 target: number(draft.seats[side].target, game.players[side]?.target ?? 20, 1),
               },
             ])
           ),
-        });
+        };
+        // 표를 지운 판에는 키 자체를 남기지 않는다. `undefined`인 키는 저장·전송에서
+        // 값이 있는 것처럼 다뤄져 곤란해진다.
+        if (kept) next.runs = kept;
+        else delete next.runs;
+
+        await onSave(next);
         setBusy(false);
       }}
     >
@@ -1400,7 +1500,7 @@ function RecordEditor({
             type="number"
             inputMode="numeric"
             value={draft.inning}
-            onChange={(event) => setDraft((current) => ({ ...current, inning: event.target.value }))}
+            onChange={(event) => setInning(event.target.value)}
           />
         </label>
         <label>
@@ -1412,6 +1512,89 @@ function RecordEditor({
             onChange={(event) => setDraft((current) => ({ ...current, minutes: event.target.value }))}
           />
         </label>
+      </div>
+
+      {/*
+        이닝별 득점.
+
+        점수판으로 친 판에는 이미 있고, 손으로 적은 판이나 옛날 기록에는 없다. 없는
+        판에도 세울 수 있게 둔 이유는 "어제 그 판, 3이닝에 몰아쳤었지"가 나중에 세는
+        숫자의 거의 전부이기 때문이다 — 하이런도 에버리지도 여기서 나온다.
+      */}
+      <div className="runs runs-edit">
+        <div className="runs-head">
+          <span className="label">이닝별 점수</span>
+          {draft.runs ? (
+            <button
+              type="button"
+              className="ghost"
+              onClick={() => setDraft((current) => ({ ...current, runs: null }))}
+            >
+              표 지우기
+            </button>
+          ) : (
+            <button type="button" className="secondary" onClick={startRuns}>
+              이닝별로 적기
+            </button>
+          )}
+        </div>
+
+        {draft.runs ? (
+          <>
+            <div className="grid">
+              <div className="line head" style={{ gridTemplateColumns: columns(list.length) }}>
+                <span className="no" />
+                {list.map((side) => (
+                  <span key={side} className={`who ${ballOf(list, side)}`}>
+                    {draft.seats[side].name.trim() || SIDE_LABELS[side] || side}
+                  </span>
+                ))}
+              </div>
+
+              {Array.from({ length: rows }, (_, index) => (
+                <div className="line" key={index} style={{ gridTemplateColumns: columns(list.length) }}>
+                  <span className="no">{index + 1}이닝</span>
+                  {list.map((side) => (
+                    <input
+                      key={side}
+                      type="number"
+                      inputMode="numeric"
+                      aria-label={`${index + 1}이닝 ${
+                        draft.seats[side].name.trim() || SIDE_LABELS[side] || side
+                      } 점수`}
+                      value={draft.runs![side][index] ?? '0'}
+                      onChange={(event) => editRun(side, index, event.target.value)}
+                    />
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            <div className="row">
+              <button
+                type="button"
+                className="secondary"
+                disabled={rows >= MAX_INNINGS}
+                onClick={() => resize(rows + 1)}
+              >
+                이닝 추가
+              </button>
+              <button
+                type="button"
+                className="ghost"
+                disabled={rows <= 1}
+                onClick={() => resize(rows - 1)}
+              >
+                마지막 이닝 빼기
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="hint">
+            아직 이닝별 점수가 없는 기록입니다. 표를 세우면 지금 점수가 1이닝에 들어가고,
+            거기서 나눠 적으면 됩니다.
+          </p>
+        )}
       </div>
 
       <label>
@@ -1477,6 +1660,46 @@ function RecordEditor({
       </div>
     </form>
   );
+}
+
+/**
+ * 이닝은 여기까지만.
+ *
+ * 손이 미끄러져 "1000"이 들어가도 줄 천 개를 그리지 않게 하는 울타리다. 실제로는
+ * 4구 한 판이 서른 이닝을 넘는 일이 드물어서, 이 숫자에 닿을 일은 거의 없다.
+ */
+const MAX_INNINGS = 99;
+
+const columns = (count: number) => `3.6rem repeat(${count}, 1fr)`;
+
+/** 고치기 시작할 때의 이닝별 표. 기록에 없으면 `null` — 없는 것을 지어내지는 않는다. */
+function seedRuns(game: GameSummary, list: Side[]): Record<Side, string[]> | null {
+  const stored = game.runs;
+  if (!stored || list.some((side) => !Array.isArray(stored[side]))) return null;
+  const size = Math.max(
+    1,
+    Math.min(MAX_INNINGS, Math.max(game.inning, ...list.map((side) => stored[side].length)))
+  );
+  return Object.fromEntries(
+    list.map((side) => [
+      side,
+      Array.from({ length: size }, (_, index) => String(stored[side][index] ?? 0)),
+    ])
+  ) as Record<Side, string[]>;
+}
+
+/** 표의 모든 줄을 같은 길이로. 한쪽만 길면 어느 이닝이 몇 번째인지가 어긋난다. */
+function sizedRuns(
+  runs: Record<Side, string[]>,
+  list: Side[],
+  size: number
+): Record<Side, string[]> {
+  return Object.fromEntries(
+    list.map((side) => [
+      side,
+      Array.from({ length: size }, (_, index) => runs[side]?.[index] ?? '0'),
+    ])
+  ) as Record<Side, string[]>;
 }
 
 /** `2026-08-09` → `8월 9일 (토)`. */
