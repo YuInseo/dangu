@@ -4,6 +4,7 @@ import type { Firestore } from 'firebase/firestore';
 
 import { isNativeApp, plugin, preferencesGet, preferencesSet } from './platform';
 import { SCHEMA, migrate, type GameSummary } from './game';
+import type { SharedSettings } from './storage';
 
 /**
  * Firebase — 있으면 쓰고 없으면 없는 대로 돈다.
@@ -400,13 +401,18 @@ export async function watchGames(
  *
  * 배치 하나에 담을 수 있는 쓰기는 500개까지라 나눠서 보낸다. 기기 쪽 상한(50개)보다
  * 훨씬 많이 쌓일 수 있는 곳이라, 한 번에 다 넣으면 조용히 실패하는 크기가 된다.
+ *
+ * 지우면서 이름표를 함께 남긴다 — 지금 꺼져 있는 기기가 나중에 켜졌을 때 자기가 들고
+ * 있는 오십 판을 도로 올리지 않게 하는 것이 그 이름표다. 한 판에 쓰기가 둘이므로
+ * 배치의 몫도 절반으로 잡는다.
  */
 export async function deleteAllGames(uid: string): Promise<number> {
   const instance = await firebase();
   if (!instance) return 0;
   try {
-    const { collection, getDocs, writeBatch } = await import('firebase/firestore');
+    const { collection, doc, getDocs, writeBatch } = await import('firebase/firestore');
     const snapshot = await getDocs(collection(instance.db, 'users', uid, 'games'));
+    const at = Date.now();
 
     let batch = writeBatch(instance.db);
     let pending = 0;
@@ -414,9 +420,10 @@ export async function deleteAllGames(uid: string): Promise<number> {
 
     for (const entry of snapshot.docs) {
       batch.delete(entry.ref);
-      pending++;
+      batch.set(doc(instance.db, 'users', uid, 'trash', entry.id), { at });
+      pending += 2;
       removed++;
-      if (pending === 450) {
+      if (pending >= 450) {
         await batch.commit();
         batch = writeBatch(instance.db);
         pending = 0;
@@ -429,14 +436,175 @@ export async function deleteAllGames(uid: string): Promise<number> {
   }
 }
 
-export async function deleteGame(uid: string, id: string): Promise<boolean> {
+/**
+ * 판 하나를 클라우드에서 지운다.
+ *
+ * 문서를 지우고 이름표를 남기는 것이 한 동작이다. 앞엣것만 하면 다른 기기가 그 판을
+ * 다시 올리므로, 그건 지우기가 아니라 잠깐 숨기기다.
+ *
+ * `at`은 지운 시각이다. 기기가 먼저 지우고 나중에 클라우드에 알리는 경우 — 지하에서
+ * 지웠다가 올라와서 붙는 경우가 그렇다 — 그 시각은 지금이 아니라 사람이 지운 그때다.
+ */
+export async function deleteGame(uid: string, id: string, at = Date.now()): Promise<boolean> {
   const instance = await firebase();
   if (!instance) return false;
   try {
-    const { deleteDoc, doc } = await import('firebase/firestore');
+    const { deleteDoc, doc, setDoc } = await import('firebase/firestore');
     await deleteDoc(doc(instance.db, 'users', uid, 'games', id));
+    await setDoc(doc(instance.db, 'users', uid, 'trash', id), { at });
     return true;
   } catch {
     return false;
   }
+}
+
+/* 지운 기록 --------------------------------------------------------- */
+
+/**
+ * 지운 판의 이름표를 클라우드에 남긴다.
+ *
+ * 문서를 지우는 것만으로는 다른 기기에 "지웠다"가 전해지지 않는다. 그쪽이 보는 것은
+ * "클라우드에 없는 판"이고, 그건 아직 안 올라간 판과 구별되지 않는다 — 그래서 다시
+ * 올린다. 이름표가 그 둘을 가른다.
+ *
+ * 한 배치에 500개까지라 나눠 보낸다. 전체 삭제가 이 길로 온다.
+ */
+export async function pushTrash(uid: string, entries: Record<string, number>): Promise<boolean> {
+  const list = Object.entries(entries);
+  if (!list.length) return true;
+
+  const instance = await firebase();
+  if (!instance) return false;
+  try {
+    const { doc, writeBatch } = await import('firebase/firestore');
+    let batch = writeBatch(instance.db);
+    let pending = 0;
+
+    for (const [id, at] of list) {
+      batch.set(doc(instance.db, 'users', uid, 'trash', id), { at });
+      pending++;
+      if (pending === 450) {
+        await batch.commit();
+        batch = writeBatch(instance.db);
+        pending = 0;
+      }
+    }
+    if (pending > 0) await batch.commit();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 지운 판들을 지켜본다 — 다른 기기에서 지운 것이 여기서도 사라지는 길이다.
+ *
+ * 최근 것부터 본다. 이름표는 판 하나에 숫자 하나라 가벼운 문서지만, 몇 해를 쓴 계정에서
+ * 전부 받아 올 이유는 없다 — 오래된 이름표가 하는 일은 이미 오래전에 끝났다.
+ */
+export async function watchTrash(
+  uid: string,
+  listener: (entries: Record<string, number>) => void,
+  max = 500
+): Promise<() => void> {
+  const instance = await firebase();
+  if (!instance) return () => {};
+  try {
+    const { collection, limit, onSnapshot, orderBy, query } = await import('firebase/firestore');
+    return onSnapshot(
+      query(collection(instance.db, 'users', uid, 'trash'), orderBy('at', 'desc'), limit(max)),
+      (snapshot) => {
+        const entries: Record<string, number> = {};
+        for (const entry of snapshot.docs) {
+          const at = (entry.data() as { at?: number }).at;
+          if (typeof at === 'number') entries[entry.id] = at;
+        }
+        listener(entries);
+      },
+      () => {}
+    );
+  } catch {
+    return () => {};
+  }
+}
+
+/* 설정 동기화 -------------------------------------------------------- */
+
+/**
+ * 설정 문서의 모양 번호.
+ *
+ * 기록과 같은 이유로 둔다 — 여러 버전의 앱이 같은 계정을 나눠 쓰고, 새 앱이 붙는
+ * 순간 옛 모양을 조용히 옮겨야 한다. 지금은 1이고, 값이 늘어나는 것만으로는 번호가
+ * 올라가지 않는다: 모르는 키는 읽는 쪽이 그냥 무시하면 되기 때문이다. 번호가 필요한
+ * 것은 있던 값의 *뜻*이 바뀔 때다.
+ */
+export const PREFS_SCHEMA = 1;
+
+/** 설정은 문서 하나다. 판마다 문서인 기록과 달리, 한 사람의 설정은 한 벌뿐이다. */
+const PREFS_DOC = ['prefs', 'app'] as const;
+
+export async function pushPrefs(uid: string, prefs: SharedSettings): Promise<boolean> {
+  const instance = await firebase();
+  if (!instance) return false;
+  try {
+    const { doc, setDoc } = await import('firebase/firestore');
+    await setDoc(doc(instance.db, 'users', uid, ...PREFS_DOC), {
+      ...prefs,
+      schema: PREFS_SCHEMA,
+      syncedAt: Date.now(),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function fetchPrefs(uid: string): Promise<CloudPrefs | null> {
+  const instance = await firebase();
+  if (!instance) return null;
+  try {
+    const { doc, getDoc } = await import('firebase/firestore');
+    const snapshot = await getDoc(doc(instance.db, 'users', uid, ...PREFS_DOC));
+    return snapshot.exists() ? migratePrefs(snapshot.data() as CloudPrefs) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 설정을 지켜본다.
+ *
+ * 기록과 같은 이유로 한 번 읽고 마는 것과 다르다 — 태블릿에서 당구장을 하나 더한 것은
+ * 이 폰이 아무것도 하지 않는 동안 생기는 일이다.
+ */
+export async function watchPrefs(
+  uid: string,
+  listener: (prefs: CloudPrefs | null) => void
+): Promise<() => void> {
+  const instance = await firebase();
+  if (!instance) return () => {};
+  try {
+    const { doc, onSnapshot } = await import('firebase/firestore');
+    return onSnapshot(
+      doc(instance.db, 'users', uid, ...PREFS_DOC),
+      (snapshot) =>
+        listener(snapshot.exists() ? migratePrefs(snapshot.data() as CloudPrefs) : null),
+      () => {}
+    );
+  } catch {
+    return () => {};
+  }
+}
+
+export type CloudPrefs = Partial<SharedSettings> & { schema?: number; updatedAt?: number };
+
+/**
+ * 옛 모양의 설정 문서를 지금 모양으로.
+ *
+ * 아직 옮길 것이 없다 — 번호가 붙은 첫 판이기 때문이다. 그래도 이 자리를 비워 두는
+ * 이유는 기록 쪽에서 배운 것이 있어서다: 옮기는 자리가 없으면 읽는 쪽마다 넘겨짚기가
+ * 하나씩 생기고, 그게 쌓이면 어느 값이 어느 시절 것인지 아무도 모르게 된다.
+ */
+function migratePrefs(prefs: CloudPrefs): CloudPrefs {
+  return { ...prefs, schema: PREFS_SCHEMA };
 }

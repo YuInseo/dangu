@@ -1,7 +1,8 @@
 rules_version = '2';
 
 /*
- * 이 앱이 Firestore에 두는 것은 한 사람의 게임 기록뿐이다.
+ * 이 앱이 Firestore에 두는 것은 한 사람의 것뿐이다 — 게임 기록, 지운 기록의 이름표,
+ * 그리고 기기를 따라다니는 설정.
  *
  * 그래서 규칙도 한 줄로 요약된다: 자기 문서만, 로그인한 사람만. 웹 Firebase 설정값이
  * 앱 번들에 그대로 들어 있어도 괜찮은 이유가 이것이다 — 그 값들은 "어느 프로젝트인지"를
@@ -10,6 +11,26 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid}/games/{gameId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    /*
+     * 지운 판의 이름표 — id와 지운 시각뿐이다.
+     *
+     * 문서를 지우는 것만으로는 "지웠다"가 다른 기기에 전해지지 않는다. 그쪽이 보는 것은
+     * "클라우드에 없는 판"이고 그건 아직 안 올라간 판과 같은 모양이라, 이름표가 없으면
+     * 지운 판을 도로 올린다.
+     */
+    match /users/{uid}/trash/{gameId} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    /*
+     * 계정을 따라다니는 설정 — 내 이름, 다니는 당구장, 늘 치는 종목과 핸디.
+     *
+     * 문서 하나다. 판마다 문서인 기록과 달리 한 사람의 설정은 한 벌뿐이다.
+     */
+    match /users/{uid}/prefs/{docId} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
     }
 

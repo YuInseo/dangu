@@ -35,12 +35,12 @@ import {
 } from '../../lib/stats';
 import {
   clearHistory,
-  cloudChosen,
   copyHistory,
   loadHistory,
   loadSettings,
   removeGame,
   updateGame,
+  watchSettings,
 } from '../../lib/storage';
 import { deleteAllGames, deleteGame, pushGame } from '../../lib/firebase';
 import { useAccount } from '../../lib/use-account';
@@ -100,10 +100,21 @@ export function StatsView() {
   const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
   const held = useRef(false);
 
+  /*
+   * 설정은 이 화면 바깥에서도 바뀐다 — 로그인하면 저장 방식이 계정으로 옮겨지고, 다른
+   * 기기에서 더한 당구장이 밀려 온다. 한 번 읽고 마는 화면은 그때부터 옛 값으로 판단한다:
+   * 방금 계정으로 옮겨졌는데 고친 기록을 안 올리는 것이 그 일이다.
+   */
   useEffect(() => {
     void loadHistory().then(setGames);
-    void cloudChosen().then(setCloud);
-    void loadSettings().then((settings) => setSaved(settings.venues ?? []));
+    void loadSettings().then((settings) => {
+      setCloud(settings.sync === 'cloud');
+      setSaved(settings.venues ?? []);
+    });
+    return watchSettings((settings) => {
+      setCloud(settings.sync === 'cloud');
+      setSaved(settings.venues ?? []);
+    });
   }, []);
 
   // 맞춤이 끝나면 목록을 다시 읽는다. 맞추는 일 자체는 `useAccount`가 앱 전체에 하나로
@@ -671,7 +682,10 @@ export function StatsView() {
           */}
           {!wiping ? (
             <>
-              <p>이 기기의 기록 {all.length}게임을 지웁니다. 되돌릴 수 없습니다.</p>
+              <p>
+                기록 {all.length}게임을 지웁니다
+                {cloud ? ' — 계정에 붙은 다른 기기에서도 사라집니다' : ''}. 되돌릴 수 없습니다.
+              </p>
               <button className="danger" onClick={() => setWiping(true)}>
                 전체 삭제
               </button>
@@ -679,8 +693,8 @@ export function StatsView() {
           ) : (
             <>
               <p className="notice error">
-                {all.length}게임을 지웁니다{cloud ? ' (클라우드 사본까지)' : ''}. 되돌릴 수
-                없습니다.
+                {all.length}게임을 지웁니다
+                {cloud ? ' (클라우드와 다른 기기까지)' : ''}. 되돌릴 수 없습니다.
               </p>
               <div className="row">
                 <button

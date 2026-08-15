@@ -14,6 +14,7 @@ import {
   DEFAULT_SETTINGS,
   loadSettings,
   saveSettings,
+  watchSettings,
   type AppSettings,
 } from '../../lib/storage';
 import {
@@ -48,8 +49,23 @@ export function SettingsPanel() {
   /** 지금 적고 있는 당구장 이름. */
   const [adding, setAdding] = useState('');
 
+  /*
+   * 설정은 이제 이 화면 바깥에서도 바뀐다.
+   *
+   * 태블릿에서 당구장을 하나 더하면 그 값이 이 폰으로 밀려 오고, 로그인하면 저장 방식이
+   * 계정으로 옮겨진다. 한 번 읽고 마는 화면은 그때부터 거짓말을 한다 — 방금 바뀐 값을
+   * 옛 값으로 보여 주고, 거기서 무언가를 고치면 옛 값이 다시 저장된다.
+   */
   useEffect(() => {
-    void loadSettings().then(setSettings);
+    let alive = true;
+    void loadSettings().then((stored) => {
+      if (alive) setSettings(stored);
+    });
+    const stop = watchSettings(setSettings);
+    return () => {
+      alive = false;
+      stop();
+    };
   }, []);
 
   const update = (next: Partial<AppSettings>) => {
@@ -68,11 +84,19 @@ export function SettingsPanel() {
           기록을 어디에 둘지 고릅니다. 어느 쪽을 골라도 게임은 항상 이 기기에 먼저 저장됩니다 —
           당구장에 네트워크가 없어도 점수판은 끝까지 돌아가야 하니까요.
         </p>
+        {/*
+          누른 순간 `syncPinned`가 붙는다.
+
+          이 값이 하는 일은 앱의 자동 판단을 막는 것이다 — 로그인한 사람의 기록은 묻지
+          않고 계정으로 옮기는데, 그 규칙이 "이 기기에만"을 직접 고른 사람에게까지
+          적용되면 그건 편의가 아니라 결정을 뒤집는 일이 된다. 기본값으로서의 `local`과
+          사람이 고른 `local`은 다르고, 그 차이를 적어 두는 자리가 여기다.
+        */}
         <div className="choices" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <button
             className="choice"
             aria-pressed={settings.sync === 'local'}
-            onClick={() => update({ sync: 'local' })}
+            onClick={() => update({ sync: 'local', syncPinned: true })}
           >
             이 기기에만
             <small>계정 없이. 폰을 바꾸면 기록은 따라오지 않습니다.</small>
@@ -81,15 +105,22 @@ export function SettingsPanel() {
             className="choice"
             aria-pressed={settings.sync === 'cloud'}
             onClick={() => {
-              update({ sync: 'cloud' });
+              update({ sync: 'cloud', syncPinned: true });
               // 고른 그 자리에서 맞춘다. 켜 두고 다음에 앱을 켤 때까지 기다릴 이유가 없다.
               void account.syncNow();
             }}
           >
             구글 계정
-            <small>Firebase에 사본을 둡니다. 폰을 바꿔도 남습니다.</small>
+            <small>기록도 설정도 계정에 둡니다. 다른 기기에서 바로 이어집니다.</small>
           </button>
         </div>
+
+        {settings.sync === 'local' && settings.syncPinned && account.account && (
+          <p style={{ fontSize: '0.82rem' }}>
+            로그인해 있지만 이 기기에만 두기로 골랐습니다. 계정에는 아무것도 올라가지
+            않습니다 — 위에서 “구글 계정”을 고르면 그때부터 올라갑니다.
+          </p>
+        )}
 
         {settings.sync === 'cloud' && account.configured === false && (
           <p className="notice warn">
@@ -129,16 +160,36 @@ export function SettingsPanel() {
               올라갔을 때 — 전부 앱이 알 수 있는 일이다.
             */}
             {settings.sync === 'cloud' ? (
-              <p className={account.sync.state === 'error' ? 'notice warn' : 'notice'}>
-                {account.sync.state === 'syncing' && '기록을 맞추는 중…'}
-                {account.sync.state === 'done' &&
-                  (account.sync.up + account.sync.down === 0
-                    ? '기록이 계정과 같습니다.'
-                    : `맞췄습니다 — ${account.sync.down}건 받고 ${account.sync.up}건 올렸습니다.`)}
-                {account.sync.state === 'error' &&
-                  `맞추지 못했습니다. ${account.sync.reason ?? ''}`}
-                {account.sync.state === 'idle' && '앱을 켤 때마다 자동으로 맞춥니다.'}
-              </p>
+              <>
+                <p className={account.sync.state === 'error' ? 'notice warn' : 'notice'}>
+                  {account.sync.state === 'syncing' && '기록을 맞추는 중…'}
+                  {account.sync.state === 'done' &&
+                    (account.sync.up + account.sync.down === 0
+                      ? '기록이 계정과 같습니다.'
+                      : `맞췄습니다 — ${account.sync.down}건 받고 ${account.sync.up}건 올렸습니다.`)}
+                  {account.sync.state === 'error' &&
+                    `맞추지 못했습니다. ${account.sync.reason ?? ''}`}
+                  {account.sync.state === 'idle' && '앱을 켤 때마다 자동으로 맞춥니다.'}
+                </p>
+                {/*
+                  앱이 스스로 저장 위치를 옮겼으면 그 사실을 말한다.
+
+                  설명 없이 바뀐 설정은 편의가 아니라 놀랄 일이다. 되돌리는 길이 바로
+                  위에 있다는 것도 같이 적는다 — 앱이 한 판단은 사람이 뒤집을 수 있어야
+                  한다.
+                */}
+                {account.sync.migrated && (
+                  <p className="notice">
+                    로그인해서 저장 방식을 <strong>구글 계정</strong>으로 옮겼습니다. 이 기기의
+                    기록과 설정이 계정으로 올라가고, 다른 기기에서 친 판도 여기로 내려옵니다.
+                    원하지 않으면 위에서 “이 기기에만”을 고르세요.
+                  </p>
+                )}
+                <p style={{ fontSize: '0.78rem' }}>
+                  기록, 지운 기록, 그리고 내 이름·당구장·종목 같은 설정이 함께 맞춰집니다.
+                  진동과 화면 켜 두기는 기기마다 달라서 따라가지 않습니다.
+                </p>
+              </>
             ) : (
               <p style={{ fontSize: '0.82rem' }}>
                 저장 방식이 “이 기기에만”이라 계정에는 올라가지 않습니다. 위에서 “구글 계정”을
