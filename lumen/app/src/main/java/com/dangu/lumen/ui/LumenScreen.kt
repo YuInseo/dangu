@@ -101,6 +101,7 @@ fun LumenScreen(activity: MainActivity) {
 
     MaterialTheme(colorScheme = scheme) {
         var showSettings by remember { mutableStateOf(false) }
+        var drawerOpen by remember { mutableStateOf(false) }
 
         // WebView는 이 층 아래(평범한 뷰)에 있다. 여기는 투명한 덧층.
         BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -111,11 +112,24 @@ fun LumenScreen(activity: MainActivity) {
                 maxW = constraints.maxWidth.toFloat(),
                 maxH = constraints.maxHeight.toFloat(),
                 onMove = { x, y -> activity.prefs.update { copy(bubbleX = x, bubbleY = y) } },
-                onTap = { showSettings = true },
-                onLongPress = { activity.prefs.update { copy(hideSidebar = !hideSidebar) } },
+                // 클래식이면 누르면 서랍, 길게 누르면 설정. 아니면 누르면 설정, 길게 누르면 사이드바.
+                onTap = { if (prefs.classic) drawerOpen = true else showSettings = true },
+                onLongPress = {
+                    if (prefs.classic) showSettings = true
+                    else activity.prefs.update { copy(hideSidebar = !hideSidebar) }
+                },
             )
 
             UpdateBanner(Modifier.align(Alignment.TopCenter))
+
+            if (prefs.classic && activity.fullscreen.value == null) {
+                ClassicDrawer(
+                    activity = activity,
+                    open = drawerOpen,
+                    onOpenChange = { drawerOpen = it },
+                    onSettings = { drawerOpen = false; showSettings = true },
+                )
+            }
 
         }
 
@@ -207,8 +221,17 @@ private fun SettingsSheet(activity: MainActivity, prefs: Prefs.Snapshot, onDismi
                     Icon(Icons.Outlined.Home, null, Modifier.size(18.dp))
                 }
             }
+            Toggle(
+                "옛날 디스코드 서랍",
+                "왼쪽 가장자리에서 밀거나 단추를 누르면 서버 막대와 채널 목록이 나옵니다. 설정은 단추를 길게.",
+                prefs.classic,
+            ) { on ->
+                activity.prefs.update { copy(classic = on) }
+                activity.reload()
+            }
             Text(
-                "단추를 길게 누르면 사이드바(서버·채널 목록)를 바로 숨기거나 보입니다.",
+                if (prefs.classic) "클래식 서랍을 끄면 단추 길게 누르기가 사이드바 숨기기로 바뀝니다."
+                else "단추를 길게 누르면 사이드바(서버·채널 목록)를 바로 숨기거나 보입니다.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

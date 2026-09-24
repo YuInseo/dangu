@@ -26,6 +26,8 @@ class Prefs(context: Context) {
         val uaMode: Int,
         /** 테마·스크립트를 하나도 넣지 않는다 — 화면이 안 뜰 때 원인 가르기 */
         val safeMode: Boolean,
+        /** 옛날 디스코드 서랍(서버 막대 + 채널 목록) */
+        val classic: Boolean,
     )
 
     private fun read() = Snapshot(
@@ -42,6 +44,7 @@ class Prefs(context: Context) {
         bubbleY = sp.getFloat("bubbleY", 0.35f),
         uaMode = sp.getInt("uaMode", 0),
         safeMode = sp.getBoolean("safeMode", false),
+        classic = sp.getBoolean("classic", true),
     )
 
     private val _state = MutableStateFlow(read())
@@ -64,6 +67,7 @@ class Prefs(context: Context) {
             putFloat("bubbleY", n.bubbleY)
             putInt("uaMode", n.uaMode)
             putBoolean("safeMode", n.safeMode)
+            putBoolean("classic", n.classic)
         }
         _state.value = n
     }

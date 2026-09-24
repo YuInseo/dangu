@@ -16,7 +16,11 @@ import androidx.core.content.ContextCompat
  * 페이지 → 앱. 지금은 알림 하나뿐이다.
  * 디스코드가 아닌 페이지가 떠 있을 때는 아무것도 하지 않는다.
  */
-class LumenBridge(context: Context, private val isTrusted: () -> Boolean) {
+class LumenBridge(
+    context: Context,
+    private val isTrusted: () -> Boolean,
+    private val onState: (String) -> Unit = {},
+) {
     private val appContext = context.applicationContext
     private val manager = NotificationManagerCompat.from(appContext)
 
@@ -60,6 +64,13 @@ class LumenBridge(context: Context, private val isTrusted: () -> Boolean) {
     fun callState(active: Boolean) {
         if (active && !isTrusted()) return
         main.post { CallService.set(appContext, active) }
+    }
+
+    /** 클래식 서랍용 상태(classic.js). */
+    @JavascriptInterface
+    fun state(json: String) {
+        if (!isTrusted()) return
+        main.post { onState(json) }
     }
 
     companion object {

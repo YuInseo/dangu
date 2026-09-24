@@ -44,7 +44,7 @@ if [ -n "$XY" ]; then
   grep -c "lumen-e2e" "$OUT/ui-typed.xml" >> "$OUT/input-test.txt" || echo "0 (글자가 안 들어감)" >> "$OUT/input-test.txt"
 fi
 
-# 떠 있는 단추를 눌러 설정이 열리는지
+# 떠 있는 단추: 누르면 클래식 서랍, 길게 누르면 설정
 BXY=$(python3 - "$OUT/ui.xml" <<'PY'
 import re, sys
 xml = open(sys.argv[1], encoding="utf-8").read()
@@ -54,14 +54,27 @@ if m:
     print((x1 + x2) // 2, (y1 + y2) // 2)
 PY
 )
+adb shell input keyevent 111   # 키보드 닫기
+sleep 1
 if [ -n "$BXY" ]; then
-  adb shell input keyevent 111   # 키보드 닫기
-  sleep 1
   adb shell input tap $BXY
-  sleep 3
+  sleep 2
+  adb exec-out screencap -p > "$OUT/shot-drawer.png"
+  adb shell input keyevent 4
+  sleep 1
+  adb shell input swipe $BXY $BXY 900
+  sleep 2
   adb exec-out screencap -p > "$OUT/shot-settings.png"
   adb shell input keyevent 4
+  sleep 1
 fi
+# 왼쪽 가장자리에서 밀어 서랍 열기
+H=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1)
+W=${H%x*}; HH=${H#*x}
+adb shell input swipe 3 $((HH / 2)) $((W * 3 / 4)) $((HH / 2)) 300
+sleep 2
+adb exec-out screencap -p > "$OUT/shot-swipe.png"
+adb shell input keyevent 4
 sleep 5
 adb exec-out screencap -p > "$OUT/shot-end.png"
 adb logcat -d > "$OUT/logcat-full.txt"

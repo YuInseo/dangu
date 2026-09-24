@@ -12,7 +12,7 @@ object Injector {
     fun applyCall(css: String, wide: Boolean): String =
         "window.__lumen && window.__lumen.apply(${JSONObject.quote(css)}, $wide);"
 
-    fun documentStart(css: String, wide: Boolean, notifications: Boolean): String = """
+    fun documentStart(css: String, wide: Boolean, notifications: Boolean, extra: String = ""): String = """
         (function () {
           if (window.__lumen) { window.__lumen.apply(${JSONObject.quote(css)}, $wide); return; }
           var L = window.__lumen = { css: ${JSONObject.quote(css)}, wide: $wide };
@@ -48,6 +48,7 @@ object Injector {
           ${if (notifications) NOTIFICATIONS else ""}
           $CALLS
         })();
+        $extra
     """.trimIndent()
 
     // 통화 감지. 마이크 트랙이 하나라도 살아 있으면 통화 중이다 — 앱이 그동안 포그라운드

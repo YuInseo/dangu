@@ -75,4 +75,6 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.webkit:webkit:1.12.1")
+    // 클래식 서랍의 서버 아이콘·DM 프로필 사진
+    implementation("io.coil-kt:coil-compose:2.7.0")
 }

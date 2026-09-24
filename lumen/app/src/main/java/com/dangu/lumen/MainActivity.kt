@@ -57,6 +57,29 @@ class MainActivity : ComponentActivity() {
         val console: List<String> = emptyList(),
     )
     val page = androidx.compose.runtime.mutableStateOf(PageState())
+
+    /** 클래식 서랍이 그리는 디스코드 상태 */
+    val discord = androidx.compose.runtime.mutableStateOf(DiscordState())
+    private val classicJs: String by lazy {
+        runCatching { assets.open("classic.js").bufferedReader().use { it.readText() } }.getOrDefault("")
+    }
+
+    /** 서버 하나의 채널 목록(또는 "@me"면 DM 목록)을 페이지에서 읽어 온다. */
+    fun loadChannels(guildId: String, done: (List<DChannel>) -> Unit) {
+        webView.evaluateJavascript("window.__lumenChannels ? window.__lumenChannels(${org.json.JSONObject.quote(guildId)}) : '[]'") { raw ->
+            val text = runCatching { org.json.JSONTokener(raw).nextValue() as? String }.getOrNull() ?: "[]"
+            done(DiscordState.parseChannels(text))
+        }
+    }
+
+    /** 디스코드 안에서 그 채널로 옮긴다(새로고침 없이). */
+    fun openChannel(guildId: String, channelId: String) {
+        val path = "/channels/$guildId/$channelId"
+        webView.evaluateJavascript(
+            "window.__lumenNav ? window.__lumenNav(${org.json.JSONObject.quote(path)}) : location.assign(${org.json.JSONObject.quote(path)})",
+            null,
+        )
+    }
     private var blankCheck: Runnable? = null
     private var appliedUa = -1
 
@@ -220,7 +243,10 @@ class MainActivity : ComponentActivity() {
             lastScript = ""
             return
         }
-        val script = Injector.documentStart(currentCss(), s.wideLayout, s.notifications)
+        val script = Injector.documentStart(
+            currentCss(), s.wideLayout, s.notifications,
+            extra = if (s.classic) classicJs else "",
+        )
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
             startScript = runCatching { WebViewCompat.addDocumentStartJavaScript(webView, script, ALLOWED_ORIGINS) }
                 .onFailure { addConsole("스크립트 등록 실패: ${it.message}") }
@@ -345,7 +371,12 @@ class MainActivity : ComponentActivity() {
         }
         webView = wv
         applyUserAgent()
-        wv.addJavascriptInterface(LumenBridge(this) { isDiscord(currentHost) }, "LumenBridge")
+        wv.addJavascriptInterface(
+            LumenBridge(this, isTrusted = { isDiscord(currentHost) }) { json ->
+                DiscordState.parse(json)?.let { discord.value = it }
+            },
+            "LumenBridge",
+        )
 
         wv.webViewClient = object : WebViewClient() {
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
