@@ -22,10 +22,14 @@ class Prefs(context: Context) {
         val customCss: String,
         val bubbleX: Float,
         val bubbleY: Float,
+        /** 0 데스크톱 크롬, 1 WebView 기본, 2 모바일 크롬 */
+        val uaMode: Int,
+        /** 테마·스크립트를 하나도 넣지 않는다 — 화면이 안 뜰 때 원인 가르기 */
+        val safeMode: Boolean,
     )
 
     private fun read() = Snapshot(
-        themeId = sp.getString("theme", "midnight")!!,
+        themeId = sp.getString("theme", "classic")!!,
         hideSidebar = sp.getBoolean("hideSidebar", false),
         hideMembers = sp.getBoolean("hideMembers", true),
         hideNitro = sp.getBoolean("hideNitro", true),
@@ -36,6 +40,8 @@ class Prefs(context: Context) {
         customCss = sp.getString("customCss", "")!!,
         bubbleX = sp.getFloat("bubbleX", -1f),
         bubbleY = sp.getFloat("bubbleY", 0.35f),
+        uaMode = sp.getInt("uaMode", 0),
+        safeMode = sp.getBoolean("safeMode", false),
     )
 
     private val _state = MutableStateFlow(read())
@@ -56,6 +62,8 @@ class Prefs(context: Context) {
             putString("customCss", n.customCss)
             putFloat("bubbleX", n.bubbleX)
             putFloat("bubbleY", n.bubbleY)
+            putInt("uaMode", n.uaMode)
+            putBoolean("safeMode", n.safeMode)
         }
         _state.value = n
     }

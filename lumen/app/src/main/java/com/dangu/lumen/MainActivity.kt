@@ -49,6 +49,18 @@ class MainActivity : ComponentActivity() {
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermission: PermissionRequest? = null
 
+    /** 페이지가 어떤 상태인지 — 안 뜰 때 이유를 화면에 보여 주려고 */
+    data class PageState(
+        val progress: Int = 0,
+        val url: String = "",
+        val error: String? = null,
+        val blank: String? = null,
+        val console: List<String> = emptyList(),
+    )
+    val page = androidx.compose.runtime.mutableStateOf(PageState())
+    private var blankCheck: Runnable? = null
+    private var appliedUa = -1
+
     /** 영상·방송을 전체 화면으로 볼 때 WebView가 넘겨주는 뷰 */
     val fullscreen = androidx.compose.runtime.mutableStateOf<android.view.View?>(null)
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
@@ -100,9 +112,9 @@ class MainActivity : ComponentActivity() {
             prefs.state.collectLatest { s ->
                 webView.settings.textZoom = s.textZoom
                 installStartScript()
-                val css = Themes.css(Themes.byId(s.themeId), s)
-                webView.evaluateJavascript(Injector.applyCall(css, s.wideLayout), null)
+                webView.evaluateJavascript(Injector.applyCall(if (s.safeMode) "" else currentCss(), s.wideLayout), null)
                 applySystemBars()
+                if (applyUserAgent()) webView.reload()
             }
         }
 
@@ -162,15 +174,83 @@ class MainActivity : ComponentActivity() {
     fun goHome() = webView.loadUrl(HOME)
 
     /** 테마·알림 설정이 들어간 문서 시작 스크립트를 (다시) 건다. */
+    private fun currentCss(): String {
+        val s = prefs.value
+        return Themes.css(Themes.byId(s.themeId), s)
+    }
+
     private fun installStartScript() {
         val s = prefs.value
-        val css = Themes.css(Themes.byId(s.themeId), s)
-        val script = Injector.documentStart(css, s.wideLayout, s.notifications)
+        startScript?.remove()
+        startScript = null
+        if (s.safeMode) {
+            lastScript = ""
+            return
+        }
+        val script = Injector.documentStart(currentCss(), s.wideLayout, s.notifications)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
-            startScript?.remove()
-            startScript = WebViewCompat.addDocumentStartJavaScript(webView, script, ALLOWED_ORIGINS)
+            startScript = runCatching { WebViewCompat.addDocumentStartJavaScript(webView, script, ALLOWED_ORIGINS) }
+                .onFailure { addConsole("스크립트 등록 실패: ${it.message}") }
+                .getOrNull()
         }
         lastScript = script
+    }
+
+    /** 브라우저 종류를 설정에 맞춘다. 바뀌었으면 true. */
+    private fun applyUserAgent(): Boolean {
+        val mode = prefs.value.uaMode
+        if (mode == appliedUa) return false
+        val first = appliedUa == -1
+        appliedUa = mode
+        webView.settings.userAgentString = when (mode) {
+            1 -> null // WebView 기본
+            2 -> MOBILE_UA
+            else -> DESKTOP_UA
+        }
+        return !first
+    }
+
+    fun retry(safe: Boolean? = null, nextUa: Boolean = false) {
+        prefs.update {
+            copy(
+                safeMode = safe ?: safeMode,
+                uaMode = if (nextUa) (uaMode + 1) % 3 else uaMode,
+            )
+        }
+        page.value = PageState()
+        if (nextUa) return // 브라우저 종류가 바뀌면 설정을 보는 쪽이 새로고침한다
+        if (webView.url.isNullOrEmpty() || !isDiscord(Uri.parse(webView.url).host)) webView.loadUrl(HOME) else webView.reload()
+    }
+
+    fun openInBrowser() = openExternal(Uri.parse(webView.url?.takeIf { it.startsWith("https://") } ?: HOME))
+
+    private fun addConsole(line: String) {
+        page.value = page.value.copy(console = (page.value.console + line).takeLast(8))
+    }
+
+    /** 다 읽었는데도 글자가 하나도 없으면 "빈 화면"으로 본다. */
+    private fun scheduleBlankCheck() {
+        blankCheck?.let { webView.removeCallbacks(it) }
+        val check = Runnable {
+            webView.evaluateJavascript(
+                "(function(){var m=document.getElementById('app-mount');" +
+                    "var t=document.body?document.body.innerText.trim().length:0;" +
+                    "return JSON.stringify({title:document.title,mount:m?m.childElementCount:-1,text:t," +
+                    "ua:navigator.userAgent.slice(0,60)});})()"
+            ) { raw ->
+                val json = runCatching { org.json.JSONObject(org.json.JSONTokener(raw).nextValue() as String) }.getOrNull()
+                    ?: return@evaluateJavascript
+                if (json.optInt("text") < 3) {
+                    page.value = page.value.copy(
+                        blank = "제목 '${json.optString("title")}' · app-mount 자식 ${json.optInt("mount")} · 글자 ${json.optInt("text")}"
+                    )
+                } else if (page.value.blank != null) {
+                    page.value = page.value.copy(blank = null)
+                }
+            }
+        }
+        blankCheck = check
+        webView.postDelayed(check, 12_000)
     }
 
     private var lastScript: String = ""
@@ -193,14 +273,15 @@ class MainActivity : ComponentActivity() {
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             allowFileAccess = false
             allowContentAccess = true
-            // 디스코드는 휴대폰 브라우저에는 "앱을 받으세요" 화면을 띄운다. 데스크톱 크롬으로 보인다.
-            userAgentString = DESKTOP_UA
+            // 브라우저 종류는 applyUserAgent()가 설정대로 정한다.
             textZoom = prefs.value.textZoom
         }
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
             setAcceptThirdPartyCookies(wv, true) // 로그인 캡차(hCaptcha)
         }
+        webView = wv
+        applyUserAgent()
         wv.addJavascriptInterface(LumenBridge(this) { isDiscord(currentHost) }, "LumenBridge")
 
         wv.webViewClient = object : WebViewClient() {
@@ -225,6 +306,7 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                 currentHost = url?.let { Uri.parse(it).host }
+                page.value = PageState(progress = 5, url = url.orEmpty())
                 // 문서 시작 스크립트를 못 쓰는 오래된 WebView면 여기서라도 넣는다.
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && isDiscord(currentHost)) {
                     view.evaluateJavascript(lastScript, null)
@@ -239,6 +321,20 @@ class MainActivity : ComponentActivity() {
                     }
                     CookieManager.getInstance().flush()
                 }
+                page.value = page.value.copy(url = url.orEmpty())
+                scheduleBlankCheck()
+            }
+
+            override fun onReceivedError(view: WebView, request: WebResourceRequest, error: android.webkit.WebResourceError) {
+                if (request.isForMainFrame) {
+                    page.value = page.value.copy(error = "${error.description} (${error.errorCode})")
+                }
+            }
+
+            override fun onReceivedHttpError(view: WebView, request: WebResourceRequest, response: android.webkit.WebResourceResponse) {
+                if (request.isForMainFrame && response.statusCode >= 400) {
+                    page.value = page.value.copy(error = "HTTP ${response.statusCode} ${response.reasonPhrase.orEmpty()}")
+                }
             }
 
             override fun doUpdateVisitedHistory(view: WebView, url: String?, isReload: Boolean) {
@@ -247,6 +343,17 @@ class MainActivity : ComponentActivity() {
         }
 
         wv.webChromeClient = object : WebChromeClient() {
+            override fun onProgressChanged(view: WebView, newProgress: Int) {
+                page.value = page.value.copy(progress = newProgress)
+            }
+
+            override fun onConsoleMessage(message: android.webkit.ConsoleMessage): Boolean {
+                if (message.messageLevel() == android.webkit.ConsoleMessage.MessageLevel.ERROR) {
+                    addConsole(message.message().take(200))
+                }
+                return false
+            }
+
             override fun onShowCustomView(view: android.view.View, callback: CustomViewCallback) {
                 fullscreenCallback?.onCustomViewHidden()
                 fullscreenCallback = callback
@@ -366,6 +473,8 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val HOME = "https://discord.com/app"
+        private const val MOBILE_UA =
+            "Mozilla/5.0 (Linux; Android 14; SM-S928N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Mobile Safari/537.36"
         private const val DESKTOP_UA =
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
         private val ALLOWED_ORIGINS = setOf(

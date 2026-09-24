@@ -108,6 +108,8 @@ fun LumenScreen(activity: MainActivity) {
                 modifier = Modifier.fillMaxSize().systemBarsPadding().imePadding(),
             )
 
+            PageOverlay(activity, prefs)
+
             Bubble(
                 prefs = prefs,
                 maxW = constraints.maxWidth.toFloat(),
@@ -263,6 +265,19 @@ private fun SettingsSheet(activity: MainActivity, prefs: Prefs.Snapshot, onDismi
             }
 
             HorizontalDivider()
+            Text("문제 해결", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Toggle("안전 모드", "테마·스크립트를 전부 끄고 디스코드 그대로", prefs.safeMode) {
+                activity.retry(safe = it)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("브라우저 종류", style = MaterialTheme.typography.bodyLarge)
+                    Text(UA_NAMES[prefs.uaMode], style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton(onClick = { activity.retry(nextUa = true) }) { Text("바꾸기") }
+            }
+
+            HorizontalDivider()
             Text("사용자 CSS", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             var css by remember { mutableStateOf(prefs.customCss) }
             OutlinedTextField(
@@ -308,6 +323,66 @@ private fun SettingsSheet(activity: MainActivity, prefs: Prefs.Snapshot, onDismi
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+        }
+    }
+}
+
+private val UA_NAMES = listOf("데스크톱 크롬", "WebView 기본", "모바일 크롬")
+
+/**
+ * 위에는 읽는 중 막대, 안 뜨면 가운데에 이유와 해결 단추.
+ * 검은 화면만 남아 아무것도 알 수 없는 일이 없게 한다.
+ */
+@Composable
+private fun PageOverlay(activity: MainActivity, prefs: Prefs.Snapshot) {
+    val page by activity.page
+    Box(Modifier.fillMaxSize().systemBarsPadding()) {
+        if (page.progress in 1..99) {
+            LinearProgressIndicator(
+                progress = { page.progress / 100f },
+                modifier = Modifier.fillMaxWidth().height(3.dp).align(Alignment.TopCenter),
+            )
+        }
+        val problem = page.error ?: page.blank
+        if (problem != null) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = 8.dp,
+                modifier = Modifier.align(Alignment.Center).padding(20.dp).fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        if (page.error != null) "디스코드에 연결하지 못했어요" else "디스코드 화면이 비어 있어요",
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                    )
+                    Text(problem, style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        "주소: ${page.url.take(80)}\n브라우저: ${UA_NAMES[prefs.uaMode]}" +
+                            (if (prefs.safeMode) " · 안전 모드" else ""),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (page.console.isNotEmpty()) {
+                        Text(
+                            page.console.joinToString("\n"),
+                            style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+                            color = MaterialTheme.colorScheme.error,
+                            maxLines = 8,
+                        )
+                    }
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = { activity.retry() }) { Text("다시 시도") }
+                        OutlinedButton(onClick = { activity.retry(safe = !prefs.safeMode) }) {
+                            Text(if (prefs.safeMode) "테마 다시 켜기" else "테마 끄고 다시")
+                        }
+                        OutlinedButton(onClick = { activity.retry(nextUa = true) }) {
+                            Text("${UA_NAMES[(prefs.uaMode + 1) % 3]}로 바꾸기")
+                        }
+                        TextButton(onClick = { activity.openInBrowser() }) { Text("크롬에서 열기") }
+                    }
+                }
+            }
         }
     }
 }

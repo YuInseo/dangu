@@ -26,6 +26,8 @@ data class LumenTheme(
 
 object Themes {
     val all = listOf(
+        // 2017~2021 디스코드 — 블러플 #7289DA, 회색 판들. 비주얼 리프레시 이전의 그 색.
+        LumenTheme("classic", "클래식", 0xFF202225, 0xFF2F3136, 0xFF36393F, 0xFF40444B, 0xFFDCDDDE, 0xFF8E9297, 0xFF7289DA),
         LumenTheme("midnight", "미드나잇", 0xFF000000, 0xFF07080C, 0xFF0B0D12, 0xFF161922, 0xFFE8EAF2, 0xFF8A90A6, 0xFF8B7CFF),
         LumenTheme("ocean", "오션", 0xFF06121C, 0xFF0A1926, 0xFF0E2030, 0xFF163047, 0xFFE3F1FF, 0xFF86A6C4, 0xFF3DB2FF),
         LumenTheme("forest", "포레스트", 0xFF0A120D, 0xFF0F1A13, 0xFF142119, 0xFF1E3025, 0xFFE4F3E8, 0xFF8FB39A, 0xFF4ED18A),
@@ -110,6 +112,12 @@ object Themes {
             append("--border-subtle: ${rgba(theme.text, 0.06)} !important;\n")
             append("--border-faint: ${rgba(theme.text, 0.04)} !important;\n")
             append("}\n")
+            if (theme.id == "classic") {
+                // 옛 글꼴과 네모에 가까운 모서리
+                append(":root, .theme-dark { --font-primary: \"Whitney\", \"Helvetica Neue\", Helvetica, Arial, sans-serif !important;")
+                append(" --font-display: \"Ginto\", \"Whitney\", \"Helvetica Neue\", Helvetica, Arial, sans-serif !important; }\n")
+                append("body { font-family: var(--font-primary) !important; }\n")
+            }
             // 멘션·링크·선택 표시도 강조색으로
             append("::selection { background: ${rgba(theme.accent, 0.35)}; }\n")
         }
