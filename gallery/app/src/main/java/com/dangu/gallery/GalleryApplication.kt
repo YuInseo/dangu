@@ -6,6 +6,11 @@ import coil.ImageLoaderFactory
 import coil.decode.VideoFrameDecoder
 
 class GalleryApplication : Application(), ImageLoaderFactory {
+    override fun onCreate() {
+        super.onCreate()
+        ShareShortcut.publish(this)
+    }
+
     override fun newImageLoader(): ImageLoader =
         ImageLoader.Builder(this)
             .components { add(VideoFrameDecoder.Factory()) }

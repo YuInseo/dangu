@@ -9,6 +9,8 @@ import android.provider.MediaStore
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.dangu.gallery.data.Album
+import com.dangu.gallery.data.GeoPhoto
+import com.dangu.gallery.data.LocationIndex
 import com.dangu.gallery.data.MediaItem
 import com.dangu.gallery.data.MediaRepository
 import kotlinx.coroutines.Job
@@ -35,6 +37,10 @@ data class GalleryState(
     val viewMode: ViewMode = ViewMode.Grid,
     val columns: Int = 4,
     val sort: SortOrder = SortOrder.DateDesc,
+    /** 좌표가 있는 사진들 (지도 탭) */
+    val geo: List<GeoPhoto> = emptyList(),
+    /** 위치를 읽는 중이면 (읽은 수, 전체) */
+    val geoScan: Pair<Int, Int>? = null,
 )
 
 class GalleryViewModel(app: Application) : AndroidViewModel(app) {
@@ -52,7 +58,9 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
     )
     val state: StateFlow<GalleryState> = _state.asStateFlow()
 
+    private val locations = LocationIndex.get(app)
     private var loadJob: Job? = null
+    private var geoJob: Job? = null
     private var observing = false
 
     // 사진을 찍거나 지우면 MediaStore가 알려 준다. 연달아 오므로 잠깐 모았다가 한 번에 다시 읽는다.
@@ -80,6 +88,23 @@ class GalleryViewModel(app: Application) : AndroidViewModel(app) {
             _state.update {
                 it.copy(loading = false, items = items, albums = repository.albums(items))
             }
+            scanLocations(items)
+        }
+    }
+
+    private fun scanLocations(items: List<MediaItem>) {
+        geoJob?.cancel()
+        geoJob = viewModelScope.launch {
+            var lastPush = 0L
+            val geo = locations.scan(items) { done, total, partial ->
+                // 수백 장마다 지도를 갱신하면 충분하다 — 매번 올리면 표식을 계속 다시 그린다.
+                val now = System.currentTimeMillis()
+                if (done == 0 || done == total || now - lastPush > 1500) {
+                    lastPush = now
+                    _state.update { it.copy(geo = partial, geoScan = if (done < total) done to total else null) }
+                }
+            }
+            _state.update { it.copy(geo = geo, geoScan = null) }
         }
     }
 

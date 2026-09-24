@@ -67,8 +67,12 @@ jobs:
       - name: 빌드
         run: ./gradlew --no-daemon assembleRelease
 
-      - name: APK 이름 붙이기
-        run: cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/gallery-view.apk"
+      # 앱이 켜질 때 이 파일을 보고 새 버전인지 판단한다 (data/Updater.kt).
+      - name: APK 이름 붙이기, 버전 파일
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/gallery-view.apk"
+          printf '{"versionCode": %s, "versionName": "%s", "apk": "gallery-view.apk"}\n' \
+            "$GALLERY_VERSION_CODE" "$GALLERY_VERSION_NAME" > "$RUNNER_TEMP/gallery-version.json"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -80,7 +84,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete gallery-latest --cleanup-tag --yes || true
-          gh release create gallery-latest "$RUNNER_TEMP/gallery-view.apk" \
+          gh release create gallery-latest "$RUNNER_TEMP/gallery-view.apk" "$RUNNER_TEMP/gallery-version.json" \
             --target "$GITHUB_SHA" \
             --prerelease \
             --latest=false \

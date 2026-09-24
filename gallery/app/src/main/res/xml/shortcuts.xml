@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    공유 창 맨 윗줄(바로 공유)에 "사진 정보"를 올린다.
+    삼성 갤러리에서 사진을 고르고 공유를 누르면 첫 줄에서 바로 누를 수 있다.
+    실제 바로가기는 앱이 켜질 때 ShareShortcut.publish()가 올린다.
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <share-target android:targetClass="com.dangu.gallery.InfoActivity">
+        <data android:mimeType="image/*" />
+        <data android:mimeType="video/*" />
+        <category android:name="com.dangu.gallery.category.PHOTO_INFO" />
+    </share-target>
+</shortcuts>

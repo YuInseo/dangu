@@ -31,6 +31,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.outlined.ViewList
 import androidx.compose.material.icons.filled.Collections
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.outlined.Map
 import androidx.compose.material.icons.outlined.Collections
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Image
@@ -70,7 +72,7 @@ import coil.compose.AsyncImage
 import com.dangu.gallery.data.Album
 import com.dangu.gallery.data.MediaItem
 
-private enum class Tab { Photos, Albums }
+private enum class Tab { Photos, Albums, Map }
 
 /** 앨범 목록 맨 앞에 붙는 가상의 앨범들 */
 private const val ALL_ID = Long.MIN_VALUE
@@ -147,6 +149,13 @@ fun GalleryApp(vm: GalleryViewModel = viewModel()) {
                     },
                 )
 
+                tab == Tab.Map -> MapScreen(
+                    geo = state.geo,
+                    scan = state.geoScan,
+                    onOpen = { list, i -> viewer = list to i },
+                    bottomPadding = bottomSpace,
+                )
+
                 else -> AlbumsPage(
                     albums = virtualAlbums(state.items) + state.albums,
                     onOpen = { albumId = it.id },
@@ -156,7 +165,7 @@ fun GalleryApp(vm: GalleryViewModel = viewModel()) {
 
             if (state.loading) {
                 CircularProgressIndicator(Modifier.align(Alignment.Center))
-            } else if (state.items.isEmpty()) {
+            } else if (state.items.isEmpty() && tab != Tab.Map) {
                 Text("사진이 없습니다", Modifier.align(Alignment.Center), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
@@ -167,6 +176,8 @@ fun GalleryApp(vm: GalleryViewModel = viewModel()) {
                     modifier = Modifier.align(Alignment.BottomCenter),
                 )
             }
+
+            if (viewer == null) UpdateBanner(Modifier.align(Alignment.TopCenter))
 
             viewer?.let { (list, index) ->
                 Viewer(items = list, startIndex = index, onClose = { viewer = null })
@@ -320,6 +331,7 @@ private fun BottomBar(tab: Tab, onTab: (Tab) -> Unit, modifier: Modifier = Modif
         Row(Modifier.padding(6.dp)) {
             TabButton(Icons.Outlined.Image, Icons.Filled.Image, "사진", tab == Tab.Photos) { onTab(Tab.Photos) }
             TabButton(Icons.Outlined.Collections, Icons.Filled.Collections, "앨범", tab == Tab.Albums) { onTab(Tab.Albums) }
+            TabButton(Icons.Outlined.Map, Icons.Filled.Map, "지도", tab == Tab.Map) { onTab(Tab.Map) }
         }
     }
 }
@@ -332,7 +344,7 @@ private fun TabButton(icon: ImageVector, selectedIcon: ImageVector, label: Strin
             .clip(RoundedCornerShape(30.dp))
             .background(bg)
             .clickable(onClick = onClick)
-            .padding(horizontal = 28.dp, vertical = 8.dp),
+            .padding(horizontal = 22.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(if (selected) selectedIcon else icon, null)

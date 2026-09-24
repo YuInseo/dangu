@@ -17,6 +17,9 @@ android {
         targetSdk = 35
         versionCode = (System.getenv("GALLERY_VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("GALLERY_VERSION_NAME") ?: "0.1.0"
+        // 업데이트를 확인할 저장소. CI에서는 자기 저장소가 들어온다.
+        val repo = System.getenv("GITHUB_REPOSITORY") ?: "YuInseo/dangu"
+        buildConfigField("String", "UPDATE_REPO", "\"$repo\"")
     }
 
     signingConfigs {
@@ -32,7 +35,10 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // 아이콘 모음 같은 큰 라이브러리에서 쓰는 것만 남긴다 — 업데이트마다 받는 APK가 작아진다.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (keystoreFile != null) {
                 signingConfigs.getByName("release")
             } else {
@@ -50,6 +56,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -70,4 +77,7 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("io.coil-kt:coil-video:2.7.0")
+
+    // 지도 탭 — OpenStreetMap, API 키가 필요 없다.
+    implementation("org.osmdroid:osmdroid-android:6.1.20")
 }
