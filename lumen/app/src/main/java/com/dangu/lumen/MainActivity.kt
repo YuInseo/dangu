@@ -95,6 +95,7 @@ class MainActivity : ComponentActivity() {
         if (savedInstanceState != null) webView.restoreState(savedInstanceState)
         if (webView.url == null) webView.loadUrl(urlFrom(intent) ?: HOME)
         handleShare(intent)
+        scheduleBlankCheck(20_000)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -112,7 +113,8 @@ class MainActivity : ComponentActivity() {
             prefs.state.collectLatest { s ->
                 webView.settings.textZoom = s.textZoom
                 installStartScript()
-                webView.evaluateJavascript(Injector.applyCall(if (s.safeMode) "" else currentCss(), s.wideLayout), null)
+                webView.evaluateJavascript(Injector.applyCall(if (s.safeMode || sessionSafe) "" else currentCss(), s.wideLayout), null)
+                webView.setBackgroundColor(pageBackground())
                 applySystemBars()
                 if (applyUserAgent()) webView.reload()
             }
@@ -174,6 +176,11 @@ class MainActivity : ComponentActivity() {
     fun goHome() = webView.loadUrl(HOME)
 
     /** 테마·알림 설정이 들어간 문서 시작 스크립트를 (다시) 건다. */
+    private fun pageBackground(): Int {
+        val t = Themes.byId(prefs.value.themeId)
+        return if (t.id == "original") 0xFF313338.toInt() else t.chat.toInt()
+    }
+
     private fun currentCss(): String {
         val s = prefs.value
         return Themes.css(Themes.byId(s.themeId), s)
@@ -183,7 +190,7 @@ class MainActivity : ComponentActivity() {
         val s = prefs.value
         startScript?.remove()
         startScript = null
-        if (s.safeMode) {
+        if (s.safeMode || sessionSafe) {
             lastScript = ""
             return
         }
@@ -218,6 +225,9 @@ class MainActivity : ComponentActivity() {
             )
         }
         page.value = PageState()
+        sessionSafe = false
+        installStartScript()
+        scheduleBlankCheck(15_000)
         if (nextUa) return // 브라우저 종류가 바뀌면 설정을 보는 쪽이 새로고침한다
         if (webView.url.isNullOrEmpty() || !isDiscord(Uri.parse(webView.url).host)) webView.loadUrl(HOME) else webView.reload()
     }
@@ -228,29 +238,55 @@ class MainActivity : ComponentActivity() {
         page.value = page.value.copy(console = (page.value.console + line).takeLast(8))
     }
 
-    /** 다 읽었는데도 글자가 하나도 없으면 "빈 화면"으로 본다. */
-    private fun scheduleBlankCheck() {
+    /** 이번 실행에서만 주입을 끈다 — 빈 화면이면 한 번 자동으로 켠다. */
+    private var sessionSafe = false
+    private var autoSafeTried = false
+
+    private fun diag(): String {
+        val pkg = WebViewCompat.getCurrentWebViewPackage(this)
+        return "WebView ${pkg?.packageName?.substringAfterLast('.') ?: "?"} ${pkg?.versionName ?: "?"} · " +
+            "크기 ${webView.width}×${webView.height} · 붙음 ${webView.isAttachedToWindow} · 진행 ${page.value.progress}%"
+    }
+
+    /**
+     * 화면이 제대로 떴는지 본다. 페이지가 끝났다는 신호가 안 와도 켠 뒤 한 번은 반드시 본다 —
+     * 아무 안내 없이 검은 화면만 남지 않도록.
+     */
+    private fun scheduleBlankCheck(delayMs: Long = 10_000) {
         blankCheck?.let { webView.removeCallbacks(it) }
         val check = Runnable {
+            if (page.value.error != null) return@Runnable
             webView.evaluateJavascript(
                 "(function(){var m=document.getElementById('app-mount');" +
                     "var t=document.body?document.body.innerText.trim().length:0;" +
-                    "return JSON.stringify({title:document.title,mount:m?m.childElementCount:-1,text:t," +
-                    "ua:navigator.userAgent.slice(0,60)});})()"
+                    "return JSON.stringify({title:document.title,mount:m?m.childElementCount:-1,text:t,href:location.href});})()"
             ) { raw ->
                 val json = runCatching { org.json.JSONObject(org.json.JSONTokener(raw).nextValue() as String) }.getOrNull()
-                    ?: return@evaluateJavascript
-                if (json.optInt("text") < 3) {
-                    page.value = page.value.copy(
-                        blank = "제목 '${json.optString("title")}' · app-mount 자식 ${json.optInt("mount")} · 글자 ${json.optInt("text")}"
-                    )
-                } else if (page.value.blank != null) {
-                    page.value = page.value.copy(blank = null)
+                val text = json?.optInt("text") ?: -1
+                if (text >= 3) {
+                    if (page.value.blank != null) page.value = page.value.copy(blank = null)
+                    if (sessionSafe && !prefs.value.safeMode) {
+                        Toast.makeText(this, "테마를 끄니 화면이 떴어요 — 이번 실행은 테마 없이 보여요", Toast.LENGTH_LONG).show()
+                    }
+                    return@evaluateJavascript
                 }
+                val what = if (json == null) "페이지 스크립트가 응답하지 않음" else
+                    "제목 '${json.optString("title")}' · app-mount 자식 ${json.optInt("mount")} · 글자 $text"
+                // 한 번은 테마·스크립트를 끄고 스스로 다시 해 본다.
+                if (!prefs.value.safeMode && !autoSafeTried) {
+                    autoSafeTried = true
+                    sessionSafe = true
+                    addConsole("빈 화면($what) → 테마 끄고 자동으로 다시 시도")
+                    installStartScript()
+                    webView.reload()
+                    scheduleBlankCheck(15_000)
+                    return@evaluateJavascript
+                }
+                page.value = page.value.copy(blank = "$what\n${diag()}")
             }
         }
         blankCheck = check
-        webView.postDelayed(check, 12_000)
+        webView.postDelayed(check, delayMs)
     }
 
     private var lastScript: String = ""
@@ -258,7 +294,8 @@ class MainActivity : ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(): WebView {
         val wv = WebView(this)
-        wv.setBackgroundColor(Color.TRANSPARENT)
+        // 투명 배경 WebView는 일부 기기(삼성 등)에서 내용을 아예 그리지 않는다. 불투명하게.
+        wv.setBackgroundColor(pageBackground())
         wv.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
@@ -306,7 +343,7 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                 currentHost = url?.let { Uri.parse(it).host }
-                page.value = PageState(progress = 5, url = url.orEmpty())
+                page.value = PageState(progress = 5, url = url.orEmpty(), console = page.value.console)
                 // 문서 시작 스크립트를 못 쓰는 오래된 WebView면 여기서라도 넣는다.
                 if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT) && isDiscord(currentHost)) {
                     view.evaluateJavascript(lastScript, null)
