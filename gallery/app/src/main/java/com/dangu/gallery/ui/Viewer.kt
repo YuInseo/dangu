@@ -90,6 +90,7 @@ fun Viewer(
     var zoomedPage by remember { mutableIntStateOf(-1) }
 
     BackHandler(onBack = onClose)
+    val current = items[pager.currentPage.coerceIn(0, items.lastIndex)]
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         HorizontalPager(
@@ -109,7 +110,6 @@ fun Viewer(
             )
         }
 
-        val current = items[pager.currentPage.coerceIn(0, items.lastIndex)]
         AnimatedVisibility(chrome, enter = fadeIn(), exit = fadeOut(), modifier = Modifier.align(Alignment.TopCenter)) {
             Row(
                 Modifier
