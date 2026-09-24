@@ -33,11 +33,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.AutoAwesome
+import androidx.compose.material.icons.outlined.Star
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Refresh
-import androidx.compose.material.icons.outlined.SystemUpdate
-import androidx.compose.material.icons.outlined.ViewSidebar
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.Menu
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -193,7 +193,7 @@ private fun Bubble(
             },
         contentAlignment = Alignment.Center,
     ) {
-        Icon(Icons.Outlined.AutoAwesome, "Lumen 설정", tint = Color.White, modifier = Modifier.size(22.dp))
+        Icon(Icons.Outlined.Star, "Lumen 설정", tint = Color.White, modifier = Modifier.size(22.dp))
     }
 }
 
@@ -214,7 +214,7 @@ private fun SettingsSheet(activity: MainActivity, prefs: Prefs.Snapshot, onDismi
 
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { activity.prefs.update { copy(hideSidebar = !hideSidebar) } }) {
-                    Icon(Icons.Outlined.ViewSidebar, null, Modifier.size(18.dp))
+                    Icon(Icons.Outlined.Menu, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
                     Text(if (prefs.hideSidebar) "사이드바 보이기" else "사이드바 숨기기")
                 }
@@ -460,7 +460,7 @@ private fun UpdateBanner(modifier: Modifier = Modifier) {
         modifier = modifier.statusBarsPadding().padding(12.dp).fillMaxWidth(),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Outlined.SystemUpdate, null)
+            Icon(Icons.Outlined.Info, null)
             Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
                 when (s) {
                     is Updater.State.Downloading -> {

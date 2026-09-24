@@ -43,7 +43,11 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # 기본 브랜치가 아니어도 캐시를 저장한다 — 기본값(읽기 전용)이면 이 브랜치의 빌드는
+      # 매번 Gradle·AGP·라이브러리를 새로 받는다.
       - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: false
 
       # 점수판과 같은 서명 키가 있으면 그걸로 서명한다 — 그래야 새 APK를 지우지 않고
       # 덮어 설치할 수 있다. 없으면 디버그 키인데, 러너마다 새로 만들어지면 덮어 설치가
@@ -65,7 +69,7 @@ jobs:
           key: lumen-debug-keystore
 
       - name: 빌드
-        run: ./gradlew --no-daemon assembleRelease
+        run: ./gradlew --no-daemon --build-cache assembleRelease
 
       # 앱이 켜질 때 이 파일을 보고 새 버전인지 판단한다 (Updater.kt).
       - name: APK 이름 붙이기, 버전 파일

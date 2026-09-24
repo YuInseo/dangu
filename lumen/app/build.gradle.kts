@@ -52,6 +52,10 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+    // 릴리스 빌드마다 도는 lintVital을 끈다. CI 시간을 줄이려고.
+    lint {
+        checkReleaseBuilds = false
+    }
     buildFeatures {
         compose = true
         buildConfig = true
@@ -64,7 +68,8 @@ dependencies {
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.compose.material:material-icons-extended")
+    // 아이콘 몇 개만 쓴다 — extended(수천 개)는 빌드마다 컴파일·R8 시간을 크게 잡아먹는다.
+    implementation("androidx.compose.material:material-icons-core")
 
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.activity:activity-compose:1.9.3")
