@@ -118,6 +118,21 @@ fun LumenScreen(activity: MainActivity) {
             )
 
             UpdateBanner(Modifier.align(Alignment.TopCenter))
+
+            // 방송·영상 전체 화면
+            activity.fullscreen.value?.let { view ->
+                AndroidView(
+                    factory = { android.widget.FrameLayout(it).apply { setBackgroundColor(android.graphics.Color.BLACK) } },
+                    update = { frame ->
+                        if (view.parent !== frame) {
+                            (view.parent as? android.view.ViewGroup)?.removeView(view)
+                            frame.removeAllViews()
+                            frame.addView(view, android.widget.FrameLayout.LayoutParams(-1, -1))
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
+            }
         }
 
         if (showSettings) {

@@ -53,6 +53,15 @@ class LumenBridge(context: Context, private val isTrusted: () -> Boolean) {
         runCatching { manager.notify(id, n) }
     }
 
+    private val main = android.os.Handler(android.os.Looper.getMainLooper())
+
+    /** 페이지의 마이크가 켜지거나 꺼질 때. 통화 서비스를 띄우거나 내린다. */
+    @JavascriptInterface
+    fun callState(active: Boolean) {
+        if (active && !isTrusted()) return
+        main.post { CallService.set(appContext, active) }
+    }
+
     companion object {
         const val CHANNEL = "messages"
     }

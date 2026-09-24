@@ -7,6 +7,11 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- 통화 중 화면을 꺼도 끊기지 않게 -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
     <!-- 새 메시지 알림 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 업데이트 APK 설치 창 -->
@@ -54,6 +59,11 @@
                 <data android:mimeType="video/*" />
             </intent-filter>
         </activity>
+
+        <service
+            android:name=".CallService"
+            android:exported="false"
+            android:foregroundServiceType="microphone" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

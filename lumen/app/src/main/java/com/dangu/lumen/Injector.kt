@@ -46,8 +46,40 @@ object Injector {
           document.addEventListener('DOMContentLoaded', function () { watchHead(); style(); viewport(); });
 
           ${if (notifications) NOTIFICATIONS else ""}
+          $CALLS
         })();
     """.trimIndent()
+
+    // 통화 감지. 마이크 트랙이 하나라도 살아 있으면 통화 중이다 — 앱이 그동안 포그라운드
+    // 서비스를 띄워, 화면을 끄거나 다른 앱으로 가도 통화가 끊기지 않게 한다.
+    private const val CALLS = """
+          (function () {
+            var md = navigator.mediaDevices;
+            if (!md || !md.getUserMedia || md.__lumen || !window.LumenBridge) return;
+            md.__lumen = true;
+            var live = new Set();
+            var last = null;
+            function report() {
+              live.forEach(function (t) { if (t.readyState === 'ended') live.delete(t); });
+              var on = live.size > 0;
+              if (on !== last) { last = on; try { LumenBridge.callState(on); } catch (e) {} }
+            }
+            var orig = md.getUserMedia.bind(md);
+            md.getUserMedia = function (c) {
+              return orig(c).then(function (stream) {
+                stream.getAudioTracks().forEach(function (t) {
+                  live.add(t);
+                  t.addEventListener('ended', report);
+                  var stop = t.stop.bind(t);
+                  t.stop = function () { stop(); live.delete(t); report(); };
+                });
+                report();
+                return stream;
+              });
+            };
+            setInterval(report, 5000);
+          })();
+    """
 
     // 안드로이드 WebView에는 Notification API가 없다. 디스코드가 부르는 모양 그대로 흉내 내서
     // 앱 알림으로 넘긴다. 디스코드는 창이 안 보일 때만 알림을 만든다.

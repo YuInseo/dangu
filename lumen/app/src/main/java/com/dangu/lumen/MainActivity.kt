@@ -49,6 +49,10 @@ class MainActivity : ComponentActivity() {
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermission: PermissionRequest? = null
 
+    /** 영상·방송을 전체 화면으로 볼 때 WebView가 넘겨주는 뷰 */
+    val fullscreen = androidx.compose.runtime.mutableStateOf<android.view.View?>(null)
+    private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
+
     private val fileChooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data
         val uris = mutableListOf<Uri>()
@@ -84,7 +88,11 @@ class MainActivity : ComponentActivity() {
             override fun handleOnBackPressed() {
                 // 디스코드 안에서 뒤로 갈 곳이 있으면 거기로, 없으면 앱을 끄지 않고 뒤로 보낸다
                 // (연결이 살아 있어야 알림이 온다).
-                if (webView.canGoBack()) webView.goBack() else moveTaskToBack(true)
+                when {
+                    fullscreen.value != null -> exitFullscreen()
+                    webView.canGoBack() -> webView.goBack()
+                    else -> moveTaskToBack(true)
+                }
             }
         })
 
@@ -118,7 +126,24 @@ class MainActivity : ComponentActivity() {
         webView.saveState(outState)
     }
 
+    fun exitFullscreen() {
+        fullscreenCallback?.onCustomViewHidden()
+        fullscreenCallback = null
+        fullscreen.value = null
+        showSystemBars(true)
+    }
+
+    private fun showSystemBars(show: Boolean) {
+        val c = androidx.core.view.WindowCompat.getInsetsController(window, window.decorView)
+        val bars = androidx.core.view.WindowInsetsCompat.Type.systemBars()
+        if (show) c.show(bars) else {
+            c.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            c.hide(bars)
+        }
+    }
+
     override fun onDestroy() {
+        CallService.set(this, false)
         webView.destroy()
         super.onDestroy()
     }
@@ -222,6 +247,19 @@ class MainActivity : ComponentActivity() {
         }
 
         wv.webChromeClient = object : WebChromeClient() {
+            override fun onShowCustomView(view: android.view.View, callback: CustomViewCallback) {
+                fullscreenCallback?.onCustomViewHidden()
+                fullscreenCallback = callback
+                fullscreen.value = view
+                showSystemBars(false)
+            }
+
+            override fun onHideCustomView() {
+                fullscreenCallback = null
+                fullscreen.value = null
+                showSystemBars(true)
+            }
+
             override fun onShowFileChooser(
                 view: WebView,
                 callback: ValueCallback<Array<Uri>>,
