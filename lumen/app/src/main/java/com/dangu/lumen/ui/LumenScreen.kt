@@ -208,7 +208,8 @@ private fun SettingsSheet(activity: MainActivity, prefs: Prefs.Snapshot, onDismi
         ) {
             Text("Lumen", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 좁은 화면에서 단추가 잘리지 않게 줄을 넘긴다.
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = { activity.prefs.update { copy(hideSidebar = !hideSidebar) } }) {
                     Icon(Icons.Outlined.Menu, null, Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
