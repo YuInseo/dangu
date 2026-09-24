@@ -9,7 +9,7 @@ adb wait-for-device
 adb shell settings put global window_animation_scale 0
 adb shell settings put global transition_animation_scale 0
 adb shell settings put global animator_duration_scale 0
-adb shell dumpsys package com.google.android.webview | grep -m1 versionName > "$OUT/webview-version.txt" || true
+adb shell dumpsys package com.android.webview com.google.android.webview | grep -m1 versionName > "$OUT/webview-version.txt" || true
 
 adb install -r lumen.apk
 adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true

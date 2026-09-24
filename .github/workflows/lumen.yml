@@ -131,7 +131,8 @@ jobs:
         with:
           api-level: 34
           arch: x86_64
-          target: google_apis
+          # google_apis 이미지는 확인 도중 GMS가 죽으면서 그 글꼴 제공자를 쓰던 앱까지 끌고 간다.
+          target: default
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: bash .github/scripts/lumen-e2e.sh
