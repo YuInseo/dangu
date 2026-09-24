@@ -16,6 +16,10 @@ on:
       - 'v*'
     branches:
       - '**'
+    # Lumen(lumen/)은 따로 빌드한다 — .github/workflows/lumen.yml
+    paths-ignore:
+      - 'lumen/**'
+      - '.github/workflows/lumen.yml'
   # 손으로 돌릴 때. 판올림 폭을 고를 수 있는 유일한 길이라 minor·major는 여기로 낸다.
   workflow_dispatch:
     inputs:

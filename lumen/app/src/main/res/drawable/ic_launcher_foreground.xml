@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 말풍선 안의 빛 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FF8B7CFF"
+        android:pathData="M34,32h40a8,8 0,0 1,8 8v22a8,8 0,0 1,-8 8h-22l-12,10v-10h-6a8,8 0,0 1,-8 -8v-22a8,8 0,0 1,8 -8z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,39l3.2,8.3 8.8,0.4 -6.9,5.5 2.4,8.5 -7.5,-4.9 -7.5,4.9 2.4,-8.5 -6.9,-5.5 8.8,-0.4z" />
+</vector>
