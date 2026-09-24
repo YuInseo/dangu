@@ -25,7 +25,6 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
-import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -63,6 +62,7 @@ class MainActivity : ComponentActivity() {
 
     /** 영상·방송을 전체 화면으로 볼 때 WebView가 넘겨주는 뷰 */
     val fullscreen = androidx.compose.runtime.mutableStateOf<android.view.View?>(null)
+    private lateinit var root: android.widget.FrameLayout
     private var fullscreenCallback: WebChromeClient.CustomViewCallback? = null
 
     private val fileChooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -115,6 +115,7 @@ class MainActivity : ComponentActivity() {
                 installStartScript()
                 webView.evaluateJavascript(Injector.applyCall(if (s.safeMode || sessionSafe) "" else currentCss(), s.wideLayout), null)
                 webView.setBackgroundColor(pageBackground())
+                if (::root.isInitialized) root.setBackgroundColor(pageBackground())
                 applySystemBars()
                 if (applyUserAgent()) webView.reload()
             }
@@ -126,7 +127,31 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        setContent { LumenScreen(this) }
+        // WebView를 Compose 안(AndroidView)에 넣으면 이 WebView는 화면에 한 픽셀도 그려지지 않았다
+        // (에뮬레이터에서 확인: 페이지는 돌고 있는데 배경색조차 안 나옴). 그래서 WebView는 평범한
+        // 뷰 계층에 바로 두고, Compose(떠 있는 단추·설정·안내 카드)는 그 위에 투명한 층으로 올린다.
+        root = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(pageBackground())
+            addView(webView, android.widget.FrameLayout.LayoutParams(-1, -1))
+            addView(
+                androidx.compose.ui.platform.ComposeView(this@MainActivity).apply {
+                    setContent { LumenScreen(this@MainActivity) }
+                },
+                android.widget.FrameLayout.LayoutParams(-1, -1),
+            )
+        }
+        // 상태 표시줄·내비게이션 막대·키보드만큼 WebView를 안쪽으로.
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val types = androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                androidx.core.view.WindowInsetsCompat.Type.ime()
+            val i = if (fullscreen.value != null) androidx.core.graphics.Insets.NONE else insets.getInsets(types)
+            (webView.layoutParams as android.widget.FrameLayout.LayoutParams).apply {
+                setMargins(i.left, i.top, i.right, i.bottom)
+            }
+            webView.requestLayout()
+            insets
+        }
+        setContentView(root)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -143,6 +168,7 @@ class MainActivity : ComponentActivity() {
     fun exitFullscreen() {
         fullscreenCallback?.onCustomViewHidden()
         fullscreenCallback = null
+        fullscreen.value?.let { root.removeView(it) }
         fullscreen.value = null
         showSystemBars(true)
     }
@@ -395,11 +421,13 @@ class MainActivity : ComponentActivity() {
                 fullscreenCallback?.onCustomViewHidden()
                 fullscreenCallback = callback
                 fullscreen.value = view
+                root.addView(view, android.widget.FrameLayout.LayoutParams(-1, -1))
                 showSystemBars(false)
             }
 
             override fun onHideCustomView() {
                 fullscreenCallback = null
+                fullscreen.value?.let { root.removeView(it) }
                 fullscreen.value = null
                 showSystemBars(true)
             }

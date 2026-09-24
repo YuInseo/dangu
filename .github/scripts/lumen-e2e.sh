@@ -22,6 +22,27 @@ for t in 8 20 40 70; do
 done
 
 adb shell uiautomator dump /sdcard/ui.xml && adb pull /sdcard/ui.xml "$OUT/ui.xml"
+
+# 화면 위 덧층(Compose)이 터치를 막지 않는지: 첫 입력칸을 눌러 글자를 넣어 본다.
+XY=$(python3 - "$OUT/ui.xml" <<'PY'
+import re, sys
+xml = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r'class="android.widget.EditText"[^>]*bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', xml)
+if m:
+    x1, y1, x2, y2 = map(int, m.groups())
+    print((x1 + x2) // 2, (y1 + y2) // 2)
+PY
+)
+echo "입력칸: ${XY:-없음}" > "$OUT/input-test.txt"
+if [ -n "$XY" ]; then
+  adb shell input tap $XY
+  sleep 2
+  adb shell input text "lumen-e2e"
+  sleep 2
+  adb exec-out screencap -p > "$OUT/shot-typed.png"
+  adb shell uiautomator dump /sdcard/ui2.xml && adb pull /sdcard/ui2.xml "$OUT/ui-typed.xml"
+  grep -c "lumen-e2e" "$OUT/ui-typed.xml" >> "$OUT/input-test.txt" || echo "0 (글자가 안 들어감)" >> "$OUT/input-test.txt"
+fi
 adb logcat -d > "$OUT/logcat-full.txt"
 grep -E "chromium|Lumen|AndroidRuntime|WebView|cr_|CONSOLE|lumen" "$OUT/logcat-full.txt" | tail -400 > "$OUT/logcat.txt"
 adb shell pidof $PKG > "$OUT/pid.txt" || echo "앱 프로세스 없음(죽음)" > "$OUT/pid.txt"

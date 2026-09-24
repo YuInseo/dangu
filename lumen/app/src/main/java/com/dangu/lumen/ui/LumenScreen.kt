@@ -102,12 +102,8 @@ fun LumenScreen(activity: MainActivity) {
     MaterialTheme(colorScheme = scheme) {
         var showSettings by remember { mutableStateOf(false) }
 
-        BoxWithConstraints(Modifier.fillMaxSize().background(bg)) {
-            AndroidView(
-                factory = { activity.webView },
-                modifier = Modifier.fillMaxSize().systemBarsPadding().imePadding(),
-            )
-
+        // WebView는 이 층 아래(평범한 뷰)에 있다. 여기는 투명한 덧층.
+        BoxWithConstraints(Modifier.fillMaxSize()) {
             PageOverlay(activity, prefs)
 
             Bubble(
@@ -121,20 +117,6 @@ fun LumenScreen(activity: MainActivity) {
 
             UpdateBanner(Modifier.align(Alignment.TopCenter))
 
-            // 방송·영상 전체 화면
-            activity.fullscreen.value?.let { view ->
-                AndroidView(
-                    factory = { android.widget.FrameLayout(it).apply { setBackgroundColor(android.graphics.Color.BLACK) } },
-                    update = { frame ->
-                        if (view.parent !== frame) {
-                            (view.parent as? android.view.ViewGroup)?.removeView(view)
-                            frame.removeAllViews()
-                            frame.addView(view, android.widget.FrameLayout.LayoutParams(-1, -1))
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
         }
 
         if (showSettings) {
