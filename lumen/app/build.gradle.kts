@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// CI 에뮬레이터 확인용 빌드: 가짜 디스코드 페이지(e2e-assets)를 싣는다.
+val e2e = System.getenv("LUMEN_E2E") == "1"
+
 // CI가 서명 키를 넘겨주면 그걸로 서명한다. 없으면 디버그 키.
 val keystoreFile = System.getenv("LUMEN_KEYSTORE")?.takeIf { it.isNotBlank() }
 
@@ -19,6 +22,11 @@ android {
         versionName = System.getenv("LUMEN_VERSION_NAME") ?: "0.1.0"
         val repo = System.getenv("GITHUB_REPOSITORY") ?: "YuInseo/dangu"
         buildConfigField("String", "UPDATE_REPO", "\"$repo\"")
+        buildConfigField("boolean", "E2E", e2e.toString())
+    }
+
+    if (e2e) {
+        sourceSets["main"].assets.srcDirs("src/main/assets", "e2e-assets")
     }
 
     signingConfigs {

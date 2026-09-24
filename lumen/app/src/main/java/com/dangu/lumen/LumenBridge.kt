@@ -20,6 +20,7 @@ class LumenBridge(
     context: Context,
     private val isTrusted: () -> Boolean,
     private val onState: (String) -> Unit = {},
+    private val onMessages: (String) -> Unit = {},
 ) {
     private val appContext = context.applicationContext
     private val manager = NotificationManagerCompat.from(appContext)
@@ -71,6 +72,13 @@ class LumenBridge(
     fun state(json: String) {
         if (!isTrusted()) return
         main.post { onState(json) }
+    }
+
+    /** 지금 채널의 메시지(classic.js). */
+    @JavascriptInterface
+    fun messages(json: String) {
+        if (!isTrusted()) return
+        main.post { onMessages(json) }
     }
 
     companion object {

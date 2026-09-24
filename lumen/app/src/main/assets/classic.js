@@ -75,6 +75,107 @@
     return transitionTo;
   }
 
+  var actions = null;
+  function findActions() {
+    if (actions) return actions;
+    each(function (v) {
+      if (typeof v === 'object' && typeof v.sendMessage === 'function' && typeof v.fetchMessages === 'function') {
+        actions = v; return true;
+      }
+      return false;
+    });
+    return actions;
+  }
+
+  function me() {
+    var u = safe(function () { return stores.UserStore.getCurrentUser(); }, null);
+    if (!u) return null;
+    return { id: String(u.id), name: String(u.globalName || u.username || ''), avatar: u.avatar ? String(u.avatar) : '' };
+  }
+
+  function userName(uid, gid) {
+    var m = gid ? safe(function () { return stores.GuildMemberStore.getMember(gid, uid); }, null) : null;
+    if (m && m.nick) return String(m.nick);
+    var u = safe(function () { return stores.UserStore.getUser(uid); }, null);
+    return u ? String(u.globalName || u.username || '') : '';
+  }
+
+  // 멘션·채널·사용자 이모지를 사람이 읽는 글로
+  function plain(text, gid) {
+    if (!text) return '';
+    return String(text)
+      .replace(/<@!?(\d+)>/g, function (_, id) { return '@' + (userName(id, gid) || '알 수 없음'); })
+      .replace(/<@&(\d+)>/g, function (_, id) {
+        var r = safe(function () { return stores.GuildRoleStore.getRole(gid, id); }, null) ||
+          safe(function () { return stores.GuildStore.getGuild(gid).roles[id]; }, null);
+        return '@' + (r && r.name ? r.name : '역할');
+      })
+      .replace(/<#(\d+)>/g, function (_, id) {
+        var c = safe(function () { return stores.ChannelStore.getChannel(id); }, null);
+        return '#' + (c && c.name ? c.name : '채널');
+      })
+      .replace(/<a?:(\w+):\d+>/g, ':$1:')
+      .replace(/<t:(\d+)(:\w)?>/g, function (_, t) { return new Date(+t * 1000).toLocaleString('ko-KR'); });
+  }
+
+  function msgInfo(m, gid) {
+    var a = m.author || {};
+    var member = gid ? safe(function () { return stores.GuildMemberStore.getMember(gid, a.id); }, null) : null;
+    var ref = m.messageReference;
+    var refMsg = ref && ref.message_id ? safe(function () { return stores.MessageStore.getMessage(ref.channel_id, ref.message_id); }, null) : null;
+    var files = [];
+    (m.attachments || []).forEach(function (f) {
+      files.push({ url: String(f.proxy_url || f.url || ''), name: String(f.filename || ''), type: String(f.content_type || ''),
+        w: f.width | 0, h: f.height | 0 });
+    });
+    (m.embeds || []).forEach(function (e) {
+      var img = e.image || e.thumbnail;
+      if (img && (img.proxyURL || img.url)) {
+        files.push({ url: String(img.proxyURL || img.url), name: String(e.title || ''), type: 'image/embed', w: img.width | 0, h: img.height | 0 });
+      }
+    });
+    return {
+      id: String(m.id),
+      author: String(a.id || ''),
+      name: (member && member.nick) ? String(member.nick) : String(a.globalName || a.global_name || a.username || ''),
+      avatar: a.avatar ? String(a.avatar) : '',
+      color: member && member.colorString ? String(member.colorString) : '',
+      bot: !!a.bot,
+      time: safe(function () { return +new Date(m.timestamp); }, 0) || 0,
+      edited: !!m.editedTimestamp,
+      text: plain(m.content, gid),
+      type: m.type | 0,
+      state: String(m.state || ''),
+      files: files,
+      reply: refMsg ? { name: userName(refMsg.author && refMsg.author.id, gid), text: plain(refMsg.content, gid).slice(0, 120) } : null,
+      reactions: (m.reactions || []).map(function (r) {
+        return { emoji: String((r.emoji && r.emoji.name) || ''), count: r.count | 0, me: !!r.me };
+      }),
+    };
+  }
+
+  function messagesOf(cid) {
+    var ms = safe(function () { return stores.MessageStore.getMessages(cid); }, null);
+    var arr = ms ? (safe(function () { return ms.toArray(); }, null) || ms._array || []) : [];
+    var ch = safe(function () { return stores.ChannelStore.getChannel(cid); }, null);
+    var gid = ch && ch.guild_id ? String(ch.guild_id) : null;
+    var out = [];
+    var start = Math.max(0, arr.length - 150);
+    for (var i = start; i < arr.length; i++) {
+      var info = safe(function () { return msgInfo(arr[i], gid); }, null);
+      if (info) out.push(info);
+    }
+    return {
+      channel: String(cid),
+      title: ch ? String(ch.name || '') : '',
+      topic: ch && ch.topic ? String(ch.topic) : '',
+      dm: !gid,
+      hasMore: !!(ms && ms.hasMoreBefore),
+      loading: !!(ms && ms.loadingMore),
+      messages: out,
+    };
+  }
+
   function guildList() {
     var G = stores.GuildStore, S = stores.SortedGuildStore, R = stores.GuildReadStateStore;
     var ids = safe(function () { return S.getFlattenedGuildIds(); }, null);
@@ -139,8 +240,21 @@
 
   function snapshot() {
     var gid = safe(function () { return stores.SelectedGuildStore.getGuildId(); }, null) || '@me';
+    var cid = String(safe(function () { return stores.SelectedChannelStore.getChannelId(); }, '') || '');
+    var ch = cid ? safe(function () { return stores.ChannelStore.getChannel(cid); }, null) : null;
+    var title = '';
+    if (ch) {
+      title = String(ch.name || '');
+      if (!title) {
+        var rid = safe(function () { return ch.getRecipientId(); }, null);
+        title = rid ? userName(rid, null) : '';
+      }
+    }
     return {
       ready: true,
+      me: me(),
+      title: title,
+      voice: !!(ch && (ch.type === 2 || ch.type === 13)),
       guilds: guildList(),
       guild: String(gid),
       channel: String(safe(function () { return stores.SelectedChannelStore.getChannelId(); }, '') || ''),
@@ -160,6 +274,40 @@
     }
   }
   function schedule() { if (!timer) timer = setTimeout(send, 250); }
+
+  var lastMsgs = '';
+  var msgTimer = null;
+  function sendMessages() {
+    msgTimer = null;
+    if (!ready || !B || typeof B.messages !== 'function') return;
+    var cid = safe(function () { return stores.SelectedChannelStore.getChannelId(); }, null);
+    if (!cid) return;
+    var json = safe(function () { return JSON.stringify(messagesOf(cid)); }, '');
+    if (json && json !== lastMsgs) {
+      lastMsgs = json;
+      try { B.messages(json); } catch (e) {}
+    }
+  }
+  function scheduleMessages() { if (!msgTimer) msgTimer = setTimeout(sendMessages, 120); }
+
+  window.__lumenMessages = function (cid) { return ready ? JSON.stringify(messagesOf(cid)) : '{}'; };
+
+  window.__lumenSend = function (cid, text) {
+    var a = findActions();
+    if (!a) return 'no-actions';
+    try {
+      a.sendMessage(cid, { content: String(text), tts: false, invalidEmojis: [], validNonShortcutEmojis: [] }, undefined, {});
+      return 'ok';
+    } catch (e) { return 'error: ' + e.message; }
+  };
+
+  window.__lumenOlder = function (cid) {
+    var a = findActions();
+    var ms = safe(function () { return stores.MessageStore.getMessages(cid); }, null);
+    var first = ms ? (safe(function () { return ms.first(); }, null) || (ms._array || [])[0]) : null;
+    if (!a || !first) return 'none';
+    try { a.fetchMessages({ channelId: cid, before: first.id, limit: 50 }); return 'ok'; } catch (e) { return 'error: ' + e.message; }
+  };
 
   window.__lumenChannels = function (gid) {
     if (!ready) return '[]';
@@ -203,10 +351,13 @@
         if (/^(Guild|SortedGuild|Channel|GuildChannel|SelectedGuild|SelectedChannel|ReadState|GuildReadState|User)Store$/.test(n)) {
           try { stores[n].addChangeListener(schedule); } catch (e) {}
         }
+        if (/^(Message|SelectedChannel|GuildMember)Store$/.test(n)) {
+          try { stores[n].addChangeListener(scheduleMessages); } catch (e) {}
+        }
       });
       send();
     }
-    if (ready) { schedule(); }
+    if (ready) { schedule(); scheduleMessages(); }
     if (tries > 600) clearInterval(boot);
   }, ready ? 3000 : 1000);
 })();

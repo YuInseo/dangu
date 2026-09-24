@@ -28,8 +28,14 @@ data class DChannel(
         get() = if (user.isNotEmpty() && avatar.isNotEmpty()) "https://cdn.discordapp.com/avatars/$user/$avatar.png?size=64" else null
 }
 
+data class DMe(val id: String, val name: String, val avatar: String)
+
 data class DiscordState(
     val ready: Boolean = false,
+    /** 로그인한 나. 없으면 아직 로그인 전 — 그땐 웹 화면(로그인)을 보여 준다. */
+    val me: DMe? = null,
+    val title: String = "",
+    val voice: Boolean = false,
     val guilds: List<DGuild> = emptyList(),
     val guild: String = "@me",
     val channel: String = "",
@@ -40,6 +46,9 @@ data class DiscordState(
             val o = JSONObject(json)
             DiscordState(
                 ready = o.optBoolean("ready"),
+                me = o.optJSONObject("me")?.let { DMe(it.optString("id"), it.optString("name"), it.optString("avatar")) },
+                title = o.optString("title"),
+                voice = o.optBoolean("voice"),
                 guilds = o.optJSONArray("guilds").objects().map {
                     DGuild(it.optString("id"), it.optString("name"), it.optString("icon"), it.optBoolean("unread"), it.optInt("mentions"))
                 },

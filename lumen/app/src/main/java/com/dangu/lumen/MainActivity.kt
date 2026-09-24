@@ -58,6 +58,29 @@ class MainActivity : ComponentActivity() {
     )
     val page = androidx.compose.runtime.mutableStateOf(PageState())
 
+    /** 네이티브 채팅 화면이 그리는 지금 채널 */
+    val chat = androidx.compose.runtime.mutableStateOf<ChatState?>(null)
+
+    /** true면 네이티브 화면을 걷고 디스코드 웹 화면을 그대로 보여 준다(로그인·음성·설정 등). */
+    val showWeb = androidx.compose.runtime.mutableStateOf(false)
+
+    /** CI 확인용: 가짜 디스코드 페이지로 네이티브 화면을 그려 본다(E2E 빌드에서만). */
+    @Volatile private var mockMode = false
+
+    fun sendMessage(channelId: String, text: String) {
+        webView.evaluateJavascript(
+            "window.__lumenSend ? window.__lumenSend(${org.json.JSONObject.quote(channelId)}, ${org.json.JSONObject.quote(text)}) : 'none'"
+        ) { r ->
+            if (r?.contains("ok") != true) {
+                Toast.makeText(this, "보내지 못했어요 — 웹 화면에서 보내 보세요", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    fun loadOlder(channelId: String) {
+        webView.evaluateJavascript("window.__lumenOlder && window.__lumenOlder(${org.json.JSONObject.quote(channelId)})", null)
+    }
+
     /** 클래식 서랍이 그리는 디스코드 상태 */
     val discord = androidx.compose.runtime.mutableStateOf(DiscordState())
     private val classicJs: String by lazy {
@@ -116,7 +139,11 @@ class MainActivity : ComponentActivity() {
 
         installStartScript() // 첫 페이지보다 먼저
         if (savedInstanceState != null) webView.restoreState(savedInstanceState)
-        if (webView.url == null) webView.loadUrl(urlFrom(intent) ?: HOME)
+        if (BuildConfig.E2E && intent.getBooleanExtra("lumen_mock", false)) {
+            mockMode = true
+            val html = assets.open("e2e-mock.html").bufferedReader().use { it.readText() }
+            webView.loadDataWithBaseURL("https://discord.com/channels/1/11", html, "text/html", "utf-8", "https://discord.com/channels/1/11")
+        } else if (webView.url == null) webView.loadUrl(urlFrom(intent) ?: HOME)
         handleShare(intent)
         scheduleBlankCheck(20_000)
 
@@ -126,6 +153,8 @@ class MainActivity : ComponentActivity() {
                 // (연결이 살아 있어야 알림이 온다).
                 when {
                     fullscreen.value != null -> exitFullscreen()
+                    // 웹 화면을 잠깐 보던 중이면 앱 화면으로 돌아간다.
+                    showWeb.value && discord.value.me != null && prefs.value.classic -> showWeb.value = false
                     webView.canGoBack() -> webView.goBack()
                     else -> moveTaskToBack(true)
                 }
@@ -372,9 +401,12 @@ class MainActivity : ComponentActivity() {
         webView = wv
         applyUserAgent()
         wv.addJavascriptInterface(
-            LumenBridge(this, isTrusted = { isDiscord(currentHost) }) { json ->
-                DiscordState.parse(json)?.let { discord.value = it }
-            },
+            LumenBridge(
+                this,
+                isTrusted = { mockMode || isDiscord(currentHost) },
+                onState = { json -> DiscordState.parse(json)?.let { discord.value = it } },
+                onMessages = { json -> ChatState.parse(json)?.let { chat.value = it } },
+            ),
             "LumenBridge",
         )
 
@@ -409,6 +441,7 @@ class MainActivity : ComponentActivity() {
 
             override fun onPageFinished(view: WebView, url: String?) {
                 currentHost = url?.let { Uri.parse(it).host }
+                if (mockMode) view.evaluateJavascript(lastScript, null)
                 if (isDiscord(currentHost)) {
                     if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
                         view.evaluateJavascript(lastScript, null)

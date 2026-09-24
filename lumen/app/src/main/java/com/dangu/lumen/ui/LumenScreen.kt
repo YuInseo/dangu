@@ -103,26 +103,53 @@ fun LumenScreen(activity: MainActivity) {
         var showSettings by remember { mutableStateOf(false) }
         var drawerOpen by remember { mutableStateOf(false) }
 
-        // WebView는 이 층 아래(평범한 뷰)에 있다. 여기는 투명한 덧층.
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            PageOverlay(activity, prefs)
+        val discord by activity.discord
+        val chat by activity.chat
+        val showWeb by activity.showWeb
+        val fullscreen = activity.fullscreen.value
+        val loggedIn = discord.ready && discord.me != null
+        // 로그인하고 나면 화면 전체가 옛날 디스코드 앱(네이티브). 웹 화면은 로그인·음성·설정 때만.
+        val native = prefs.classic && loggedIn && !showWeb && fullscreen == null
 
-            Bubble(
-                prefs = prefs,
-                maxW = constraints.maxWidth.toFloat(),
-                maxH = constraints.maxHeight.toFloat(),
-                onMove = { x, y -> activity.prefs.update { copy(bubbleX = x, bubbleY = y) } },
-                // 클래식이면 누르면 서랍, 길게 누르면 설정. 아니면 누르면 설정, 길게 누르면 사이드바.
-                onTap = { if (prefs.classic) drawerOpen = true else showSettings = true },
-                onLongPress = {
-                    if (prefs.classic) showSettings = true
-                    else activity.prefs.update { copy(hideSidebar = !hideSidebar) }
-                },
-            )
+        // WebView는 이 층 아래(평범한 뷰)에 있다. 네이티브 화면이면 그 위를 덮는다.
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            if (native) {
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        // 아래 WebView로 터치가 새지 않게
+                        .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }
+                ) {
+                    NativeChat(
+                        activity = activity,
+                        discord = discord,
+                        chat = chat,
+                        onMenu = { drawerOpen = true },
+                        onSettings = { showSettings = true },
+                    )
+                }
+            } else {
+                PageOverlay(activity, prefs)
+
+                Bubble(
+                    prefs = prefs,
+                    maxW = constraints.maxWidth.toFloat(),
+                    maxH = constraints.maxHeight.toFloat(),
+                    onMove = { x, y -> activity.prefs.update { copy(bubbleX = x, bubbleY = y) } },
+                    // 웹 화면을 보고 있으면 누르면 앱 화면으로, 길게 누르면 설정.
+                    onTap = {
+                        if (prefs.classic && loggedIn) activity.showWeb.value = false else showSettings = true
+                    },
+                    onLongPress = {
+                        if (prefs.classic) showSettings = true
+                        else activity.prefs.update { copy(hideSidebar = !hideSidebar) }
+                    },
+                )
+            }
 
             UpdateBanner(Modifier.align(Alignment.TopCenter))
 
-            if (prefs.classic && activity.fullscreen.value == null) {
+            if (native) {
                 ClassicDrawer(
                     activity = activity,
                     open = drawerOpen,
@@ -130,7 +157,6 @@ fun LumenScreen(activity: MainActivity) {
                     onSettings = { drawerOpen = false; showSettings = true },
                 )
             }
-
         }
 
         if (showSettings) {

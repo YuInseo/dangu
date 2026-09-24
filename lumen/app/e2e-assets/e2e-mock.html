@@ -1,0 +1,122 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Discord (mock)</title></head><body style="background:#36393f;color:#dcddde">
+<!-- Lumen 확인용 가짜 디스코드. 진짜 디스코드 웹 클라이언트와 같은 모양의 webpack 청크와 Flux 스토어를 흉내 낸다. -->
+<div class="notice_abc colorDefault_x">PC 앱을 사용하세요! <button>다운로드</button></div>
+<div class="notice_def">차단했거나 무시한 계정을 찾고 계신가요?</div>
+<script>
+window.__sent = [];
+function store(name, api) {
+  var ls = [];
+  api.getName = function () { return name; };
+  api.addChangeListener = function (f) { ls.push(f); };
+  api.__emit = function () { ls.forEach(function (f) { f(); }); };
+  return api;
+}
+var sel = { g: '1', c: '11' };
+var now = Date.now();
+var users = {
+  '500': { id: '500', username: 'silsi', globalName: '실시', avatar: null },
+  '501': { id: '501', username: 'rogaemu', globalName: '로개무', avatar: null },
+  '600': { id: '600', username: 'me', globalName: '나', avatar: null },
+  '700': { id: '700', username: 'MEE6', globalName: null, avatar: null, bot: true },
+};
+function msg(id, uid, content, minsAgo, extra) {
+  var m = { id: id, author: users[uid], content: content, timestamp: new Date(now - minsAgo * 60000), type: 0,
+    attachments: [], embeds: [], reactions: [], state: 'SENT' };
+  for (var k in extra || {}) m[k] = extra[k];
+  return m;
+}
+var messages = {
+  '11': [
+    msg('1001', '700', '서버에 오신 걸 환영합니다! <#12> 채널을 먼저 읽어 주세요.', 300),
+    msg('1002', '500', '오늘 당구 치러 갈 사람?', 62),
+    msg('1003', '500', '저녁 7시쯤 생각 중', 61),
+    msg('1004', '501', '<@500> 나 갈게 ㅋㅋ :pepe_happy: 는 <:pepe_happy:123>', 40, { reactions: [{ emoji: { name: '👍' }, count: 2, me: true }, { emoji: { name: '🎱' }, count: 1, me: false }] }),
+    msg('1005', '501', '어제 친 거 사진', 39, { attachments: [{ url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Billiard_balls.jpg/320px-Billiard_balls.jpg', proxy_url: 'https://upload.wikimedia.org/wikipedia/commons/thumb/b/b5/Billiard_balls.jpg/320px-Billiard_balls.jpg', filename: 'billiard.jpg', content_type: 'image/jpeg', width: 320, height: 213 }] }),
+    msg('1006', '600', '좋아 그럼 7시에 보자', 5, { messageReference: { channel_id: '11', message_id: '1003' } }),
+    msg('1007', '500', '링크 https://discord.com 도 눌러 봐', 1, { editedTimestamp: new Date() }),
+  ],
+  '21': [msg('2001', '501', 'lobby 채널입니다', 10)],
+  '99': [msg('9901', '500', 'DM 테스트', 3)],
+};
+function channelMessages(cid) {
+  var arr = messages[cid] || [];
+  return { toArray: function () { return arr.slice(); }, _array: arr, first: function () { return arr[0]; }, hasMoreBefore: true, loadingMore: false };
+}
+function ch(id, name, type, parent, pos, gid, topic) { return { id: id, name: name, type: type, parent_id: parent, position: pos, guild_id: gid, topic: topic }; }
+var channels = {
+  '10': ch('10', '채팅', 4, null, 0, '1'), '11': ch('11', '일반', 0, '10', 0, '1', '아무 얘기나'), '12': ch('12', '공지', 0, null, 0, '1'),
+  '13': ch('13', '음성', 2, '10', 1, '1'), '21': ch('21', 'lobby', 0, null, 0, '2'),
+};
+var dm = { id: '99', name: '', type: 1, getRecipientId: function () { return '500'; } };
+channels['99'] = dm;
+
+var GuildStore = store('GuildStore', {
+  getGuild: function (id) { return { '1': { id: '1', name: '당구 동호회', icon: null, roles: { '900': { name: '운영진' } } }, '2': { id: '2', name: '게임방', icon: null } }[id]; },
+  getGuilds: function () { return { '1': 1, '2': 1 }; },
+});
+var SortedGuildStore = store('SortedGuildStore', { getFlattenedGuildIds: function () { return ['1', '2']; } });
+var GuildReadStateStore = store('GuildReadStateStore', {
+  hasUnread: function (id) { return id === '2'; }, getMentionCount: function (id) { return id === '2' ? 3 : 0; } });
+var ReadStateStore = store('ReadStateStore', {
+  hasUnread: function (id) { return id === '12'; }, getMentionCount: function (id) { return id === '12' ? 1 : 0; } });
+var GuildChannelStore = store('GuildChannelStore', {
+  getChannels: function (gid) {
+    if (gid === '1') return { SELECTABLE: [{ channel: channels['11'] }, { channel: channels['12'] }], VOCAL: [{ channel: channels['13'] }], 4: [{ channel: channels['10'] }] };
+    return { SELECTABLE: [{ channel: channels['21'] }], VOCAL: [], 4: [] };
+  } });
+var ChannelStore = store('ChannelStore', {
+  getSortedPrivateChannels: function () { return [dm]; },
+  getChannel: function (id) { return channels[id]; },
+});
+var UserStore = store('UserStore', {
+  getUser: function (id) { return users[id]; },
+  getCurrentUser: function () { return users['600']; },
+});
+var GuildMemberStore = store('GuildMemberStore', {
+  getMember: function (gid, uid) {
+    if (gid !== '1') return null;
+    return { '500': { nick: '실시(방장)', colorString: '#E67E22' }, '501': { nick: null, colorString: '#3498DB' } }[uid] || null;
+  } });
+var MessageStore = store('MessageStore', {
+  getMessages: function (cid) { return channelMessages(cid); },
+  getMessage: function (cid, id) { return (messages[cid] || []).filter(function (m) { return m.id === id; })[0]; },
+});
+var SelectedGuildStore = store('SelectedGuildStore', { getGuildId: function () { return sel.g; } });
+var SelectedChannelStore = store('SelectedChannelStore', { getChannelId: function () { return sel.c; } });
+var MessageActions = {
+  sendMessage: function (cid, body) {
+    window.__sent.push([cid, body.content]);
+    (messages[cid] = messages[cid] || []).push(msg('n' + Date.now(), '600', body.content, 0));
+    MessageStore.__emit();
+  },
+  fetchMessages: function (o) {
+    window.__fetched = o;
+    (messages[o.channelId] = messages[o.channelId] || []).unshift(msg('old' + Date.now(), '501', '(예전 메시지)', 2000));
+    MessageStore.__emit();
+  },
+  editMessage: function () {},
+};
+window.__navCalls = [];
+function routerTransition(path) {
+  var x = "transitionTo - Transitioning to ";
+  window.__navCalls.push(path);
+  var p = path.split('/'); sel.g = p[2] === '@me' ? null : p[2]; sel.c = p[3];
+  SelectedChannelStore.__emit();
+}
+var cache = {
+  1: { exports: { Z: GuildStore, ZP: SortedGuildStore } },
+  2: { exports: GuildReadStateStore },
+  3: { exports: { default: ReadStateStore, GuildChannelStore: GuildChannelStore } },
+  4: { exports: { a: ChannelStore, b: UserStore, c: SelectedGuildStore, d: SelectedChannelStore } },
+  5: { exports: { uL: routerTransition } },
+  6: { exports: Object.defineProperty({}, 'boom', { enumerable: true, get: function () { throw new Error('getter'); } }) },
+  7: { exports: null },
+  8: { exports: { Z: MessageStore, m: GuildMemberStore } },
+  9: { exports: { Z: MessageActions } },
+};
+window.webpackChunkdiscord_app = [];
+window.webpackChunkdiscord_app.push = function (entry) {
+  var cb = entry[2]; if (cb) cb({ c: cache }); return Array.prototype.push.call(this, entry);
+};
+window.__mock = { MessageStore: MessageStore, GuildReadStateStore: GuildReadStateStore };
+</script></body></html>
