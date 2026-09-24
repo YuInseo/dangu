@@ -95,9 +95,12 @@ PY
 dump() { adb shell uiautomator dump /sdcard/u.xml >/dev/null && adb pull /sdcard/u.xml "$OUT/$1" >/dev/null; }
 
 adb shell am force-stop $PKG
+adb logcat -c
 adb shell am start -W -n $PKG/.MainActivity --ez lumen_mock true
 sleep 10
 adb exec-out screencap -p > "$OUT/mock-1-chat.png"
+adb logcat -d > "$OUT/mock-logcat.txt"
+grep -n -A40 "FATAL EXCEPTION" "$OUT/mock-logcat.txt" > "$OUT/mock-crash.txt" || echo "크래시 없음" > "$OUT/mock-crash.txt"
 dump mock-1.xml
 
 XY=$(find_xy "$OUT/mock-1.xml" content-desc "서랍")
