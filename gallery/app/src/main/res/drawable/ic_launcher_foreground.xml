@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 사진 액자 + 목록 줄: "사진과 정보를 같이" -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFB74D"
+        android:pathData="M30,34h22a4,4 0,0 1,4 4v22a4,4 0,0 1,-4 4h-22a4,4 0,0 1,-4 -4v-22a4,4 0,0 1,4 -4z" />
+    <path
+        android:fillColor="#FF1E2130"
+        android:pathData="M31,58l7,-9 5,6 4,-4 6,7z" />
+    <path
+        android:fillColor="#FF1E2130"
+        android:pathData="M46,43m-3,0a3,3 0,1 1,6 0a3,3 0,1 1,-6 0" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M62,37h16a2,2 0,0 1,0 4h-16a2,2 0,0 1,0 -4z" />
+    <path
+        android:fillColor="#99FFFFFF"
+        android:pathData="M62,45h12a2,2 0,0 1,0 4h-12a2,2 0,0 1,0 -4z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M62,53h16a2,2 0,0 1,0 4h-16a2,2 0,0 1,0 -4z" />
+    <path
+        android:fillColor="#99FFFFFF"
+        android:pathData="M62,61h9a2,2 0,0 1,0 4h-9a2,2 0,0 1,0 -4z" />
+</vector>
