@@ -202,9 +202,9 @@ adb shell input keyevent 3; sleep 1
 popup
 shot 14-wheel-before.png; dump 14.xml
 B14=$(grep -oE 'content-desc="[^"]+"[^>]*bounds="[^"]+"' "$OUT/14.xml" | grep -vE '닫기' | tr '\n' ' '); log "⑧ 돌리기 전 보이는 거품: $B14"
-# 버튼 둘레로 원을 그리며 끌기(위 → 아래 방향)
+# 버튼 둘레로 원을 그리며 끌기(아래 → 위: 처음엔 맨 위 항목이 위 끝이라, 위로 돌려야 다음 것들이 나온다)
 R=$(( 140 * DENS / 160 ))
-adb shell input swipe $(( BX - R / 2 )) $(( BY - R )) $(( BX - R )) $(( BY + R / 3 )) 800; sleep 1
+adb shell input swipe $(( BX - R )) $(( BY + R / 2 )) $(( BX - R / 2 )) $(( BY - R )) 800; sleep 2
 shot 15-wheel-rotated.png; dump 15.xml
 B15=$(grep -oE 'content-desc="[^"]+"[^>]*bounds="[^"]+"' "$OUT/15.xml" | grep -vE '닫기' | tr '\n' ' ')
 log "   돌린 뒤: $B15"
