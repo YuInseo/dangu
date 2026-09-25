@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -147,7 +148,11 @@ fun LumenScreen(activity: MainActivity) {
                 )
             }
 
-            UpdateBanner(Modifier.align(Alignment.TopCenter))
+            // 네이티브 화면에선 윗줄(≡)을 가리지 않게 입력칸 위에 띄운다.
+            UpdateBanner(
+                if (native) Modifier.align(Alignment.BottomCenter).navigationBarsPadding().imePadding().padding(bottom = 60.dp)
+                else Modifier.align(Alignment.TopCenter).statusBarsPadding()
+            )
 
             if (native) {
                 ClassicDrawer(
@@ -482,14 +487,15 @@ private fun UpdateBanner(modifier: Modifier = Modifier) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val updater = remember { Updater.get(context) }
     val state by updater.state.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { updater.check() }
+    // 확인용(E2E) 빌드는 업데이트를 보지 않는다.
+    LaunchedEffect(Unit) { if (!BuildConfig.E2E) updater.check() }
     val s = state
     if (s !is Updater.State.Ready && s !is Updater.State.Downloading) return
     Surface(
         shape = RoundedCornerShape(20.dp),
         color = MaterialTheme.colorScheme.primaryContainer,
         shadowElevation = 6.dp,
-        modifier = modifier.statusBarsPadding().padding(12.dp).fillMaxWidth(),
+        modifier = modifier.padding(12.dp).fillMaxWidth(),
     ) {
         Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 10.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.Info, null)
