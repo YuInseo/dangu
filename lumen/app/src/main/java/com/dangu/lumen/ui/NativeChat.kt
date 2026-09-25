@@ -143,6 +143,9 @@ fun NativeChat(
                 discord.channel.isEmpty() -> Empty("왼쪽 서랍에서 서버나 친구를 골라 주세요", "서랍 열기", onMenu)
                 discord.voice -> Empty("음성 채널이에요. 참가·화면 보기는 웹 화면에서 할 수 있어요.", "웹 화면으로 참가", { activity.showWeb.value = true })
                 current == null -> Empty("메시지를 불러오는 중…", null, null)
+                current.messages.isEmpty() && !current.hasMore ->
+                    Empty("${if (discord.guild == "@me") "@" else "#"}${discord.title}의 첫 메시지를 보내 보세요", null, null)
+                current.messages.isEmpty() -> Empty("메시지를 불러오는 중…", null, null)
                 else -> Messages(activity, current)
             }
         }
