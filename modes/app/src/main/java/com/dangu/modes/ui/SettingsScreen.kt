@@ -39,6 +39,9 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -134,12 +137,12 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
             Section("버튼")
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("붙는 쪽", Modifier.weight(1f), fontSize = 14.sp)
-                androidx.compose.material3.SingleChoiceSegmentedButtonRow {
+                SingleChoiceSegmentedButtonRow {
                     listOf(false to "왼쪽", true to "오른쪽").forEachIndexed { i, (right, name) ->
-                        androidx.compose.material3.SegmentedButton(
+                        SegmentedButton(
                             selected = s.right == right,
                             onClick = { store.update { copy(right = right) } },
-                            shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, 2),
+                            shape = SegmentedButtonDefaults.itemShape(i, 2),
                         ) { Text(name) }
                     }
                 }
