@@ -170,12 +170,26 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
                 }
             }
             LabeledSlider("투명도 ${(s.alpha * 100).roundToInt()}%", s.alpha, 0.2f..1f) { v -> store.update { copy(alpha = v) } }
-            LabeledSlider("원형 메뉴에 한 번에 ${s.maxVisible}개까지", s.maxVisible.toFloat(), 3f..9f) { v ->
-                store.update { copy(maxVisible = v.roundToInt()) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("메뉴 모양", Modifier.weight(1f), fontSize = 14.sp)
+                SingleChoiceSegmentedButtonRow {
+                    listOf(true to "패널", false to "원형").forEachIndexed { i, (panel, name) ->
+                        SegmentedButton(
+                            selected = s.panel == panel,
+                            onClick = { store.update { copy(panel = panel) } },
+                            shape = SegmentedButtonDefaults.itemShape(i, 2),
+                        ) { Text(name) }
+                    }
+                }
+            }
+            if (!s.panel) {
+                LabeledSlider("원형 메뉴에 한 번에 ${s.maxVisible}개까지", s.maxVisible.toFloat(), 3f..9f) { v ->
+                    store.update { copy(maxVisible = v.roundToInt()) }
+                }
             }
             Text(
-                "버튼을 직접 끌어 위아래로 옮기고, 가운데를 넘겨 놓으면 반대쪽 끝에 붙어요. " +
-                    "모드가 한 번에 보일 개수보다 많으면 원을 손가락으로 돌려서 봅니다.",
+                "막대를 끌어 위아래로 옮기고, 가운데를 넘겨 놓으면 반대쪽 끝에 붙어요. " +
+                    "패널은 엣지 패널처럼 세로 목록(많으면 굴림), 원형은 원을 돌려서 봅니다.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
             )
         }

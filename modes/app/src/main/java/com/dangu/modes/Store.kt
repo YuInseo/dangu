@@ -30,6 +30,8 @@ class Store private constructor(context: Context) {
         val right: Boolean,
         /** 원형 메뉴에 한 번에 보일 최대 개수. 넘치면 돌려서 본다. */
         val maxVisible: Int,
+        /** 메뉴 모양: true면 엣지 패널처럼 세로 목록, false면 원형 */
+        val panel: Boolean,
         val modes: List<Mode>,
         /** 비밀 바탕화면의 배치(처음엔 비어 있다) */
         val desktop: Desktop,
@@ -46,6 +48,7 @@ class Store private constructor(context: Context) {
         alpha = sp.getFloat("alpha", 0.85f),
         right = sp.getBoolean("right", true),
         maxVisible = sp.getInt("maxVisible", 5),
+        panel = sp.getBoolean("panel", true),
         modes = Mode.listFromJson(sp.getString("modes", null)) ?: Mode.defaults,
         desktop = Desktop.fromJson(sp.getString("desktop", null)),
         secretLock = sp.getBoolean("secretLock", false),
@@ -71,6 +74,7 @@ class Store private constructor(context: Context) {
             putFloat("alpha", n.alpha)
             putBoolean("right", n.right)
             putInt("maxVisible", n.maxVisible)
+            putBoolean("panel", n.panel)
             putString("modes", Mode.listToJson(n.modes))
             putString("desktop", n.desktop.toJson())
             putBoolean("secretLock", n.secretLock)

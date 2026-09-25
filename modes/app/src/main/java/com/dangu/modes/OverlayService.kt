@@ -27,6 +27,7 @@ import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -233,9 +234,166 @@ class OverlayService : Service() {
      * Circle처럼: 버튼을 중심으로 반원을 그리며 모드들이 동그란 거품으로 튀어나온다.
      * 버튼이 화면 위·아래 끝에 가까우면 반원을 아래·위로 돌려 잘리지 않게 한다.
      */
+    /**
+     * 엣지 패널처럼: 막대 쪽 끝에서 키 큰 둥근 패널이 미끄러져 나오고, 모드들이 큰 타일과 이름으로
+     * 세로로 늘어선다(많으면 굴린다). 앱을 여는 모드는 그 앱의 진짜 아이콘. 아래에 설정·편집.
+     */
+    @SuppressLint("ClickableViewAccessibility")
+    private fun showPanel() {
+        val screenW = screenWidth()
+        val screenH = screenHeight()
+        val right = store.value.right
+        panelOnRight = right
+
+        val root = object : FrameLayout(this) {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) { closePopup(); return true }
+                return super.dispatchKeyEvent(event)
+            }
+        }.apply {
+            isFocusableInTouchMode = true
+            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_DOWN) closePopup(); true }
+        }
+        val dim = View(this).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
+        root.addView(dim, FrameLayout.LayoutParams(-1, -1))
+        dim.animate().alpha(0.18f).setDuration(200).start()
+        scrim = dim
+
+        val width = dp(118)
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = GradientDrawable().apply { setColor(0xD9262629.toInt()); cornerRadius = dp(30).toFloat() }
+            elevation = dp(10).toFloat()
+            isClickable = true // 패널 안을 누른 건 바깥 누름이 아니다
+        }
+
+        val list = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(0, dp(18), 0, dp(12))
+        }
+        val tile = dp(62)
+        fun addEntry(iconView: View, text: String, onClick: () -> Unit) {
+            val item = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                contentDescription = text
+                setPadding(0, dp(10), 0, dp(10))
+                background = android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x33FFFFFF), null,
+                    GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(18).toFloat() },
+                )
+                setOnClickListener { onClick() }
+                addView(iconView, LinearLayout.LayoutParams(tile, tile))
+                addView(label(text, 13f, Color.WHITE).apply {
+                    gravity = Gravity.CENTER
+                    maxLines = 2
+                    setPadding(dp(4), dp(6), dp(4), 0)
+                }, LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT))
+            }
+            list.addView(item, LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(dp(8), dp(2), dp(8), dp(2))
+            })
+        }
+        fun emojiTile(emoji: String) = TextView(this).apply {
+            text = emoji
+            textSize = 28f
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply { setColor(0xFFF4F4F6.toInt()); cornerRadius = dp(18).toFloat() }
+        }
+        fun appTile(pkg: String): View = runCatching {
+            android.widget.ImageView(this).apply {
+                setImageDrawable(packageManager.getApplicationIcon(pkg))
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            }
+        }.getOrElse { emojiTile("📱") }
+
+        if (inLockTask()) {
+            addEntry(emojiTile("📌"), "앱 고정 중\n고정 화면에서 해제") { closePopup() }
+        } else {
+            store.value.modes.forEachIndexed { i, m ->
+                addEntry(if (m.needsApp && m.packageName.isNotBlank()) appTile(m.packageName) else emojiTile(m.type.emoji), m.label) {
+                    closePopup(); ModeLauncher.launch(this, m)
+                }
+                // 엣지 패널처럼 첫 줄(바탕화면들)과 나머지 사이에 점선
+                if (i == 1 && store.value.modes.size > 2) {
+                    list.addView(TextView(this).apply {
+                        text = "· · · · · · · · · ·"
+                        setTextColor(0x88FFFFFF.toInt())
+                        gravity = Gravity.CENTER
+                    }, LinearLayout.LayoutParams(-1, dp(22)))
+                }
+            }
+        }
+        card.addView(ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            overScrollMode = View.OVER_SCROLL_NEVER
+            addView(list)
+        }, LinearLayout.LayoutParams(-1, 0, 1f))
+
+        // 아래: 설정 · 편집
+        val bottom = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(6), 0, dp(14))
+        }
+        fun bottomButton(glyph: String, desc: String, onClick: () -> Unit) = TextView(this).apply {
+            text = glyph
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            contentDescription = desc
+            setOnClickListener { onClick() }
+        }
+        val openSettings = {
+            closePopup()
+            startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
+        bottom.addView(bottomButton("⚙", "설정", openSettings), LinearLayout.LayoutParams(dp(48), dp(40)))
+        bottom.addView(bottomButton("✎", "모드 편집", openSettings), LinearLayout.LayoutParams(dp(48), dp(40)))
+        card.addView(bottom, LinearLayout.LayoutParams(-1, LinearLayout.LayoutParams.WRAP_CONTENT))
+
+        val top = dp(48)
+        val height = (screenH * 0.78f).roundToInt().coerceAtMost(screenH - top - dp(40))
+        root.addView(card, FrameLayout.LayoutParams(width, height).apply {
+            gravity = (if (right) Gravity.END else Gravity.START) or Gravity.TOP
+            if (right) rightMargin = dp(10) else leftMargin = dp(10)
+            topMargin = top
+        })
+        // 끝에서 미끄러져 나온다
+        card.translationX = (if (right) 1 else -1) * (width + dp(20)).toFloat()
+        card.animate().translationX(0f).setDuration(240)
+            .setInterpolator(android.view.animation.DecelerateInterpolator(1.6f)).start()
+        panelCard = card
+
+        val params = WindowManager.LayoutParams(
+            WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            PixelFormat.TRANSLUCENT,
+        ).apply {
+            gravity = Gravity.START or Gravity.TOP
+            if (Build.VERSION.SDK_INT >= 30) setFitInsetsTypes(0)
+            // 뒤를 흐리게(기기가 지원하면 — 엣지 패널처럼)
+            if (Build.VERSION.SDK_INT >= 31) {
+                flags = flags or WindowManager.LayoutParams.FLAG_BLUR_BEHIND
+                blurBehindRadius = dp(18)
+            }
+        }
+        popup = root
+        button?.visibility = View.INVISIBLE
+        wm.addView(root, params)
+        root.requestFocus()
+    }
+
+    /** 엣지 패널이 열려 있으면 그 패널(닫을 때 미끄러져 나간다). */
+    private var panelCard: View? = null
+    private var panelOnRight = true
+
     @SuppressLint("ClickableViewAccessibility")
     private fun showPopup() {
         if (popup != null) { closePopup(); return }
+        if (store.value.panel) { showPanel(); return }
 
         val screenW = screenWidth()
         val screenH = screenHeight()
@@ -462,6 +620,10 @@ class OverlayService : Service() {
                 .setStartDelay(0).setDuration(160).start()
         }
         scrim?.animate()?.alpha(0f)?.setDuration(160)?.start()
+        panelCard?.let { c ->
+            c.animate().translationX((if (panelOnRight) 1 else -1) * (c.width + dp(20)).toFloat()).setDuration(170).start()
+        }
+        panelCard = null
         bubbles = emptyList()
         root.postDelayed({
             runCatching { wm.removeView(root) }

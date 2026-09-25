@@ -66,7 +66,7 @@ shot 02-home-with-button.png
 # 3) 누르면 모드 목록
 popup
 shot 03-popup.png; dump 03.xml
-grep -q "비밀 바탕화면" "$OUT/03.xml" && log "② 원형 메뉴: 모드 거품 보임" || log "② 원형 메뉴: 안 보임"
+grep -q "비밀 바탕화면" "$OUT/03.xml" && log "② 엣지 패널: 모드 목록 보임" || log "② 엣지 패널: 안 보임"
 
 # 4) 비밀 바탕화면 — 텅 빈 새 홈을 진짜 홈처럼 편집
 tap_text 03.xml text "비밀 바탕화면"; sleep 3
@@ -186,6 +186,9 @@ for i in 1 2 3 4; do
   adb shell input text "extra$i"; sleep 1
   dump add3.xml; tap_text add3.xml text "저장"; sleep 2
 done
+adb shell input swipe $(( W / 2 )) $(( H / 3 )) $(( W / 2 )) $(( H * 3 / 4 )) 300; sleep 1
+adb shell input swipe $(( W / 2 )) $(( H / 3 )) $(( W / 2 )) $(( H * 3 / 4 )) 300; sleep 1
+dump style.xml; tap_text style.xml text "원형"; sleep 1
 adb shell input keyevent 3; sleep 1
 popup
 shot 14-wheel-before.png; dump 14.xml
