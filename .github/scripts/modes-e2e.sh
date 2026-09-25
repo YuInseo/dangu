@@ -85,8 +85,8 @@ tap_text 04d.xml text "추가 "; sleep 3
 shot 04e-apps-added.png; dump 04e.xml
 log "   앱 추가 뒤 칸: $(grep -oE 'content-desc="(Settings|Camera|Gallery|Phone|Contacts|Messaging)"' "$OUT/04e.xml" | tr '\n' ' ')"
 # 첫 앱을 둘째 앱 위로 끌면 폴더
-A1=$(find_xy "$OUT/04e.xml" content-desc "Settings"); A2=$(find_xy "$OUT/04e.xml" content-desc "Camera")
-log "   Settings: ${A1:-없음} → Camera: ${A2:-없음}"
+A1=$(find_xy "$OUT/04e.xml" content-desc "Camera"); A2=$(find_xy "$OUT/04e.xml" content-desc "Phone")
+log "   Camera: ${A1:-없음} → Phone: ${A2:-없음}"
 if [ -n "$A1" ] && [ -n "$A2" ]; then
   adb shell input draganddrop $A1 $A2 1500; sleep 3
 fi
@@ -111,9 +111,8 @@ log "   기본 홈 앱 그대로?: $(adb shell cmd package resolve-activity --br
 popup; dump 06.xml
 tap_text 06.xml text "설정 앱 고정"; sleep 3
 shot 06-pin-confirm.png; dump 06b.xml
-for t in "Got it" "GOT IT" "OK" "확인" "고정"; do
-  XY=$(find_xy "$OUT/06b.xml" text "$t"); if [ -n "$XY" ]; then log "  확인 단추 '$t'"; adb shell input tap $XY; break; fi
-done
+# 시스템의 "App is pinned" 창은 별도 창이라 dump에 안 잡힌다 — 화면의 "GOT IT" 자리(오른쪽 아래)를 누른다.
+adb shell input tap $(( W * 73 / 100 )) $(( H * 944 / 1000 ))
 sleep 4
 shot 07-pinned.png
 log "⑤ 화면 고정 상태: $(lock_state) / 위: $(top)"

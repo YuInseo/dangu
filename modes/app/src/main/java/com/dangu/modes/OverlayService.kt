@@ -263,10 +263,17 @@ class OverlayService : Service() {
         dim.animate().alpha(0.45f).setDuration(200).start()
         scrim = dim
 
-        // 반지름과 펼칠 각도: 많을수록 크게.
+        // 이웃한 거품 사이(중심끼리) 거리를 먼저 정하고, 그 간격이 나오는 만큼만 반지름을 키운다.
+        // 몇 개 안 되면 버튼 바로 옆에 촘촘하게, 많을 때만 반원이 넓어진다.
         val n = entries.size
-        val radius = (dp(96) + n * dp(14)).coerceAtMost(dp(190)).toFloat()
-        val span = if (n <= 1) 0.0 else minOf(170.0, 34.0 * (n - 1))
+        val chord = dp(74).toDouble()
+        val maxSpan = 160.0
+        val radius = if (n <= 1) dp(88).toFloat() else {
+            val stepMax = Math.toRadians(minOf(44.0, maxSpan / (n - 1)))
+            maxOf(dp(88).toDouble(), chord / (2 * Math.sin(stepMax / 2))).toFloat()
+        }
+        val step = if (n <= 1) 0.0 else Math.toDegrees(2 * Math.asin((chord / (2 * radius)).coerceAtMost(1.0)))
+        val span = step * (n - 1)
         val margin = dp(64)
         fun ys(center: Double) = (0 until n).map { i ->
             val deg = center + span / 2 - (if (n <= 1) 0.0 else span * i / (n - 1))
