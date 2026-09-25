@@ -18,8 +18,12 @@ class Store private constructor(context: Context) {
         val enabled: Boolean,
         /** 버튼 세로 위치, 화면 높이의 비율(0=맨 위, 1=맨 아래) */
         val y: Float,
-        /** 버튼 크기(dp) */
+        /** 막대 길이(dp) */
         val sizeDp: Int,
+        /** 막대 굵기(dp) */
+        val thickDp: Int,
+        /** 막대 색(ARGB) */
+        val color: Int,
         /** 쉴 때 투명도 0.2~1 */
         val alpha: Float,
         /** 버튼이 붙는 쪽: 오른쪽이면 true */
@@ -36,7 +40,9 @@ class Store private constructor(context: Context) {
     private fun read() = Snapshot(
         enabled = sp.getBoolean("enabled", false),
         y = sp.getFloat("y", 0.4f),
-        sizeDp = sp.getInt("size", 48),
+        sizeDp = sp.getInt("barLength", 72),
+        thickDp = sp.getInt("thick", 6),
+        color = sp.getInt("color", 0xFFFFFFFF.toInt()),
         alpha = sp.getFloat("alpha", 0.85f),
         right = sp.getBoolean("right", true),
         maxVisible = sp.getInt("maxVisible", 5),
@@ -52,14 +58,16 @@ class Store private constructor(context: Context) {
     fun update(block: Snapshot.() -> Snapshot) {
         val n = value.block().let {
             it.copy(
-                y = it.y.coerceIn(0f, 1f), sizeDp = it.sizeDp.coerceIn(28, 96), alpha = it.alpha.coerceIn(0.2f, 1f),
+                y = it.y.coerceIn(0f, 1f), sizeDp = it.sizeDp.coerceIn(32, 200), thickDp = it.thickDp.coerceIn(3, 16), alpha = it.alpha.coerceIn(0.2f, 1f),
                 maxVisible = it.maxVisible.coerceIn(3, 9),
             )
         }
         sp.edit {
             putBoolean("enabled", n.enabled)
             putFloat("y", n.y)
-            putInt("size", n.sizeDp)
+            putInt("barLength", n.sizeDp)
+            putInt("thick", n.thickDp)
+            putInt("color", n.color)
             putFloat("alpha", n.alpha)
             putBoolean("right", n.right)
             putInt("maxVisible", n.maxVisible)

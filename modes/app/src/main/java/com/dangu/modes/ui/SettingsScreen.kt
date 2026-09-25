@@ -12,6 +12,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -148,7 +149,26 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
                 }
             }
             LabeledSlider("세로 위치 ${(s.y * 100).roundToInt()}%", s.y, 0f..1f) { v -> store.update { copy(y = v) } }
-            LabeledSlider("크기 ${s.sizeDp}dp", s.sizeDp.toFloat(), 28f..96f) { v -> store.update { copy(sizeDp = v.roundToInt()) } }
+            LabeledSlider("길이 ${s.sizeDp}dp", s.sizeDp.toFloat(), 32f..200f) { v -> store.update { copy(sizeDp = v.roundToInt()) } }
+            LabeledSlider("굵기 ${s.thickDp}dp", s.thickDp.toFloat(), 3f..16f) { v -> store.update { copy(thickDp = v.roundToInt()) } }
+            Text("색", fontSize = 14.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                BAR_COLORS.forEach { c ->
+                    val selected = s.color == c
+                    Box(
+                        Modifier
+                            .size(36.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(androidx.compose.ui.graphics.Color(c))
+                            .then(
+                                if (selected) Modifier.border(3.dp, MaterialTheme.colorScheme.primary, androidx.compose.foundation.shape.CircleShape)
+                                else Modifier.border(1.dp, androidx.compose.ui.graphics.Color.Gray, androidx.compose.foundation.shape.CircleShape)
+                            )
+                            .semantics { contentDescription = "막대 색 ${Integer.toHexString(c)}" }
+                            .clickable { store.update { copy(color = c) } },
+                    )
+                }
+            }
             LabeledSlider("투명도 ${(s.alpha * 100).roundToInt()}%", s.alpha, 0.2f..1f) { v -> store.update { copy(alpha = v) } }
             LabeledSlider("원형 메뉴에 한 번에 ${s.maxVisible}개까지", s.maxVisible.toFloat(), 3f..9f) { v ->
                 store.update { copy(maxVisible = v.roundToInt()) }
@@ -235,6 +255,12 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
         )
     }
 }
+
+/** 막대 색 고르기: 흰색(기본), 파랑, 검정, 빨강, 초록, 보라, 노랑 */
+private val BAR_COLORS = listOf(
+    0xFFFFFFFF.toInt(), 0xFF5B8CFF.toInt(), 0xFF111318.toInt(), 0xFFFF5A5F.toInt(),
+    0xFF4ED18A.toInt(), 0xFFB388FF.toInt(), 0xFFFFC857.toInt(),
+)
 
 /**
  * 끌어서 순서 바꾸기. 줄 높이가 같으므로, 끈 거리가 반 줄을 넘을 때마다 이웃과 자리를 바꾼다.

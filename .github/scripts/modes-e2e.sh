@@ -44,8 +44,10 @@ adb shell pm grant $PKG android.permission.POST_NOTIFICATIONS || true
 SIZE=$(adb shell wm size | grep -oE '[0-9]+x[0-9]+' | tail -1); W=${SIZE%x*}; H=${SIZE#*x}
 DENS=$(adb shell wm density | grep -oE '[0-9]+' | tail -1)
 log "화면 ${W}x${H} @${DENS}dpi"
-BTN_PX=$(( 48 * DENS / 160 ))
-BX=$(( W - BTN_PX * 3 / 8 ))
+# 막대: 길이 72dp, 굵기 6dp + 누르는 여백 18dp
+BTN_PX=$(( 72 * DENS / 160 ))
+BTN_W=$(( 24 * DENS / 160 ))
+BX=$(( W - BTN_W / 2 ))
 BY=$(( (H - BTN_PX) * 40 / 100 + BTN_PX / 2 ))
 popup() { adb shell input tap $BX $BY; sleep 2; }
 
@@ -177,6 +179,7 @@ adb shell input keyevent 4; sleep 1
 # 9) 모드를 많이 만들어 원형 메뉴 돌리기 (한 번에 5개, 모드 8개 + 설정)
 adb shell am start -W -n $PKG/.MainActivity; sleep 2
 for i in 1 2 3 4; do
+  adb shell input swipe $(( W / 2 )) $(( H * 3 / 4 )) $(( W / 2 )) $(( H / 3 )) 300; sleep 1
   dump add.xml; tap_text add.xml text "모드 추가"; sleep 2
   dump add2.xml; tap_text add2.xml text "기본 바탕화면"; sleep 1
   tap_text add2.xml text "이름"; sleep 1
@@ -196,7 +199,7 @@ adb shell input keyevent 4; sleep 1
 # 10) 왼쪽으로: 버튼을 끌어 화면 가운데를 넘겨 놓기
 adb shell input swipe $BX $BY $(( W / 5 )) $BY 600; sleep 2
 shot 16-left-side.png
-adb shell input tap $(( BTN_PX * 3 / 8 )) $BY; sleep 2
+adb shell input tap $(( BTN_W / 2 )) $BY; sleep 2
 shot 17-left-menu.png
 adb shell input keyevent 4
 

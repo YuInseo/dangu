@@ -26,7 +26,6 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
@@ -130,18 +129,13 @@ class OverlayService : Service() {
     @SuppressLint("ClickableViewAccessibility")
     private fun addButton() {
         val s = store.value
+        // 화면 끝의 얇은 막대. 보이는 막대는 가늘어도 누르는 자리는 넉넉하게(투명한 여백).
         val view = FrameLayout(this).apply {
             contentDescription = "모드 버튼"
-            addView(
-                ImageView(context).apply {
-                    setImageResource(R.drawable.ic_stat)
-                    setColorFilter(Color.WHITE)
-                },
-                FrameLayout.LayoutParams(dp(20), dp(20), Gravity.CENTER),
-            )
+            addView(View(context), FrameLayout.LayoutParams(dp(s.thickDp), -1, Gravity.END))
         }
         buttonParams = WindowManager.LayoutParams(
-            dp(s.sizeDp * 0.75f), dp(s.sizeDp),
+            dp(s.thickDp + TOUCH_EXTRA), dp(s.sizeDp),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // 포커스를 받지 않는다: 버튼 밖의 터치·키는 뒤의 앱이 그대로 받는다.
             // LAYOUT_IN_SCREEN: y를 상태 표시줄 아래가 아니라 화면 맨 위부터 잰다 — 설정의 "세로 위치"와 맞게.
@@ -203,17 +197,20 @@ class OverlayService : Service() {
     private fun apply(s: Store.Snapshot) {
         val v = button ?: return
         val h = dp(s.sizeDp)
-        val w = dp(s.sizeDp * 0.75f)
-        buttonParams.width = w
+        buttonParams.width = dp(s.thickDp + TOUCH_EXTRA)
         buttonParams.height = h
         buttonParams.y = ((screenHeight() - h) * s.y).roundToInt()
         buttonParams.gravity = (if (s.right) Gravity.END else Gravity.START) or Gravity.TOP
-        v.background = GradientDrawable().apply {
-            setColor(ACCENT)
-            // 붙은 쪽 끝에 반쪽 알약(바깥쪽만 둥글게)
-            val r = h / 2f
-            cornerRadii = if (s.right) floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r) else floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+        val bar = v.getChildAt(0)
+        bar.layoutParams = FrameLayout.LayoutParams(dp(s.thickDp), -1, if (s.right) Gravity.END else Gravity.START).apply {
+            // 끝에서 살짝 띄운다
+            if (s.right) rightMargin = dp(2) else leftMargin = dp(2)
         }
+        bar.background = GradientDrawable().apply {
+            setColor(s.color)
+            cornerRadius = dp(s.thickDp).toFloat()
+        }
+        bar.elevation = dp(2).toFloat()
         v.alpha = s.alpha
         runCatching { wm.updateViewLayout(v, buttonParams) }
     }
@@ -272,7 +269,7 @@ class OverlayService : Service() {
         // 이웃 거품 사이(중심끼리) 거리를 고정하고, "한 번에 보일 개수"가 반원(최대 160°)에 들어갈 만큼만 반지름을 키운다.
         val n = entries.size
         val visible = minOf(n, store.value.maxVisible).coerceAtLeast(1)
-        val chord = dp(74).toDouble()
+        val chord = dp(64).toDouble()
         val maxSpan = 160.0
         val radius = if (visible <= 1) dp(88).toFloat() else {
             val stepMax = Math.toRadians(minOf(44.0, maxSpan / (visible - 1)))
@@ -301,8 +298,8 @@ class OverlayService : Service() {
             return (if (right) dx else -dx) to dy
         }
 
-        val bubbleW = dp(92)
-        val circle = dp(58)
+        val circle = dp(50)
+        val accent = store.value.color.let { if (it == 0xFFFFFFFF.toInt()) ACCENT else it }
         val made = ArrayList<Bubble>()
         val views = ArrayList<View>()
 
@@ -324,39 +321,50 @@ class OverlayService : Service() {
         }
 
         entries.forEachIndexed { i, entry ->
+            val icon = TextView(this).apply {
+                text = entry.emoji
+                textSize = 22f
+                gravity = Gravity.CENTER
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    colors = intArrayOf(0xFF2A3446.toInt(), 0xFF1B2230.toInt())
+                    gradientType = GradientDrawable.RADIAL_GRADIENT
+                    gradientRadius = circle / 1.2f
+                    setStroke(dp(2), accent)
+                }
+            }
+            val name = label(entry.label, 14f, Color.WHITE).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                maxLines = 2
+                setPadding(dp(12), 0, dp(12), 0)
+            }
+            // 원은 바깥쪽(버튼 쪽), 이름은 화면 안쪽으로. 둘을 감싼 알약 배경.
             val bubble = LinearLayout(this).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
                 contentDescription = entry.label
-                addView(TextView(context).apply {
-                    text = entry.emoji
-                    textSize = 24f
-                    gravity = Gravity.CENTER
-                    background = GradientDrawable().apply {
-                        shape = GradientDrawable.OVAL
-                        colors = intArrayOf(0xFF2A3446.toInt(), 0xFF1B2230.toInt())
-                        gradientType = GradientDrawable.RADIAL_GRADIENT
-                        gradientRadius = circle / 1.2f
-                        setStroke(dp(2), ACCENT)
-                    }
-                    elevation = dp(6).toFloat()
-                }, LinearLayout.LayoutParams(circle, circle))
-                addView(label(entry.label, 12f, Color.WHITE).apply {
-                    gravity = Gravity.CENTER
-                    setShadowLayer(6f, 0f, 1f, Color.BLACK)
-                    maxLines = 2
-                    setPadding(0, dp(4), 0, 0)
-                }, LinearLayout.LayoutParams(bubbleW, LinearLayout.LayoutParams.WRAP_CONTENT))
+                background = GradientDrawable().apply { setColor(0xE61B2230.toInt()); cornerRadius = circle / 2f }
+                elevation = dp(6).toFloat()
+                if (right) {
+                    addView(name, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, circle))
+                    addView(icon, LinearLayout.LayoutParams(circle, circle))
+                } else {
+                    addView(icon, LinearLayout.LayoutParams(circle, circle))
+                    addView(name, LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, circle))
+                }
                 setOnClickListener { if (isEnabled) entry.action() }
             }
-            // 모든 거품의 기준점은 버튼 중심. 자리는 translation으로만 옮긴다(돌릴 때 가볍게).
-            root.addView(bubble, FrameLayout.LayoutParams(bubbleW, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-                leftMargin = (cx - bubbleW / 2f).roundToInt()
+            // 기준점은 버튼 중심: 원의 중심이 거기 오도록 붙는 쪽 끝에서 잰다. 자리는 translation으로.
+            root.addView(bubble, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, circle).apply {
+                gravity = (if (right) Gravity.END else Gravity.START) or Gravity.TOP
+                if (right) rightMargin = (screenW - cx - circle / 2f).roundToInt()
+                else leftMargin = (cx - circle / 2f).roundToInt()
                 topMargin = (cy - circle / 2f).roundToInt()
             })
             views += bubble
         }
         layoutAll(animate = false)
+        views.forEach { v -> v.post { v.pivotX = if (right) v.width - circle / 2f else circle / 2f; v.pivotY = circle / 2f } }
         // 버튼 자리에서 튀어나오게.
         views.forEachIndexed { i, v ->
             val tx = v.translationX; val ty = v.translationY; val a = v.alpha; val sc = v.scaleX
@@ -416,7 +424,7 @@ class OverlayService : Service() {
             setTextColor(Color.WHITE)
             gravity = Gravity.CENTER
             contentDescription = "닫기"
-            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ACCENT) }
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(accent) }
             elevation = dp(8).toFloat()
             setOnClickListener { closePopup() }
             rotation = -90f
@@ -481,6 +489,8 @@ class OverlayService : Service() {
         private const val NOTIFICATION_ID = 7
         private const val ACTION_HIDE = "com.dangu.modes.HIDE"
         private const val ACCENT = 0xFF5B8CFF.toInt()
+        /** 막대 옆 투명한 누르는 자리(dp) */
+        private const val TOUCH_EXTRA = 18
 
         /** 버튼 켜기. 권한이 없으면 false — 설정 화면이 권한 화면으로 보낸다. */
         fun start(context: Context): Boolean {
