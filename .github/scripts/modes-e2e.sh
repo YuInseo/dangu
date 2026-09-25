@@ -74,8 +74,8 @@ grep -q "텅 빈 새 바탕화면" "$OUT/04.xml" && log "   처음엔 비어 있
 # 빈 곳 길게 → 편집 모드
 adb shell input swipe $(( W / 2 )) $(( H / 2 )) $(( W / 2 )) $(( H / 2 )) 900; sleep 2
 shot 04b-edit-mode.png; dump 04b.xml
-grep -q "완료" "$OUT/04b.xml" && log "   길게 눌러 편집 모드: 됨" || log "   길게 눌러 편집 모드: 안 됨"
-tap_text 04b.xml text "+ 앱"; sleep 3
+grep -q "바탕화면 편집" "$OUT/04b.xml" && log "   빈 곳 길게 눌러 편집 모드: 됨" || log "   빈 곳 길게 눌러 편집 모드: 안 됨"
+tap_text 04b.xml text "앱"; sleep 3
 dump 04c.xml
 for app in Settings Camera Gallery Phone Contacts Messaging; do
   XY=$(find_xy "$OUT/04c.xml" text "$app"); [ -n "$XY" ] && adb shell input tap $XY && sleep 0.3
@@ -99,6 +99,19 @@ dump 04g.xml
 grep -q 'content-desc="Gallery"' "$OUT/04g.xml" && log "   🗑로 끌어 삭제: 안 됨" || log "   🗑로 끌어 삭제: 됨"
 tap_text 04g.xml text "완료"; sleep 2
 shot 04h-edited-home.png
+dump 04h.xml
+A4=$(find_xy "$OUT/04h.xml" content-desc "Contacts")
+if [ -n "$A4" ]; then
+  set -- $A4
+  adb shell input swipe $1 $2 $1 $2 900; sleep 2
+  shot 04i-app-menu.png; dump 04i.xml
+  grep -q "앱 정보" "$OUT/04i.xml" && log "   앱 길게 누르면 메뉴: 됨" || log "   앱 길게 누르면 메뉴: 안 됨"
+  grep -q "바탕화면 편집" "$OUT/04i.xml" && grep -q '"완료"' "$OUT/04i.xml" && log "   (앱 길게 눌렀는데 편집 모드로 바뀜 — 잘못)"
+  adb shell input keyevent 4; sleep 1
+  # 편집 모드가 아닌 채로 끌어 옮기기
+  adb shell input draganddrop $1 $2 $(( W / 2 )) $(( H * 55 / 100 )) 1500; sleep 2
+  shot 04j-moved-without-edit.png
+fi
 
 # 5) 다시 버튼 → 기본 바탕화면
 popup; dump 05.xml
@@ -159,6 +172,32 @@ log "   후: $after"
 adb shell input keyevent 3; sleep 1
 popup
 shot 13-popup-new-order.png
+adb shell input keyevent 4; sleep 1
+
+# 9) 모드를 많이 만들어 원형 메뉴 돌리기 (한 번에 5개, 모드 8개 + 설정)
+adb shell am start -W -n $PKG/.MainActivity; sleep 2
+for i in 1 2 3 4; do
+  dump add.xml; tap_text add.xml text "모드 추가"; sleep 2
+  dump add2.xml; tap_text add2.xml text "기본 바탕화면"; sleep 1
+  tap_text add2.xml text "이름"; sleep 1
+  adb shell input text "extra$i"; sleep 1
+  dump add3.xml; tap_text add3.xml text "저장"; sleep 2
+done
+adb shell input keyevent 3; sleep 1
+popup
+shot 14-wheel-before.png; dump 14.xml
+log "⑧ 돌리기 전 보이는 거품: $(grep -oE 'content-desc="[^"]+"' "$OUT/14.xml" | grep -vE '닫기' | tr '\n' ' ')"
+# 버튼 둘레로 원을 그리며 끌기(위 → 아래 방향)
+R=$(( 140 * DENS / 160 ))
+adb shell input swipe $(( BX - R / 2 )) $(( BY - R )) $(( BX - R )) $(( BY + R / 3 )) 800; sleep 1
+shot 15-wheel-rotated.png
+adb shell input keyevent 4; sleep 1
+
+# 10) 왼쪽으로: 버튼을 끌어 화면 가운데를 넘겨 놓기
+adb shell input swipe $BX $BY $(( W / 5 )) $BY 600; sleep 2
+shot 16-left-side.png
+adb shell input tap $(( BTN_PX * 3 / 8 )) $BY; sleep 2
+shot 17-left-menu.png
 adb shell input keyevent 4
 
 adb logcat -d | grep -A30 "FATAL EXCEPTION" > "$OUT/crash.txt" || echo "크래시 없음" > "$OUT/crash.txt"

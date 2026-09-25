@@ -99,7 +99,7 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
     ) {
         Text("모드 스위치", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         Text(
-            "오른쪽 끝의 버튼으로 바탕화면·앱 고정 모드를 바로 바꿉니다. 기본 홈 앱은 바꾸지 않아요.",
+            "화면 끝의 버튼으로 바탕화면·앱 고정 모드를 바로 바꿉니다. 기본 홈 앱은 바꾸지 않아요.",
             color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium,
         )
 
@@ -114,7 +114,7 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
                     )
                 }) { Text("권한 허용하러 가기") }
             }
-            Toggle("플로팅 버튼", if (s.enabled) "켜짐 — 모든 화면 오른쪽 끝" else "꺼짐", s.enabled) { on ->
+            Toggle("플로팅 버튼", if (s.enabled) "켜짐 — 모든 화면 ${if (s.right) "오른쪽" else "왼쪽"} 끝" else "꺼짐", s.enabled) { on ->
                 if (on) {
                     if (Build.VERSION.SDK_INT >= 33) notif.launch(Manifest.permission.POST_NOTIFICATIONS)
                     store.update { copy(enabled = true) }
@@ -132,10 +132,29 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
         // ── 버튼 모양 ──
         Card {
             Section("버튼")
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("붙는 쪽", Modifier.weight(1f), fontSize = 14.sp)
+                androidx.compose.material3.SingleChoiceSegmentedButtonRow {
+                    listOf(false to "왼쪽", true to "오른쪽").forEachIndexed { i, (right, name) ->
+                        androidx.compose.material3.SegmentedButton(
+                            selected = s.right == right,
+                            onClick = { store.update { copy(right = right) } },
+                            shape = androidx.compose.material3.SegmentedButtonDefaults.itemShape(i, 2),
+                        ) { Text(name) }
+                    }
+                }
+            }
             LabeledSlider("세로 위치 ${(s.y * 100).roundToInt()}%", s.y, 0f..1f) { v -> store.update { copy(y = v) } }
             LabeledSlider("크기 ${s.sizeDp}dp", s.sizeDp.toFloat(), 28f..96f) { v -> store.update { copy(sizeDp = v.roundToInt()) } }
             LabeledSlider("투명도 ${(s.alpha * 100).roundToInt()}%", s.alpha, 0.2f..1f) { v -> store.update { copy(alpha = v) } }
-            Text("버튼을 직접 위아래로 끌어도 됩니다.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
+            LabeledSlider("원형 메뉴에 한 번에 ${s.maxVisible}개까지", s.maxVisible.toFloat(), 3f..9f) { v ->
+                store.update { copy(maxVisible = v.roundToInt()) }
+            }
+            Text(
+                "버튼을 직접 끌어 위아래로 옮기고, 가운데를 넘겨 놓으면 반대쪽 끝에 붙어요. " +
+                    "모드가 한 번에 보일 개수보다 많으면 원을 손가락으로 돌려서 봅니다.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
+            )
         }
 
         // ── 모드 목록 ──

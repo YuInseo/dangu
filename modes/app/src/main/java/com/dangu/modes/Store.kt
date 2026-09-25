@@ -22,6 +22,10 @@ class Store private constructor(context: Context) {
         val sizeDp: Int,
         /** 쉴 때 투명도 0.2~1 */
         val alpha: Float,
+        /** 버튼이 붙는 쪽: 오른쪽이면 true */
+        val right: Boolean,
+        /** 원형 메뉴에 한 번에 보일 최대 개수. 넘치면 돌려서 본다. */
+        val maxVisible: Int,
         val modes: List<Mode>,
         /** 비밀 바탕화면의 배치(처음엔 비어 있다) */
         val desktop: Desktop,
@@ -34,6 +38,8 @@ class Store private constructor(context: Context) {
         y = sp.getFloat("y", 0.4f),
         sizeDp = sp.getInt("size", 48),
         alpha = sp.getFloat("alpha", 0.85f),
+        right = sp.getBoolean("right", true),
+        maxVisible = sp.getInt("maxVisible", 5),
         modes = Mode.listFromJson(sp.getString("modes", null)) ?: Mode.defaults,
         desktop = Desktop.fromJson(sp.getString("desktop", null)),
         secretLock = sp.getBoolean("secretLock", false),
@@ -45,13 +51,18 @@ class Store private constructor(context: Context) {
 
     fun update(block: Snapshot.() -> Snapshot) {
         val n = value.block().let {
-            it.copy(y = it.y.coerceIn(0f, 1f), sizeDp = it.sizeDp.coerceIn(28, 96), alpha = it.alpha.coerceIn(0.2f, 1f))
+            it.copy(
+                y = it.y.coerceIn(0f, 1f), sizeDp = it.sizeDp.coerceIn(28, 96), alpha = it.alpha.coerceIn(0.2f, 1f),
+                maxVisible = it.maxVisible.coerceIn(3, 9),
+            )
         }
         sp.edit {
             putBoolean("enabled", n.enabled)
             putFloat("y", n.y)
             putInt("size", n.sizeDp)
             putFloat("alpha", n.alpha)
+            putBoolean("right", n.right)
+            putInt("maxVisible", n.maxVisible)
             putString("modes", Mode.listToJson(n.modes))
             putString("desktop", n.desktop.toJson())
             putBoolean("secretLock", n.secretLock)

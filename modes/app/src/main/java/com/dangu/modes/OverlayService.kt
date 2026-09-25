@@ -155,22 +155,26 @@ class OverlayService : Service() {
             if (Build.VERSION.SDK_INT >= 30) setFitInsetsTypes(0)
         }
 
-        // 세로로 끌어 옮기고, 거의 안 움직였으면 누른 것으로 본다.
+        // 끌어서 옮기고(세로는 자리, 가로로 화면 가운데를 넘기면 반대쪽 끝으로), 거의 안 움직였으면 누른 것.
         val slop = ViewConfiguration.get(this).scaledTouchSlop
+        var downRawX = 0f
         var downRawY = 0f
         var startY = 0
         var dragging = false
         view.setOnTouchListener { v, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
-                    downRawY = e.rawY; startY = buttonParams.y; dragging = false
+                    downRawX = e.rawX; downRawY = e.rawY; startY = buttonParams.y; dragging = false
                     v.alpha = 1f
                 }
                 MotionEvent.ACTION_MOVE -> {
                     val dy = e.rawY - downRawY
-                    if (!dragging && abs(dy) > slop) dragging = true
+                    val dx = e.rawX - downRawX
+                    if (!dragging && (abs(dy) > slop || abs(dx) > slop)) dragging = true
                     if (dragging) {
                         buttonParams.y = (startY + dy).roundToInt().coerceIn(0, screenHeight() - buttonParams.height)
+                        // 끄는 동안 손가락을 따라 가로로도 움직인다(붙은 쪽 끝에서 잰 거리).
+                        buttonParams.x = (if (store.value.right) -dx else dx).roundToInt().coerceIn(0, screenWidth() - buttonParams.width)
                         wm.updateViewLayout(v, buttonParams)
                     }
                 }
@@ -179,7 +183,9 @@ class OverlayService : Service() {
                     if (dragging) {
                         // 옮긴 자리를 설정에도 남긴다(설정 화면의 슬라이더도 따라 움직인다).
                         val range = (screenHeight() - buttonParams.height).coerceAtLeast(1)
-                        store.update { copy(y = buttonParams.y / range.toFloat()) }
+                        val flip = e.rawX < screenWidth() / 2f == store.value.right
+                        buttonParams.x = 0
+                        store.update { copy(y = buttonParams.y / range.toFloat(), right = if (flip) !right else right) }
                     } else if (e.actionMasked == MotionEvent.ACTION_UP) {
                         v.performClick()
                         showPopup()
@@ -201,10 +207,12 @@ class OverlayService : Service() {
         buttonParams.width = w
         buttonParams.height = h
         buttonParams.y = ((screenHeight() - h) * s.y).roundToInt()
+        buttonParams.gravity = (if (s.right) Gravity.END else Gravity.START) or Gravity.TOP
         v.background = GradientDrawable().apply {
             setColor(ACCENT)
-            // 오른쪽 끝에 붙은 반쪽 알약
-            cornerRadii = floatArrayOf(h / 2f, h / 2f, 0f, 0f, 0f, 0f, h / 2f, h / 2f)
+            // 붙은 쪽 끝에 반쪽 알약(바깥쪽만 둥글게)
+            val r = h / 2f
+            cornerRadii = if (s.right) floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r) else floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
         }
         v.alpha = s.alpha
         runCatching { wm.updateViewLayout(v, buttonParams) }
@@ -234,7 +242,8 @@ class OverlayService : Service() {
 
         val screenW = screenWidth()
         val screenH = screenHeight()
-        val cx = screenW - buttonParams.width / 2f
+        val right = store.value.right
+        val cx = if (right) screenW - buttonParams.width / 2f else buttonParams.width / 2f
         val cy = buttonParams.y + buttonParams.height / 2f
 
         data class Entry(val emoji: String, val label: String, val action: () -> Unit)
@@ -254,42 +263,67 @@ class OverlayService : Service() {
                 if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) { closePopup(); return true }
                 return super.dispatchKeyEvent(event)
             }
-        }.apply {
-            isFocusableInTouchMode = true
-            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_DOWN) closePopup(); true } // 거품 바깥
-        }
+        }.apply { isFocusableInTouchMode = true }
         val dim = View(this).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
         root.addView(dim, FrameLayout.LayoutParams(-1, -1))
         dim.animate().alpha(0.45f).setDuration(200).start()
         scrim = dim
 
-        // 이웃한 거품 사이(중심끼리) 거리를 먼저 정하고, 그 간격이 나오는 만큼만 반지름을 키운다.
-        // 몇 개 안 되면 버튼 바로 옆에 촘촘하게, 많을 때만 반원이 넓어진다.
+        // 이웃 거품 사이(중심끼리) 거리를 고정하고, "한 번에 보일 개수"가 반원(최대 160°)에 들어갈 만큼만 반지름을 키운다.
         val n = entries.size
+        val visible = minOf(n, store.value.maxVisible).coerceAtLeast(1)
         val chord = dp(74).toDouble()
         val maxSpan = 160.0
-        val radius = if (n <= 1) dp(88).toFloat() else {
-            val stepMax = Math.toRadians(minOf(44.0, maxSpan / (n - 1)))
+        val radius = if (visible <= 1) dp(88).toFloat() else {
+            val stepMax = Math.toRadians(minOf(44.0, maxSpan / (visible - 1)))
             maxOf(dp(88).toDouble(), chord / (2 * Math.sin(stepMax / 2))).toFloat()
         }
         val step = if (n <= 1) 0.0 else Math.toDegrees(2 * Math.asin((chord / (2 * radius)).coerceAtMost(1.0)))
-        val span = step * (n - 1)
-        val margin = dp(64)
-        fun ys(center: Double) = (0 until n).map { i ->
-            val deg = center + span / 2 - (if (n <= 1) 0.0 else span * i / (n - 1))
-            cy - radius * Math.sin(Math.toRadians(deg))
+        val window = step * (visible - 1) // 한 번에 보이는 각도
+        val margin = dp(64).toDouble()
+
+        // 각도는 "버튼에서 화면 안쪽으로" 잰다: 180°가 정면(가로), 90°가 위, 270°가 아래.
+        // 항목 i의 각도 = base + i·step. 화면 끝에 가까우면 보이는 창을 위·아래로 돌려 잘리지 않게.
+        fun yAt(deg: Double) = cy - radius * Math.sin(Math.toRadians(deg))
+        val windowCenter = (0..14).flatMap { k -> listOf(180.0 + k * 5, 180.0 - k * 5) }
+            .firstOrNull { c -> listOf(c - window / 2, c + window / 2).all { yAt(it) in margin..(screenH - margin) } } ?: 180.0
+        val lo = windowCenter - window / 2 // 보이는 창의 위 끝
+        val hi = windowCenter + window / 2 // 아래 끝
+        val total = step * (n - 1)
+        // 돌릴 수 있는 범위: 첫 항목이 창의 위 끝 ~ 마지막 항목이 창의 아래 끝.
+        val baseMin = hi - total
+        val baseMax = lo
+        var base = if (n <= visible) windowCenter - total / 2 else baseMax
+
+        fun offsetOf(deg: Double): Pair<Float, Float> {
+            val dx = (radius * Math.cos(Math.toRadians(deg))).toFloat() // 180°면 -radius(안쪽)
+            val dy = (-radius * Math.sin(Math.toRadians(deg))).toFloat()
+            return (if (right) dx else -dx) to dy
         }
-        // 180°(왼쪽)을 가운데로, 잘리면 아래(>180)나 위(<180)로 돌린다.
-        val center = (0..14).flatMap { k -> listOf(180.0 + k * 5, 180.0 - k * 5) }
-            .firstOrNull { c -> ys(c).all { it in margin.toDouble()..(screenH - margin).toDouble() } } ?: 180.0
 
         val bubbleW = dp(92)
         val circle = dp(58)
         val made = ArrayList<Bubble>()
+        val views = ArrayList<View>()
+
+        /** 각 거품을 지금 base에 맞는 자리로. 창 밖으로 나간 것은 흐려지고 눌리지 않는다. */
+        fun layoutAll(animate: Boolean) {
+            views.forEachIndexed { i, v ->
+                val deg = base + i * step
+                val (ox, oy) = offsetOf(deg)
+                val out = maxOf(lo - deg, deg - hi, 0.0)
+                val fade = (1.0 - out / (step * 0.9)).coerceIn(0.0, 1.0).toFloat()
+                v.isEnabled = fade > 0.5f
+                if (animate) return@forEachIndexed
+                v.translationX = ox
+                v.translationY = oy
+                v.alpha = fade
+                val sc = 0.75f + 0.25f * fade
+                v.scaleX = sc; v.scaleY = sc
+            }
+        }
+
         entries.forEachIndexed { i, entry ->
-            val deg = center + span / 2 - (if (n <= 1) 0.0 else span * i / (n - 1))
-            val x = cx + radius * Math.cos(Math.toRadians(deg)).toFloat()
-            val y = cy - radius * Math.sin(Math.toRadians(deg)).toFloat()
             val bubble = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER_HORIZONTAL
@@ -313,28 +347,66 @@ class OverlayService : Service() {
                     maxLines = 2
                     setPadding(0, dp(4), 0, 0)
                 }, LinearLayout.LayoutParams(bubbleW, LinearLayout.LayoutParams.WRAP_CONTENT))
-                setOnClickListener { entry.action() }
+                setOnClickListener { if (isEnabled) entry.action() }
             }
-            val lp = FrameLayout.LayoutParams(bubbleW, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
-                leftMargin = (x - bubbleW / 2f).roundToInt()
-                topMargin = (y - circle / 2f).roundToInt()
+            // 모든 거품의 기준점은 버튼 중심. 자리는 translation으로만 옮긴다(돌릴 때 가볍게).
+            root.addView(bubble, FrameLayout.LayoutParams(bubbleW, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = (cx - bubbleW / 2f).roundToInt()
+                topMargin = (cy - circle / 2f).roundToInt()
+            })
+            views += bubble
+        }
+        layoutAll(animate = false)
+        // 버튼 자리에서 튀어나오게.
+        views.forEachIndexed { i, v ->
+            val tx = v.translationX; val ty = v.translationY; val a = v.alpha; val sc = v.scaleX
+            v.translationX = 0f; v.translationY = 0f; v.scaleX = 0.2f; v.scaleY = 0.2f; v.alpha = 0f
+            v.animate().translationX(tx).translationY(ty).scaleX(sc).scaleY(sc).alpha(a)
+                .setStartDelay(i * 28L).setDuration(340)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.4f)).start()
+            made += Bubble(v, 0f, 0f)
+        }
+
+        // 돌리기: 버튼 중심을 축으로 손가락이 도는 각도만큼 base를 돌린다. 놓으면 가장 가까운 칸에 딱 맞춘다.
+        // 움직이지 않고 떼면(바깥을 누름) 닫는다.
+        val slop = ViewConfiguration.get(this).scaledTouchSlop
+        var downX = 0f; var downY = 0f; var lastAngle = 0.0; var rotating = false
+        fun angleOf(x: Float, y: Float): Double {
+            val dx = if (right) x - cx else cx - x
+            return Math.toDegrees(Math.atan2(-(y - cy).toDouble(), dx.toDouble()))
+        }
+        root.setOnTouchListener { _, e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; lastAngle = angleOf(e.x, e.y); rotating = false }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!rotating && Math.hypot((e.x - downX).toDouble(), (e.y - downY).toDouble()) > slop) rotating = n > visible
+                    if (rotating) {
+                        val a2 = angleOf(e.x, e.y)
+                        var d = a2 - lastAngle
+                        if (d > 180) d -= 360
+                        if (d < -180) d += 360
+                        lastAngle = a2
+                        base = (base + d).coerceIn(baseMin, baseMax)
+                        views.forEach { it.animate().cancel() }
+                        layoutAll(animate = false)
+                    }
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (rotating) {
+                        // 가장 가까운 칸으로 스르륵
+                        val snapped = (baseMax - Math.round((baseMax - base) / step) * step).coerceIn(baseMin, baseMax)
+                        val from = base
+                        android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+                            duration = 160
+                            addUpdateListener { va -> base = from + (snapped - from) * (va.animatedValue as Float); layoutAll(animate = false) }
+                            start()
+                        }
+                    } else if (Math.hypot((e.x - downX).toDouble(), (e.y - downY).toDouble()) <= slop) {
+                        closePopup()
+                    }
+                }
             }
-            root.addView(bubble, lp)
-            // 버튼 자리에서 튀어나오게: 처음엔 버튼 위치, 작고 투명하게.
-            val dx = cx - x
-            val dy = cy - y
-            bubble.translationX = dx
-            bubble.translationY = dy
-            bubble.scaleX = 0.2f
-            bubble.scaleY = 0.2f
-            bubble.alpha = 0f
-            bubble.animate()
-                .translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).alpha(1f)
-                .setStartDelay(i * 28L)
-                .setDuration(340)
-                .setInterpolator(android.view.animation.OvershootInterpolator(1.4f))
-                .start()
-            made += Bubble(bubble, dx, dy)
+            true
         }
 
         // 가운데(버튼 자리)의 ✕
@@ -352,7 +424,7 @@ class OverlayService : Service() {
         }
         val closeSize = dp(52)
         root.addView(close, FrameLayout.LayoutParams(closeSize, closeSize).apply {
-            leftMargin = (screenW - closeSize - dp(6))
+            leftMargin = if (right) screenW - closeSize - dp(6) else dp(6)
             topMargin = (cy - closeSize / 2f).roundToInt()
         })
         bubbles = made
@@ -378,7 +450,7 @@ class OverlayService : Service() {
         val root = popup ?: return
         popup = null
         bubbles.forEach { b ->
-            b.view.animate().translationX(b.dx).translationY(b.dy).scaleX(0.2f).scaleY(0.2f).alpha(0f)
+            b.view.animate().translationX(0f).translationY(0f).scaleX(0.2f).scaleY(0.2f).alpha(0f)
                 .setStartDelay(0).setDuration(160).start()
         }
         scrim?.animate()?.alpha(0f)?.setDuration(160)?.start()

@@ -56,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -102,8 +103,8 @@ private val labelStyle = TextStyle(
     shadow = Shadow(Color.Black.copy(alpha = 0.7f), Offset(0f, 1.5f), 4f),
 )
 
-/** 끌고 있는 항목과 손가락 위치(루트 좌표). */
-private data class Drag(val from: Slot, val item: DItem, val pos: Offset)
+/** 끌고 있는 항목과 손가락 위치(루트 좌표). 조금이라도 움직여야 moved — 그 전엔 "길게 누름"일 뿐. */
+private data class Drag(val from: Slot, val item: DItem, val start: Offset, val pos: Offset, val moved: Boolean = false)
 
 /**
  * 새 바탕화면. 처음엔 비어 있고, 진짜 홈처럼 편집한다.
@@ -139,6 +140,10 @@ fun HomeScreen(activity: SecretDesktopActivity) {
     var addMany by remember { mutableStateOf(false) }
     var openFolder by remember { mutableStateOf<Slot?>(null) }
     var menu by remember { mutableStateOf(false) }
+    var itemMenu by remember { mutableStateOf<Slot?>(null) }
+    var renaming by remember { mutableStateOf<Slot?>(null) }
+    val moveSlop = with(LocalDensity.current) { 12.dp.toPx() }
+    val moving = drag?.moved == true
     val edgePx = with(LocalDensity.current) { 28.dp.toPx() }
     val deskNow by rememberUpdatedState(desk)
 
@@ -156,7 +161,7 @@ fun HomeScreen(activity: SecretDesktopActivity) {
     }
 
     // 끄는 중 가장자리에 머물면 옆 페이지로(빈 페이지를 만들어서라도).
-    val edge = drag?.pos?.x?.let { x -> if (x < edgePx) -1 else if (rootWidth > 0 && x > rootWidth - edgePx) 1 else 0 } ?: 0
+    val edge = drag?.takeIf { it.moved }?.pos?.x?.let { x -> if (x < edgePx) -1 else if (rootWidth > 0 && x > rootWidth - edgePx) 1 else 0 } ?: 0
     LaunchedEffect(edge) {
         if (edge == 0) return@LaunchedEffect
         delay(650)
@@ -179,7 +184,7 @@ fun HomeScreen(activity: SecretDesktopActivity) {
             // ── 윗줄: 평소엔 시계와 ⋮, 편집 중엔 편집 도구, 끄는 중엔 삭제 칸 ──
             Box(Modifier.fillMaxWidth().height(96.dp)) {
                 when {
-                    drag != null -> {
+                    moving -> {
                         val over = drag?.pos?.let { trashBounds.contains(it) } == true
                         Box(
                             Modifier
@@ -193,21 +198,10 @@ fun HomeScreen(activity: SecretDesktopActivity) {
                             contentAlignment = Alignment.Center,
                         ) { Text("🗑  여기에 놓으면 삭제", color = Color.White, fontWeight = FontWeight.SemiBold) }
                     }
-                    edit -> Row(
-                        Modifier.align(Alignment.Center).padding(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Pill("+ 앱") { addMany = true }
-                        Pill("+ 페이지") {
-                            save(desk.addPage())
-                            scope.launch { delay(60); pager.animateScrollToPage(desk.pages.size) }
-                        }
-                        if (desk.pages.size > 1 && desk.pages.getOrNull(pager.currentPage).isNullOrEmpty()) {
-                            Pill("페이지 삭제") { save(desk.removePage(pager.currentPage)) }
-                        }
-                        Pill("완료", strong = true) { edit = false }
-                    }
+                    edit -> Text(
+                        "바탕화면 편집", style = labelStyle.copy(fontSize = 16.sp, fontWeight = FontWeight.SemiBold),
+                        modifier = Modifier.align(Alignment.Center),
+                    )
                     else -> {
                         Clock(Modifier.align(Alignment.Center))
                         Box(Modifier.align(Alignment.TopEnd)) {
@@ -235,9 +229,10 @@ fun HomeScreen(activity: SecretDesktopActivity) {
             }
 
             // ── 페이지들 ──
+            val pageScale by animateFloatAsState(if (edit) 0.86f else 1f, label = "page-scale")
             HorizontalPager(
                 state = pager,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).graphicsLayer { scaleX = pageScale; scaleY = pageScale },
                 beyondViewportPageCount = desk.pages.size,
                 userScrollEnabled = drag == null,
                 key = { it },
@@ -247,10 +242,20 @@ fun HomeScreen(activity: SecretDesktopActivity) {
                     Modifier
                         .fillMaxSize()
                         .padding(horizontal = 12.dp)
+                        .then(
+                            if (edit) Modifier.border(1.5.dp, Color.White.copy(alpha = 0.5f), RoundedCornerShape(28.dp))
+                                .background(Color.White.copy(alpha = 0.06f), RoundedCornerShape(28.dp))
+                            else Modifier
+                        )
                         .onGloballyPositioned { gridBounds[page] = it.boundsInRoot() }
                         .pointerInput(edit) {
                             // 빈 곳 길게 → 편집 모드
-                            detectTapGestures(onLongPress = { if (!edit) edit = true })
+                            // 빈 곳을 길게 → 편집 모드. 앱 위를 길게 누른 건 앱이 맡는다(메뉴·끌기).
+                            detectTapGestures(onLongPress = { local ->
+                                val at = (gridBounds[page]?.topLeft ?: Offset.Zero) + local
+                                val onItem = itemBounds.any { (sl, r) -> sl.page == page && deskNow.at(sl) != null && r.contains(at) }
+                                if (!edit && !onItem) edit = true
+                            })
                         }
                 ) {
                     for (row in 0 until ROWS) {
@@ -262,19 +267,21 @@ fun HomeScreen(activity: SecretDesktopActivity) {
                                         slot = slot,
                                         item = cells[slot.cell],
                                         edit = edit,
-                                        hidden = drag?.from == slot,
-                                        hovered = drag != null && drag?.from != slot && drag?.pos?.let { slotAt(it) } == slot,
+                                        hidden = moving && drag?.from == slot,
+                                        hovered = moving && drag?.from != slot && drag?.pos?.let { slotAt(it) } == slot,
                                         onBounds = { itemBounds[slot] = it },
                                         onOpen = { item -> open(activity, item) { openFolder = slot } },
                                         onAdd = { addTo = slot },
+                                        menuOpen = itemMenu == slot,
                                         onDragStart = { item, local ->
-                                            edit = true
-                                            val b = itemBounds[slot] ?: Rect.Zero
-                                            drag = Drag(slot, item, b.topLeft + local)
+                                            val p = (itemBounds[slot] ?: Rect.Zero).topLeft + local
+                                            drag = Drag(slot, item, p, p)
                                         },
-                                        onDrag = { d -> drag = drag?.let { it.copy(pos = it.pos + d) } },
+                                        onDrag = { d -> drag = drag?.let { moveDrag(it, d, moveSlop) } },
                                         onDragEnd = {
-                                            drag?.let { dr -> finishDrag(dr, trashBounds, ::slotAt, deskNow, ::save) }
+                                            drag?.let { dr ->
+                                                if (dr.moved) finishDrag(dr, trashBounds, ::slotAt, deskNow, ::save) else itemMenu = slot
+                                            }
                                             drag = null
                                         },
                                     )
@@ -282,6 +289,23 @@ fun HomeScreen(activity: SecretDesktopActivity) {
                             }
                         }
                     }
+                }
+            }
+
+            if (edit) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
+                ) {
+                    Pill("＋ 앱") { addMany = true }
+                    Pill("＋ 페이지") {
+                        save(desk.addPage())
+                        scope.launch { delay(60); pager.animateScrollToPage(desk.pages.size) }
+                    }
+                    if (desk.pages.size > 1 && desk.pages.getOrNull(pager.currentPage).isNullOrEmpty()) {
+                        Pill("페이지 삭제") { save(desk.removePage(pager.currentPage)) }
+                    }
+                    Pill("완료", strong = true) { edit = false }
                 }
             }
 
@@ -310,18 +334,21 @@ fun HomeScreen(activity: SecretDesktopActivity) {
                     Box(Modifier.weight(1f).height(84.dp), contentAlignment = Alignment.Center) {
                         Cell(
                             slot = slot, item = desk.dock[i], edit = edit, showLabel = false,
-                            hidden = drag?.from == slot,
-                            hovered = drag != null && drag?.from != slot && drag?.pos?.let { slotAt(it) } == slot,
+                            hidden = moving && drag?.from == slot,
+                            hovered = moving && drag?.from != slot && drag?.pos?.let { slotAt(it) } == slot,
                             onBounds = { itemBounds[slot] = it },
                             onOpen = { item -> open(activity, item) { openFolder = slot } },
                             onAdd = { addTo = slot },
+                            menuOpen = itemMenu == slot,
                             onDragStart = { item, local ->
-                                edit = true
-                                drag = Drag(slot, item, (itemBounds[slot] ?: Rect.Zero).topLeft + local)
+                                val p = (itemBounds[slot] ?: Rect.Zero).topLeft + local
+                                drag = Drag(slot, item, p, p)
                             },
-                            onDrag = { d -> drag = drag?.let { it.copy(pos = it.pos + d) } },
+                            onDrag = { d -> drag = drag?.let { moveDrag(it, d, moveSlop) } },
                             onDragEnd = {
-                                drag?.let { dr -> finishDrag(dr, trashBounds, ::slotAt, deskNow, ::save) }
+                                drag?.let { dr ->
+                                    if (dr.moved) finishDrag(dr, trashBounds, ::slotAt, deskNow, ::save) else itemMenu = slot
+                                }
                                 drag = null
                             },
                         )
@@ -339,7 +366,7 @@ fun HomeScreen(activity: SecretDesktopActivity) {
         }
 
         // 손가락을 따라다니는 항목
-        drag?.let { d ->
+        drag?.takeIf { it.moved }?.let { d ->
             val half = with(LocalDensity.current) { 32.dp.toPx() }
             Box(Modifier.offset { IntOffset((d.pos.x - half).roundToInt(), (d.pos.y - half - 40).roundToInt()) }) {
                 Box(Modifier.scale(1.15f)) { ItemIcon(d.item, 64) }
@@ -360,6 +387,38 @@ fun HomeScreen(activity: SecretDesktopActivity) {
             addMany = false
         })
     }
+    renaming?.let { slot ->
+        val f = desk.at(slot) as? DItem.Folder
+        if (f == null) renaming = null else {
+            var name by remember(slot) { mutableStateOf(f.name) }
+            AlertDialog(
+                onDismissRequest = { renaming = null },
+                title = { Text("폴더 이름") },
+                text = { OutlinedTextField(name, { name = it }, singleLine = true) },
+                confirmButton = { TextButton(onClick = { save(desk.renameFolder(slot, name)); renaming = null }) { Text("저장") } },
+                dismissButton = { TextButton(onClick = { renaming = null }) { Text("취소") } },
+            )
+        }
+    }
+    itemMenu?.let { slot ->
+        val item = desk.at(slot)
+        if (item == null) itemMenu = null else {
+            ItemMenu(
+                item = item,
+                onDismiss = { itemMenu = null },
+                onInfo = { pkg ->
+                    itemMenu = null
+                    activity.startActivity(
+                        Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, android.net.Uri.parse("package:$pkg"))
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                },
+                onRemove = { itemMenu = null; save(desk.remove(slot)) },
+                onRename = { itemMenu = null; renaming = slot },
+                onEdit = { itemMenu = null; edit = true },
+            )
+        }
+    }
     openFolder?.let { slot ->
         (desk.at(slot) as? DItem.Folder)?.let { f ->
             FolderDialog(
@@ -371,6 +430,48 @@ fun HomeScreen(activity: SecretDesktopActivity) {
             )
         } ?: run { openFolder = null }
     }
+}
+
+private fun moveDrag(d: Drag, delta: Offset, slop: Float): Drag {
+    val p = d.pos + delta
+    return d.copy(pos = p, moved = d.moved || (p - d.start).getDistance() > slop)
+}
+
+/** 길게 눌렀다가 제자리에서 떼면 뜨는 메뉴(보통 홈과 같이). */
+@Composable
+private fun ItemMenu(
+    item: DItem,
+    onDismiss: () -> Unit,
+    onInfo: (String) -> Unit,
+    onRemove: () -> Unit,
+    onRename: () -> Unit,
+    onEdit: () -> Unit,
+) {
+    val context = LocalContext.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                ItemIcon(item, 36)
+                Spacer(Modifier.width(12.dp))
+                Text(if (item is DItem.App) IconCache.label(context, item.pkg) else (item as DItem.Folder).name)
+            }
+        },
+        text = {
+            Column {
+                if (item is DItem.App) MenuRow("ⓘ  앱 정보") { onInfo(item.pkg) }
+                if (item is DItem.Folder) MenuRow("✎  폴더 이름 바꾸기", onRename)
+                MenuRow("⊟  바탕화면에서 제거", onRemove)
+                MenuRow("▦  바탕화면 편집", onEdit)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
+    )
+}
+
+@Composable
+private fun MenuRow(text: String, onClick: () -> Unit) {
+    Text(text, fontSize = 16.sp, modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 12.dp))
 }
 
 private fun finishDrag(d: Drag, trash: Rect, slotAt: (Offset) -> Slot?, desk: Desktop, save: (Desktop) -> Unit) {
@@ -407,9 +508,10 @@ private fun Cell(
     onDrag: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     showLabel: Boolean = true,
+    menuOpen: Boolean = false,
 ) {
     val context = LocalContext.current
-    val ring = if (hovered) Modifier.border(2.dp, Color.White, RoundedCornerShape(18.dp)) else Modifier
+    val ring = if (hovered || menuOpen) Modifier.border(2.dp, Color.White, RoundedCornerShape(18.dp)) else Modifier
     if (item == null) {
         if (edit) {
             Box(
@@ -417,11 +519,11 @@ private fun Cell(
                     .size(64.dp)
                     .then(ring)
                     .clip(RoundedCornerShape(18.dp))
-                    .border(1.dp, Color.White.copy(alpha = 0.35f), RoundedCornerShape(18.dp))
+                    .background(Color.White.copy(alpha = 0.08f), RoundedCornerShape(18.dp))
                     .semantics { contentDescription = "빈 칸 ${slot.page}:${slot.cell}" }
                     .clickable(onClick = onAdd),
                 contentAlignment = Alignment.Center,
-            ) { Text("+", color = Color.White.copy(alpha = 0.7f), fontSize = 22.sp) }
+            ) { Text("+", color = Color.White.copy(alpha = 0.45f), fontSize = 20.sp) }
         } else if (hovered) {
             Box(Modifier.size(64.dp).then(ring))
         }
