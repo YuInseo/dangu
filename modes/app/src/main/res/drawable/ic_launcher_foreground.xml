@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 겹친 두 화면과 오른쪽 끝의 버튼 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#FF5B8CFF" android:pathData="M34,30h30a5,5 0,0 1,5 5v38a5,5 0,0 1,-5 5h-30a5,5 0,0 1,-5 -5v-38a5,5 0,0 1,5 -5z" />
+    <path android:fillColor="#FFB8CCFF" android:pathData="M42,36h26a4,4 0,0 1,4 4v32a4,4 0,0 1,-4 4h-26a4,4 0,0 1,-4 -4v-32a4,4 0,0 1,4 -4z" />
+    <path android:fillColor="#FFFFFFFF" android:pathData="M80,46a8,8 0,0 0,0 16z" />
+</vector>

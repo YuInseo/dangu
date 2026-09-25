@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 다른 앱 위에 플로팅 버튼·팝업 -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- 버튼을 그리는 서비스가 죽지 않게. 화면 위 버튼은 정해진 종류가 없어 specialUse -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- 포그라운드 서비스 상시 알림 -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- 재부팅 뒤 버튼 복원 -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 비밀 바탕화면 잠금 -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- 실행할 수 있는 앱만 보이면 된다 — QUERY_ALL_PACKAGES는 쓰지 않는다. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
+    <!--
+        주의: 어느 액티비티도 CATEGORY_HOME을 선언하지 않는다. 그래서 이 앱은 "기본 홈 앱" 후보에
+        오르지 않고, 사용자의 홈 설정을 바꿀 수도 없다.
+    -->
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Modes">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 비밀 바탕화면: 자기만의 태스크, 최근 앱 목록에 안 남음, 실제 배경화면 위에 그림 -->
+        <activity
+            android:name=".SecretDesktopActivity"
+            android:exported="false"
+            android:taskAffinity="com.dangu.modes.secret"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:theme="@style/Theme.Modes.Desktop" />
+
+        <!-- 업무 프로필 바탕화면 -->
+        <activity
+            android:name=".WorkDesktopActivity"
+            android:exported="false"
+            android:taskAffinity="com.dangu.modes.work"
+            android:launchMode="singleTask"
+            android:theme="@style/Theme.Modes.Desktop" />
+
+        <!-- 앱 고정 호스트: 이 태스크가 고정되고, 대상 앱은 이 태스크 안에서 열린다 -->
+        <activity
+            android:name=".PinHostActivity"
+            android:exported="false"
+            android:taskAffinity="com.dangu.modes.pin"
+            android:launchMode="singleTask"
+            android:lockTaskMode="if_whitelisted"
+            android:theme="@style/Theme.Modes" />
+
+        <service
+            android:name=".OverlayService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="모든 화면 위에 떠 있는 모드 전환 버튼을 그린다" />
+        </service>
+
+        <receiver
+            android:name=".BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+        <!-- (고급) Device Owner로 지정되면 확인 창 없는 진짜 잠금을 쓴다 -->
+        <receiver
+            android:name=".AdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 정책은 하나도 쓰지 않는다. Device Owner일 때 잠금 작업(Lock Task) 허용 목록만 쓴다. -->
+<device-admin>
+    <uses-policies />
+</device-admin>

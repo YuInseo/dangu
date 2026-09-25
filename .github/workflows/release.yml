@@ -16,6 +16,11 @@ on:
       - 'v*'
     branches:
       - '**'
+    # 모드 스위치(modes/)는 따로 빌드한다 — .github/workflows/modes.yml
+    paths-ignore:
+      - 'modes/**'
+      - '.github/workflows/modes.yml'
+      - '.github/scripts/modes-e2e.sh'
   # 손으로 돌릴 때. 판올림 폭을 고를 수 있는 유일한 길이라 minor·major는 여기로 낸다.
   workflow_dispatch:
     inputs:
