@@ -75,6 +75,13 @@ class OverlayService : Service() {
         }
         if (button == null) {
             addButton()
+            // 버튼이 떠 있는 동안 반나절에 한 번 새 버전 확인(있으면 받아 두고 알림).
+            scope.launch {
+                while (true) {
+                    runCatching { AutoUpdate.run(this@OverlayService) }
+                    kotlinx.coroutines.delay(60 * 60 * 1000L)
+                }
+            }
             scope.launch {
                 store.state.collect { s ->
                     if (!s.enabled) stopSelf() else apply(s)

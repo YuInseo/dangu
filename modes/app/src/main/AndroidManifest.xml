@@ -10,6 +10,9 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- 재부팅 뒤 버튼 복원 -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- 자동 업데이트: 새 버전 확인·다운로드, 받은 APK의 설치 창 -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <!-- 비밀 바탕화면 잠금 -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
 
@@ -68,6 +71,16 @@
             android:launchMode="singleTask"
             android:lockTaskMode="if_whitelisted"
             android:theme="@style/Theme.Modes" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <service
             android:name=".OverlayService"

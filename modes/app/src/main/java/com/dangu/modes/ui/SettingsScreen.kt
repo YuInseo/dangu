@@ -78,6 +78,7 @@ import com.dangu.modes.ModeType
 import com.dangu.modes.OverlayService
 import com.dangu.modes.Store
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 /** 설정. 슬라이더를 움직이면 떠 있는 버튼이 그 자리에서 바로 따라 움직인다. */
 @Composable
@@ -190,6 +191,7 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
                 TextButton(onClick = { activity.startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS)) }) { Text("앱 고정 설정 열기") }
             }
         }
+        UpdateCard(activity)
         Spacer(Modifier.height(24.dp))
     }
 
@@ -398,5 +400,37 @@ private fun LabeledSlider(label: String, value: Float, range: ClosedFloatingPoin
         Text(label, fontSize = 14.sp)
         // 움직이는 동안 계속 반영 — 떠 있는 버튼이 실시간으로 따라온다.
         Slider(value = value, onValueChange = onChange, valueRange = range)
+    }
+}
+
+/** 자동 업데이트 상태. 새 버전을 받아 두었으면 설치 단추. */
+@Composable
+private fun UpdateCard(activity: ComponentActivity) {
+    val updater = remember { com.dangu.modes.Updater.get(activity) }
+    val state by updater.state.collectAsStateWithLifecycle()
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    Card {
+        Section("업데이트")
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("지금 ${updater.currentVersion}", fontSize = 14.sp)
+                Text(
+                    when (val u = state) {
+                        com.dangu.modes.Updater.State.Checking -> "확인 중…"
+                        com.dangu.modes.Updater.State.UpToDate -> "최신 버전이에요"
+                        is com.dangu.modes.Updater.State.Downloading -> "새 버전 ${u.versionName} 받는 중 ${(u.progress * 100).roundToInt()}%"
+                        is com.dangu.modes.Updater.State.Ready -> "새 버전 ${u.versionName} 준비됨"
+                        is com.dangu.modes.Updater.State.Failed -> "확인 실패: ${u.message}"
+                        else -> "앱을 열 때와 버튼이 떠 있는 동안 반나절마다 알아서 확인해요"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp,
+                )
+            }
+            if (state is com.dangu.modes.Updater.State.Ready) {
+                Button(onClick = { updater.install(activity) }) { Text("설치") }
+            } else {
+                TextButton(onClick = { scope.launch { com.dangu.modes.AutoUpdate.run(activity, force = true) } }) { Text("지금 확인") }
+            }
+        }
     }
 }

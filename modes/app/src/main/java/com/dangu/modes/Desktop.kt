@@ -59,8 +59,10 @@ data class Desktop(
     /** 앱들을 빈 칸에 차례로. 페이지가 모자라면 새로 만든다. 이미 있는 앱은 건너뛴다. */
     fun addApps(pkgs: List<String>, startPage: Int = 0): Desktop {
         var d = this
-        val present = allApps()
-        for (pkg in pkgs.filter { it !in present }) {
+        // 넣을 때마다 늘려 간다 — 한 번에 같은 앱이 두 번 와도 한 번만.
+        val present = allApps().toMutableSet()
+        for (pkg in pkgs) {
+            if (!present.add(pkg)) continue
             var placed = false
             for (p in (startPage until d.pages.size) + (0 until startPage)) {
                 val free = (0 until COLS * ROWS).firstOrNull { it !in d.pages[p] }

@@ -20,6 +20,9 @@ android {
         versionCode = (System.getenv("MODES_VERSION_CODE") ?: "1").toInt()
         versionName = System.getenv("MODES_VERSION_NAME") ?: "0.1.0"
         buildConfigField("boolean", "E2E", e2e.toString())
+        // 자동 업데이트가 볼 저장소. CI에서는 자기 저장소가 들어온다.
+        val repo = System.getenv("GITHUB_REPOSITORY") ?: "YuInseo/dangu"
+        buildConfigField("String", "UPDATE_REPO", "\"$repo\"")
     }
 
     signingConfigs {
