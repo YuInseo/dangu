@@ -23,8 +23,8 @@ class Store private constructor(context: Context) {
         /** 쉴 때 투명도 0.2~1 */
         val alpha: Float,
         val modes: List<Mode>,
-        /** 비밀 바탕화면에 놓을 앱 */
-        val secretApps: List<String>,
+        /** 비밀 바탕화면의 배치(처음엔 비어 있다) */
+        val desktop: Desktop,
         /** 비밀 바탕화면에 들어갈 때 지문·PIN 확인 */
         val secretLock: Boolean,
     )
@@ -35,7 +35,7 @@ class Store private constructor(context: Context) {
         sizeDp = sp.getInt("size", 48),
         alpha = sp.getFloat("alpha", 0.85f),
         modes = Mode.listFromJson(sp.getString("modes", null)) ?: Mode.defaults,
-        secretApps = sp.getString("secretApps", "")!!.split(',').filter { it.isNotBlank() },
+        desktop = Desktop.fromJson(sp.getString("desktop", null)),
         secretLock = sp.getBoolean("secretLock", false),
     )
 
@@ -53,7 +53,7 @@ class Store private constructor(context: Context) {
             putInt("size", n.sizeDp)
             putFloat("alpha", n.alpha)
             putString("modes", Mode.listToJson(n.modes))
-            putString("secretApps", n.secretApps.joinToString(","))
+            putString("desktop", n.desktop.toJson())
             putBoolean("secretLock", n.secretLock)
         }
         _state.value = n

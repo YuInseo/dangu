@@ -34,7 +34,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Checkbox
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -86,7 +85,6 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
     val store = remember { Store.get(activity) }
     val s by store.state.collectAsStateWithLifecycle()
     var editing by remember { mutableStateOf<Mode?>(null) }
-    var pickingSecret by remember { mutableStateOf(false) }
     val notif = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onRefresh() }
 
     Column(
@@ -162,10 +160,17 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
             Toggle("들어갈 때 지문·PIN 확인", "나오면 다시 잠겨요. 최근 앱 목록과 스크린샷에는 항상 안 남아요.", s.secretLock) {
                 store.update { copy(secretLock = it) }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("놓을 앱 ${s.secretApps.size}개", Modifier.weight(1f))
-                TextButton(onClick = { pickingSecret = true }) { Text("고르기") }
-            }
+            Text(
+                if (s.desktop.isEmpty) "아직 텅 비어 있어요." else "앱 ${s.desktop.allApps().size}개가 놓여 있어요.",
+                color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp,
+            )
+            Button(onClick = {
+                activity.startActivity(
+                    Intent(activity, com.dangu.modes.SecretDesktopActivity::class.java)
+                        .putExtra(com.dangu.modes.SecretDesktopActivity.EXTRA_EDIT, true)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                )
+            }) { Text("바탕화면 편집") }
         }
 
         // ── 앱 고정 안내 ──
@@ -204,12 +209,6 @@ fun SettingsScreen(activity: ComponentActivity, overlayAllowed: Boolean, onRefre
             },
             onDismiss = { editing = null },
         )
-    }
-    if (pickingSecret) {
-        SecretAppsDialog(activity, s.secretApps, onDone = { chosen ->
-            store.update { copy(secretApps = chosen) }
-            pickingSecret = false
-        })
     }
 }
 
@@ -358,30 +357,6 @@ private fun AppPickerDialog(activity: ComponentActivity, onPick: (String) -> Uni
             }
         },
         confirmButton = { TextButton(onClick = onDismiss) { Text("닫기") } },
-    )
-}
-
-@Composable
-private fun SecretAppsDialog(activity: ComponentActivity, initial: List<String>, onDone: (List<String>) -> Unit) {
-    val apps by produceState<List<AppInfo>?>(null) { value = Apps.launchable(activity) }
-    var chosen by remember { mutableStateOf(initial.toSet()) }
-    AlertDialog(
-        onDismissRequest = { onDone(initial) },
-        title = { Text("비밀 바탕화면의 앱") },
-        text = {
-            val list = apps
-            if (list == null) Text("불러오는 중…")
-            else LazyColumn(Modifier.heightIn(max = 420.dp)) {
-                items(list, key = { it.packageName }) { a ->
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Checkbox(a.packageName in chosen, { on -> chosen = if (on) chosen + a.packageName else chosen - a.packageName })
-                        AppRow(a) { chosen = if (a.packageName in chosen) chosen - a.packageName else chosen + a.packageName }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = { onDone((apps ?: emptyList()).map { it.packageName }.filter { it in chosen }) }) { Text("저장") } },
-        dismissButton = { TextButton(onClick = { onDone(initial) }) { Text("취소") } },
     )
 }
 

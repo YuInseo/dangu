@@ -28,7 +28,6 @@ import android.view.WindowManager
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -116,6 +115,9 @@ class OverlayService : Service() {
     private fun screenHeight(): Int =
         if (Build.VERSION.SDK_INT >= 30) wm.currentWindowMetrics.bounds.height() else resources.displayMetrics.heightPixels
 
+    private fun screenWidth(): Int =
+        if (Build.VERSION.SDK_INT >= 30) wm.currentWindowMetrics.bounds.width() else resources.displayMetrics.widthPixels
+
     // ───────── 버튼 ─────────
 
     @SuppressLint("ClickableViewAccessibility")
@@ -135,11 +137,15 @@ class OverlayService : Service() {
             dp(s.sizeDp * 0.75f), dp(s.sizeDp),
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
             // 포커스를 받지 않는다: 버튼 밖의 터치·키는 뒤의 앱이 그대로 받는다.
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+            // LAYOUT_IN_SCREEN: y를 상태 표시줄 아래가 아니라 화면 맨 위부터 잰다 — 설정의 "세로 위치"와 맞게.
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
         ).apply {
             gravity = Gravity.END or Gravity.TOP
             x = 0
+            if (Build.VERSION.SDK_INT >= 30) setFitInsetsTypes(0)
         }
 
         // 세로로 끌어 옮기고, 거의 안 움직였으면 누른 것으로 본다.
@@ -207,43 +213,35 @@ class OverlayService : Service() {
     private fun inLockTask(): Boolean =
         getSystemService(ActivityManager::class.java).lockTaskModeState != ActivityManager.LOCK_TASK_MODE_NONE
 
+    private class Bubble(val view: View, val dx: Float, val dy: Float)
+    private var bubbles: List<Bubble> = emptyList()
+    private var scrim: View? = null
+
+    /**
+     * Circle처럼: 버튼을 중심으로 반원을 그리며 모드들이 동그란 거품으로 튀어나온다.
+     * 버튼이 화면 위·아래 끝에 가까우면 반원을 아래·위로 돌려 잘리지 않게 한다.
+     */
     @SuppressLint("ClickableViewAccessibility")
     private fun showPopup() {
         if (popup != null) { closePopup(); return }
 
-        val card = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = GradientDrawable().apply { setColor(CARD); cornerRadius = dp(18).toFloat() }
-            setPadding(dp(8), dp(10), dp(8), dp(8))
-            elevation = dp(8).toFloat()
-        }
-        card.addView(label("모드", 13f, MUTED, bold = true).apply { setPadding(dp(12), 0, dp(12), dp(6)) })
-
-        if (inLockTask()) {
-            // 고정 중엔 다른 모드로 보내지 않는다 — 고정의 뜻이 사라지므로.
-            card.addView(label("📌 앱 고정 중\n고정 해제는 고정 화면의 [고정 해제]나\n뒤로 + 최근 앱 버튼을 함께 길게", 14f, Color.WHITE).apply {
-                setPadding(dp(12), dp(8), dp(12), dp(12))
-            })
-        } else {
-            val modes = store.value.modes
-            val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-            modes.forEach { mode ->
-                list.addView(row(mode.type.emoji, mode.label) {
-                    closePopup()
-                    ModeLauncher.launch(this, mode)
-                })
-            }
-            card.addView(ScrollView(this).apply { addView(list) }, LinearLayout.LayoutParams(-1, -2).apply { weight = 1f })
-            card.addView(View(this).apply { setBackgroundColor(0x22FFFFFF) }, LinearLayout.LayoutParams(-1, dp(1)).apply {
-                setMargins(dp(8), dp(6), dp(8), dp(6))
-            })
-            card.addView(row("⚙️", "설정") {
-                closePopup()
-                startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            })
-        }
-
+        val screenW = screenWidth()
         val screenH = screenHeight()
+        val cx = screenW - buttonParams.width / 2f
+        val cy = buttonParams.y + buttonParams.height / 2f
+
+        data class Entry(val emoji: String, val label: String, val action: () -> Unit)
+        val entries = if (inLockTask()) {
+            // 고정 중엔 다른 모드로 보내지 않는다 — 고정의 뜻이 사라지므로.
+            listOf(Entry("📌", "앱 고정 중\n(고정 화면에서 해제)") { closePopup() })
+        } else {
+            store.value.modes.map { m -> Entry(m.type.emoji, m.label) { closePopup(); ModeLauncher.launch(this, m) } } +
+                Entry("⚙️", "설정") {
+                    closePopup()
+                    startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+        }
+
         val root = object : FrameLayout(this) {
             override fun dispatchKeyEvent(event: KeyEvent): Boolean {
                 if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) { closePopup(); return true }
@@ -251,33 +249,130 @@ class OverlayService : Service() {
             }
         }.apply {
             isFocusableInTouchMode = true
-            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_DOWN) closePopup(); true } // 카드 바깥
+            setOnTouchListener { _, e -> if (e.action == MotionEvent.ACTION_DOWN) closePopup(); true } // 거품 바깥
         }
-        val cardH = (screenH * 0.6f).roundToInt()
-        val lp = FrameLayout.LayoutParams(dp(250), FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.END or Gravity.TOP).apply {
-            rightMargin = dp(store.value.sizeDp * 0.75f + 8)
-            topMargin = (buttonParams.y + buttonParams.height / 2 - dp(120)).coerceIn(dp(24), (screenH - dp(300)).coerceAtLeast(dp(24)))
+        val dim = View(this).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
+        root.addView(dim, FrameLayout.LayoutParams(-1, -1))
+        dim.animate().alpha(0.45f).setDuration(200).start()
+        scrim = dim
+
+        // 반지름과 펼칠 각도: 많을수록 크게.
+        val n = entries.size
+        val radius = (dp(96) + n * dp(14)).coerceAtMost(dp(190)).toFloat()
+        val span = if (n <= 1) 0.0 else minOf(170.0, 34.0 * (n - 1))
+        val margin = dp(64)
+        fun ys(center: Double) = (0 until n).map { i ->
+            val deg = center + span / 2 - (if (n <= 1) 0.0 else span * i / (n - 1))
+            cy - radius * Math.sin(Math.toRadians(deg))
         }
-        card.setOnTouchListener { _, _ -> false }
-        card.isClickable = true
-        root.addView(card, lp)
-        card.post { if (card.height > cardH) card.layoutParams = lp.apply { height = cardH } }
+        // 180°(왼쪽)을 가운데로, 잘리면 아래(>180)나 위(<180)로 돌린다.
+        val center = (0..14).flatMap { k -> listOf(180.0 + k * 5, 180.0 - k * 5) }
+            .firstOrNull { c -> ys(c).all { it in margin.toDouble()..(screenH - margin).toDouble() } } ?: 180.0
+
+        val bubbleW = dp(92)
+        val circle = dp(58)
+        val made = ArrayList<Bubble>()
+        entries.forEachIndexed { i, entry ->
+            val deg = center + span / 2 - (if (n <= 1) 0.0 else span * i / (n - 1))
+            val x = cx + radius * Math.cos(Math.toRadians(deg)).toFloat()
+            val y = cy - radius * Math.sin(Math.toRadians(deg)).toFloat()
+            val bubble = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                gravity = Gravity.CENTER_HORIZONTAL
+                contentDescription = entry.label
+                addView(TextView(context).apply {
+                    text = entry.emoji
+                    textSize = 24f
+                    gravity = Gravity.CENTER
+                    background = GradientDrawable().apply {
+                        shape = GradientDrawable.OVAL
+                        colors = intArrayOf(0xFF2A3446.toInt(), 0xFF1B2230.toInt())
+                        gradientType = GradientDrawable.RADIAL_GRADIENT
+                        gradientRadius = circle / 1.2f
+                        setStroke(dp(2), ACCENT)
+                    }
+                    elevation = dp(6).toFloat()
+                }, LinearLayout.LayoutParams(circle, circle))
+                addView(label(entry.label, 12f, Color.WHITE).apply {
+                    gravity = Gravity.CENTER
+                    setShadowLayer(6f, 0f, 1f, Color.BLACK)
+                    maxLines = 2
+                    setPadding(0, dp(4), 0, 0)
+                }, LinearLayout.LayoutParams(bubbleW, LinearLayout.LayoutParams.WRAP_CONTENT))
+                setOnClickListener { entry.action() }
+            }
+            val lp = FrameLayout.LayoutParams(bubbleW, FrameLayout.LayoutParams.WRAP_CONTENT).apply {
+                leftMargin = (x - bubbleW / 2f).roundToInt()
+                topMargin = (y - circle / 2f).roundToInt()
+            }
+            root.addView(bubble, lp)
+            // 버튼 자리에서 튀어나오게: 처음엔 버튼 위치, 작고 투명하게.
+            val dx = cx - x
+            val dy = cy - y
+            bubble.translationX = dx
+            bubble.translationY = dy
+            bubble.scaleX = 0.2f
+            bubble.scaleY = 0.2f
+            bubble.alpha = 0f
+            bubble.animate()
+                .translationX(0f).translationY(0f).scaleX(1f).scaleY(1f).alpha(1f)
+                .setStartDelay(i * 28L)
+                .setDuration(340)
+                .setInterpolator(android.view.animation.OvershootInterpolator(1.4f))
+                .start()
+            made += Bubble(bubble, dx, dy)
+        }
+
+        // 가운데(버튼 자리)의 ✕
+        val close = TextView(this).apply {
+            text = "✕"
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            gravity = Gravity.CENTER
+            contentDescription = "닫기"
+            background = GradientDrawable().apply { shape = GradientDrawable.OVAL; setColor(ACCENT) }
+            elevation = dp(8).toFloat()
+            setOnClickListener { closePopup() }
+            rotation = -90f
+            animate().rotation(0f).setDuration(260).start()
+        }
+        val closeSize = dp(52)
+        root.addView(close, FrameLayout.LayoutParams(closeSize, closeSize).apply {
+            leftMargin = (screenW - closeSize - dp(6))
+            topMargin = (cy - closeSize / 2f).roundToInt()
+        })
+        bubbles = made
 
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT,
             WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            // 포커스를 받는다: 뒤로 키로 닫을 수 있게.
-            WindowManager.LayoutParams.FLAG_DIM_BEHIND or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN,
+            // 포커스를 받는다: 뒤로 키로 닫을 수 있게. 좌표는 버튼과 같이 화면 맨 위부터.
+            WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
             PixelFormat.TRANSLUCENT,
-        ).apply { dimAmount = 0.35f }
+        ).apply {
+            gravity = Gravity.START or Gravity.TOP
+            if (Build.VERSION.SDK_INT >= 30) setFitInsetsTypes(0)
+        }
         popup = root
+        button?.visibility = View.INVISIBLE
         wm.addView(root, params)
         root.requestFocus()
     }
 
+    /** 거품들이 버튼 자리로 빨려 들어간 뒤 창을 치운다. */
     private fun closePopup() {
-        popup?.let { runCatching { wm.removeView(it) } }
+        val root = popup ?: return
         popup = null
+        bubbles.forEach { b ->
+            b.view.animate().translationX(b.dx).translationY(b.dy).scaleX(0.2f).scaleY(0.2f).alpha(0f)
+                .setStartDelay(0).setDuration(160).start()
+        }
+        scrim?.animate()?.alpha(0f)?.setDuration(160)?.start()
+        bubbles = emptyList()
+        root.postDelayed({
+            runCatching { wm.removeView(root) }
+            button?.visibility = View.VISIBLE
+        }, 170)
     }
 
     private fun label(text: String, size: Float, color: Int, bold: Boolean = false) = TextView(this).apply {
@@ -285,21 +380,6 @@ class OverlayService : Service() {
         setTextColor(color)
         textSize = size
         if (bold) typeface = Typeface.DEFAULT_BOLD
-    }
-
-    private fun row(emoji: String, text: String, onClick: () -> Unit) = TextView(this).apply {
-        this.text = "$emoji   $text"
-        setTextColor(Color.WHITE)
-        textSize = 16f
-        gravity = Gravity.CENTER_VERTICAL
-        minHeight = dp(48)
-        setPadding(dp(12), 0, dp(12), 0)
-        background = android.graphics.drawable.RippleDrawable(
-            android.content.res.ColorStateList.valueOf(0x33FFFFFF),
-            null,
-            GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = dp(10).toFloat() },
-        )
-        setOnClickListener { onClick() }
     }
 
     override fun onDestroy() {
@@ -315,8 +395,6 @@ class OverlayService : Service() {
         private const val NOTIFICATION_ID = 7
         private const val ACTION_HIDE = "com.dangu.modes.HIDE"
         private const val ACCENT = 0xFF5B8CFF.toInt()
-        private const val CARD = 0xF21B2230.toInt()
-        private const val MUTED = 0xFF9AA4B8.toInt()
 
         /** 버튼 켜기. 권한이 없으면 false — 설정 화면이 권한 화면으로 보낸다. */
         fun start(context: Context): Boolean {

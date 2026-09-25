@@ -64,12 +64,41 @@ shot 02-home-with-button.png
 # 3) 누르면 모드 목록
 popup
 shot 03-popup.png; dump 03.xml
-grep -q "비밀 바탕화면" "$OUT/03.xml" && log "② 팝업: 모드 목록 보임" || log "② 팝업: 안 보임"
+grep -q "비밀 바탕화면" "$OUT/03.xml" && log "② 원형 메뉴: 모드 거품 보임" || log "② 원형 메뉴: 안 보임"
 
-# 4) 비밀 바탕화면
+# 4) 비밀 바탕화면 — 텅 빈 새 홈을 진짜 홈처럼 편집
 tap_text 03.xml text "비밀 바탕화면"; sleep 3
-shot 04-secret-desktop.png
+shot 04-secret-empty.png; dump 04.xml
 log "③ 비밀 바탕화면 → $(top)"
+grep -q "텅 빈 새 바탕화면" "$OUT/04.xml" && log "   처음엔 비어 있음: 예" || log "   처음엔 비어 있음: 아니오"
+# 빈 곳 길게 → 편집 모드
+adb shell input swipe $(( W / 2 )) $(( H / 2 )) $(( W / 2 )) $(( H / 2 )) 900; sleep 2
+shot 04b-edit-mode.png; dump 04b.xml
+grep -q "완료" "$OUT/04b.xml" && log "   길게 눌러 편집 모드: 됨" || log "   길게 눌러 편집 모드: 안 됨"
+tap_text 04b.xml text "+ 앱"; sleep 3
+dump 04c.xml
+for app in Settings Camera Gallery Phone Contacts Messaging; do
+  XY=$(find_xy "$OUT/04c.xml" text "$app"); [ -n "$XY" ] && adb shell input tap $XY && sleep 0.3
+done
+dump 04d.xml
+tap_text 04d.xml text "추가 "; sleep 3
+shot 04e-apps-added.png; dump 04e.xml
+log "   앱 추가 뒤 칸: $(grep -oE 'content-desc="(Settings|Camera|Gallery|Phone|Contacts|Messaging)"' "$OUT/04e.xml" | tr '\n' ' ')"
+# 첫 앱을 둘째 앱 위로 끌면 폴더
+A1=$(find_xy "$OUT/04e.xml" content-desc "Settings"); A2=$(find_xy "$OUT/04e.xml" content-desc "Camera")
+log "   Settings: ${A1:-없음} → Camera: ${A2:-없음}"
+if [ -n "$A1" ] && [ -n "$A2" ]; then
+  adb shell input draganddrop $A1 $A2 1500; sleep 3
+fi
+shot 04f-folder.png; dump 04f.xml
+grep -q 'content-desc="폴더"' "$OUT/04f.xml" && log "   앱 위에 놓아 폴더 만들기: 됨" || log "   앱 위에 놓아 폴더 만들기: 안 됨"
+# 한 앱을 위의 🗑로 끌어 삭제
+A3=$(find_xy "$OUT/04f.xml" content-desc "Gallery")
+if [ -n "$A3" ]; then adb shell input draganddrop $A3 $(( W / 2 )) $(( 60 * DENS / 160 + 30 )) 1500; sleep 3; fi
+dump 04g.xml
+grep -q 'content-desc="Gallery"' "$OUT/04g.xml" && log "   🗑로 끌어 삭제: 안 됨" || log "   🗑로 끌어 삭제: 됨"
+tap_text 04g.xml text "완료"; sleep 2
+shot 04h-edited-home.png
 
 # 5) 다시 버튼 → 기본 바탕화면
 popup; dump 05.xml

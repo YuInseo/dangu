@@ -10,7 +10,7 @@ import androidx.biometric.BiometricPrompt
 import androidx.compose.runtime.mutableStateOf
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
-import com.dangu.modes.ui.DesktopScreen
+import com.dangu.modes.ui.HomeScreen
 import com.dangu.modes.ui.ModesTheme
 
 /**
@@ -24,11 +24,31 @@ import com.dangu.modes.ui.ModesTheme
 class SecretDesktopActivity : FragmentActivity() {
     val unlocked = mutableStateOf(false)
 
+    /** 바탕화면 편집 중인지. 설정의 "바탕화면 편집"은 이 상태로 연다. */
+    val editMode = mutableStateOf(false)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        // 스크린샷·최근 앱 미리보기에 안 찍히게. (CI 확인용 빌드는 화면을 찍어야 해서 뺀다.)
+        if (!BuildConfig.E2E) window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         enableEdgeToEdge()
-        setContent { ModesTheme { DesktopScreen(this, secret = true) } }
+        editMode.value = intent.getBooleanExtra(EXTRA_EDIT, false)
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                // 편집 중이면 편집을 끝내고, 아니면 원래 홈으로 물러난다.
+                if (editMode.value) editMode.value = false else moveTaskToBack(true)
+            }
+        })
+        setContent { ModesTheme { HomeScreen(this) } }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        if (intent.getBooleanExtra(EXTRA_EDIT, false)) editMode.value = true
+    }
+
+    companion object {
+        const val EXTRA_EDIT = "edit"
     }
 
     override fun onResume() {

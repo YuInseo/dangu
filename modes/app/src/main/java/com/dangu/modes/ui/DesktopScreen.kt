@@ -71,7 +71,7 @@ fun DesktopScreen(activity: ComponentActivity, secret: Boolean) {
                 Button(onClick = { (activity as SecretDesktopActivity).authenticate() }) { Text("잠금 해제") }
             }
         } else {
-            DesktopApps(activity, secret, s.secretApps)
+            DesktopApps(activity, secret, emptyList())
         }
     }
 }
