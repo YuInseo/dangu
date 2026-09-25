@@ -427,11 +427,13 @@ class OverlayService : Service() {
         // 이웃 거품 사이(중심끼리) 거리를 고정하고, "한 번에 보일 개수"가 반원(최대 160°)에 들어갈 만큼만 반지름을 키운다.
         val n = entries.size
         val visible = minOf(n, store.value.maxVisible).coerceAtLeast(1)
-        val chord = dp(64).toDouble()
-        val maxSpan = 160.0
-        val radius = if (visible <= 1) dp(88).toFloat() else {
-            val stepMax = Math.toRadians(minOf(44.0, maxSpan / (visible - 1)))
-            maxOf(dp(88).toDouble(), chord / (2 * Math.sin(stepMax / 2))).toFloat()
+        // 알약은 가로로 길어서, 호가 가파르면(위·아래 끝) 이웃끼리 겹친다. 호를 완만하게(반지름을 크게,
+        // 펼치는 각도는 작게) 해서 위아래 간격이 거의 일정하게 한다.
+        val chord = dp(62).toDouble()
+        val maxSpan = 110.0
+        val radius = if (visible <= 1) dp(96).toFloat() else {
+            val stepMax = Math.toRadians(minOf(30.0, maxSpan / (visible - 1)))
+            maxOf(dp(150).toDouble(), chord / (2 * Math.sin(stepMax / 2))).toFloat()
         }
         val step = if (n <= 1) 0.0 else Math.toDegrees(2 * Math.asin((chord / (2 * radius)).coerceAtMost(1.0)))
         val window = step * (visible - 1) // 한 번에 보이는 각도

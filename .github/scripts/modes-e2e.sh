@@ -25,7 +25,14 @@ for m in re.finditer(r'<node [^>]*>', xml):
         break
 PY
 }
-tap_text() { local xy; xy=$(find_xy "$OUT/$1" "$2" "$3"); log "  '$3' 위치: ${xy:-없음}"; [ -n "$xy" ] && adb shell input tap $xy; }
+tap_text() {
+  local xy; xy=$(find_xy "$OUT/$1" "$2" "$3")
+  if [ -z "$xy" ] && [ -n "${PANEL_SCROLL:-}" ]; then
+    # 엣지 패널은 굴러간다 — 패널 안을 위로 밀고 다시 찾는다
+    adb shell input swipe $PANEL_SCROLL; sleep 1; dump "$1"; xy=$(find_xy "$OUT/$1" "$2" "$3")
+  fi
+  log "  '$3' 위치: ${xy:-없음}"; [ -n "$xy" ] && adb shell input tap $xy
+}
 top() { adb shell dumpsys activity activities | grep -m1 -E "topResumedActivity|mResumedActivity" | sed 's/^ *//'; }
 lock_state() { adb shell dumpsys activity activities | grep -m1 -oE "mLockTaskModeState=[A-Z]+"; }
 
@@ -50,6 +57,8 @@ BTN_W=$(( 24 * DENS / 160 ))
 BX=$(( W - BTN_W / 2 ))
 BY=$(( (H - BTN_PX) * 40 / 100 + BTN_PX / 2 ))
 popup() { adb shell input tap $BX $BY; sleep 2; }
+# 오른쪽 엣지 패널 안을 아래에서 위로
+PANEL_SCROLL="$(( W - 60 * DENS / 160 )) $(( H * 70 / 100 )) $(( W - 60 * DENS / 160 )) $(( H * 25 / 100 )) 400"
 
 # 1) 설정 → 플로팅 버튼 켜기
 adb shell am start -W -n $PKG/.MainActivity
