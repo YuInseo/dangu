@@ -413,11 +413,14 @@ class OverlayService : Service() {
                 }
         }
 
+        // 거품을 잡고 돌려도 돌아가야 한다: 손가락이 움직이기 시작하면 거품 대신 이 판이 가로챈다.
+        var intercept: (MotionEvent) -> Boolean = { false }
         val root = object : FrameLayout(this) {
             override fun dispatchKeyEvent(event: KeyEvent): Boolean {
                 if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) { closePopup(); return true }
                 return super.dispatchKeyEvent(event)
             }
+            override fun onInterceptTouchEvent(ev: MotionEvent): Boolean = intercept(ev)
         }.apply { isFocusableInTouchMode = true }
         val dim = View(this).apply { setBackgroundColor(Color.BLACK); alpha = 0f }
         root.addView(dim, FrameLayout.LayoutParams(-1, -1))
@@ -542,6 +545,14 @@ class OverlayService : Service() {
         fun angleOf(x: Float, y: Float): Double {
             val dx = if (right) x - cx else cx - x
             return Math.toDegrees(Math.atan2(-(y - cy).toDouble(), dx.toDouble()))
+        }
+        intercept = { e ->
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { downX = e.x; downY = e.y; lastAngle = angleOf(e.x, e.y); rotating = false; false }
+                MotionEvent.ACTION_MOVE ->
+                    n > visible && Math.hypot((e.x - downX).toDouble(), (e.y - downY).toDouble()) > slop
+                else -> false
+            }
         }
         root.setOnTouchListener { _, e ->
             when (e.actionMasked) {

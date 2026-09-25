@@ -201,11 +201,14 @@ dump style.xml; tap_text style.xml text "원형"; sleep 1
 adb shell input keyevent 3; sleep 1
 popup
 shot 14-wheel-before.png; dump 14.xml
-log "⑧ 돌리기 전 보이는 거품: $(grep -oE 'content-desc="[^"]+"' "$OUT/14.xml" | grep -vE '닫기' | tr '\n' ' ')"
+B14=$(grep -oE 'content-desc="[^"]+"[^>]*bounds="[^"]+"' "$OUT/14.xml" | grep -vE '닫기' | tr '\n' ' '); log "⑧ 돌리기 전 보이는 거품: $B14"
 # 버튼 둘레로 원을 그리며 끌기(위 → 아래 방향)
 R=$(( 140 * DENS / 160 ))
 adb shell input swipe $(( BX - R / 2 )) $(( BY - R )) $(( BX - R )) $(( BY + R / 3 )) 800; sleep 1
-shot 15-wheel-rotated.png
+shot 15-wheel-rotated.png; dump 15.xml
+B15=$(grep -oE 'content-desc="[^"]+"[^>]*bounds="[^"]+"' "$OUT/15.xml" | grep -vE '닫기' | tr '\n' ' ')
+log "   돌린 뒤: $B15"
+[ "$B14" != "$B15" ] && log "   돌리기: 됨" || log "   돌리기: 그대로"
 adb shell input keyevent 4; sleep 1
 
 # 10) 왼쪽으로: 버튼을 끌어 화면 가운데를 넘겨 놓기
