@@ -3,8 +3,8 @@ import { defineConfig } from 'graft';
 /**
  * 동행 — 설정 전부.
  *
- * 당구 점수판과 같은 저장소에 살지만 서로 다른 앱이다. 패키지 이름(`appId`)이 다르므로
- * 한 폰에 둘 다 깔리고, 서로를 덮어쓰지 않는다.
+ * 당구 점수판과 같은 저장소에 살지만 서로 다른 앱이다. (패키지 이름은 지금 점수판 것을
+ * 빌려 쓴다 — 아래 `appId`의 주석.)
  */
 export default defineConfig({
   /**
@@ -47,7 +47,15 @@ export default defineConfig({
 
   mobile: {
     enabled: true,
-    appId: 'com.donghaeng.app',
+    /**
+     * 당분간 당구 점수판의 패키지 이름을 빌려 쓴다.
+     *
+     * 앱 안의 구글 로그인 창은 Firebase 콘솔에 "패키지 이름 + 서명 키 지문"이 등록된 앱에서만
+     * 열린다. com.dangu.score는 이미 같은 서명 키로 등록돼 있으므로 이 이름을 쓰면 콘솔에서
+     * 할 일 없이 로그인이 된다. 대신 한 폰에 당구 점수판과 동행을 같이 깔 수 없다 — 같은
+     * 이름의 앱은 하나뿐이다. 콘솔에 com.donghaeng.app을 등록하면 되돌린다.
+     */
+    appId: 'com.dangu.score',
     appName: '동행',
     // 승강장 끝이나 지하 통로에서는 신호가 끊긴다. 쪽지는 기기에 먼저 쓰이고, 붙으면 올라간다.
     offline: true,

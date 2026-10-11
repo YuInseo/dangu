@@ -34,13 +34,10 @@
 
 1. **Authentication → 로그인 방법 → Google**이 켜져 있는지 확인. 당구 점수판이 이미 쓰고
    있으면 켜져 있습니다.
-2. **프로젝트 설정 → 내 앱 → 앱 추가 → Android**로 패키지 이름 `com.donghaeng.app`을 등록하고,
-   **SHA-1 지문**에 APK 서명 키(CI의 업로드 키)의 지문을 넣기. 이게 없으면 앱 안의 구글 로그인
-   창이 `DEVELOPER_ERROR`로 닫힙니다. 지문은 당구 점수판에 넣은 것과 같은 값입니다:
-
-   ```bash
-   keytool -list -v -keystore release.keystore -alias upload
-   ```
+2. 앱 안의 구글 로그인 창은 콘솔에 **패키지 이름 + 서명 키의 SHA-1**이 등록된 앱에서만 열립니다.
+   지금 동행은 이미 등록된 **당구 점수판의 패키지 이름(`com.dangu.score`)을 빌려 쓰므로** 따로 할
+   일이 없습니다. 대신 한 폰에 당구 점수판과 동행을 같이 깔 수 없습니다. 나중에 `com.donghaeng.app`을
+   콘솔에 등록하면 `donghaeng/graft.config.ts`의 `appId`를 되돌리면 됩니다.
 3. **Firestore 규칙**에 저장소 맨 위의 `firestore.rules`를 통째로 붙여넣기. 당구 점수판과
    동행의 규칙이 합쳐져 있습니다(동행만의 규칙은 `donghaeng/firestore.rules`).
 
@@ -71,9 +68,9 @@ APK와 화면 묶음을 지어 **`donghaeng-ci` 프리릴리스**에 올립니�
 - 새 화면이 앱을 띄우지 못하면 다음 실행에서 이전 화면으로 저절로 돌아갑니다.
 - 설정 → 업데이트에서 지금 판을 보고 직접 확인할 수 있습니다.
 
-서명은 점수판과 같은 시크릿(`ANDROID_KEYSTORE_BASE64` 등)을 씁니다. 패키지 이름이
-`com.donghaeng.app`이라 당구 점수판과 한 폰에 같이 깔리고, 점수판의 업데이트(`v*` 릴리스)와도
-섞이지 않습니다.
+서명은 점수판과 같은 시크릿(`ANDROID_KEYSTORE_BASE64` 등)을 씁니다. 업데이트는 `donghaeng-ci`
+릴리스만 보므로 점수판의 업데이트(`v*` 릴리스)와 섞이지 않습니다. 다만 지금은 패키지 이름을
+점수판(`com.dangu.score`)과 같이 쓰므로, **동행을 깔려면 폰에서 당구 점수판을 먼저 지워야 합니다.**
 
 ## 코드가 어디 있는지
 

@@ -20,10 +20,9 @@
 -->
 <resources>
   <!--
-    어느 프로젝트의 어느 앱인지. 지금은 당구 점수판(com.dangu.score)의 값을 빌려 쓴다 —
-    FirebaseApp을 띄우는 데는 이걸로 충분하다. 구글 로그인 창이 열리는지는 이 값이 아니라
-    Firebase 콘솔에 com.donghaeng.app과 서명 키의 SHA-1이 등록돼 있는지가 정한다.
-    콘솔에 동행 앱을 등록하면 받은 google-services.json의 mobilesdk_app_id로 바꾸면 된다.
+    어느 프로젝트의 어느 앱인지. 동행은 지금 당구 점수판의 패키지 이름(com.dangu.score)을
+    빌려 쓰므로 그 앱의 값이 그대로 맞는다. 구글 로그인 창은 콘솔에 등록된 그 이름과 서명 키
+    지문으로 열린다. 나중에 com.donghaeng.app을 따로 등록하면 그 앱의 값으로 바꾼다.
   -->
   <string name="google_app_id" translatable="false">1:1073558096483:android:faf99adce285e6e2d08656</string>
   <string name="project_id" translatable="false">moneywalk-551ca</string>
