@@ -14,7 +14,9 @@ import {
   sortSlips,
   type Kind,
   type Slip,
+  type SlipDraft,
 } from '../lib/slip';
+import { homeStations, parseTicket, pickTicketPhoto, recognizeTicket } from '../lib/ticket';
 import { SlipCard } from './slip-card';
 import { SlipEditor } from './slip-editor';
 import { SlipSheet } from './slip-sheet';
@@ -38,7 +40,40 @@ export function Board({ session }: { session: Session }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [hideDone, setHideDone] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
-  const [editing, setEditing] = useState<{ kind: Kind; slip?: Slip } | null>(null);
+  const [editing, setEditing] = useState<{
+    kind: Kind;
+    slip?: Slip;
+    /** 승차권에서 읽어 미리 채운 칸들과, 무엇을 읽었는지 한 줄. */
+    prefill?: Partial<SlipDraft>;
+    notice?: string;
+  } | null>(null);
+  const [scanning, setScanning] = useState(false);
+
+  /**
+   * 표 찍기 → 글자 읽기 → 쓰기 화면을 채워서 연다.
+   *
+   * 읽은 값을 곧바로 올리지 않는다. 인식은 틀릴 수 있고, 틀린 열차번호로 올라간 쪽지는
+   * 없는 것보다 나쁘다. 채워진 쓰기 화면을 사람이 한 번 보고 올린다.
+   */
+  const scan = async () => {
+    if (scanning) return;
+    tap();
+    const photo = await pickTicketPhoto();
+    if (!photo) return;
+    setScanning(true);
+    setToast('표를 읽는 중…');
+    try {
+      const text = await recognizeTicket(photo);
+      const read = parseTicket(text, homeStations(team.name), 'depart');
+      setToast(null);
+      tap('medium');
+      setEditing({ kind: read.draft.kind ?? 'depart', prefill: read.draft, notice: read.summary });
+    } catch (failure: any) {
+      setToast(failure?.message ? `표를 읽지 못했습니다: ${failure.message}` : '표를 읽지 못했습니다.');
+    } finally {
+      setScanning(false);
+    }
+  };
   const [toast, setToast] = useState<string | null>(null);
   const [fresh, setFresh] = useState<Set<string>>(new Set());
   const [, setTick] = useState(0);
@@ -235,6 +270,15 @@ export function Board({ session }: { session: Session }) {
       </main>
 
       <footer className="dock">
+        <button
+          className="add scan"
+          disabled={!me || scanning}
+          onClick={() => void scan()}
+          aria-label="승차권을 찍어 쪽지 채우기"
+        >
+          <span aria-hidden="true">📷</span>
+          <small>{scanning ? '읽는 중' : '표 찍기'}</small>
+        </button>
         <button className="add depart" disabled={!me} onClick={() => (tap(), setEditing({ kind: 'depart' }))}>
           + 출발 쪽지
         </button>
@@ -261,6 +305,8 @@ export function Board({ session }: { session: Session }) {
         <SlipEditor
           kind={editing.kind}
           slip={editing.slip}
+          prefill={editing.prefill}
+          notice={editing.notice}
           date={date}
           team={team}
           me={me}

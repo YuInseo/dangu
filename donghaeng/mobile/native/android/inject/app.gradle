@@ -1,0 +1,5 @@
+// 승차권 글자 인식(TicketOcrPlugin.kt). 한국어 인식기를 APK에 넣는다 — 처음 쓸 때
+// 플레이 서비스가 모델을 내려받기를 기다리지 않고, 신호가 없어도 바로 읽힌다.
+dependencies {
+    implementation 'com.google.mlkit:text-recognition-korean:16.0.1'
+}

@@ -58,9 +58,11 @@ export default defineConfig({
     // 승강장 끝이나 지하 통로에서는 신호가 끊긴다. 쪽지는 기기에 먼저 쓰이고, 붙으면 올라간다.
     offline: true,
 
-    // 새 쪽지가 오면 손에 알린다. 카메라·위치는 쓰지 않으므로 선언하지 않는다.
+    // 새 쪽지가 오면 손에 알린다. 위치는 쓰지 않으므로 선언하지 않는다.
     // `notifications`는 열차 시각 전에 울리는 쪽지 알림(lib/alarm.ts) — 앱이 꺼져 있어도 울린다.
-    capabilities: ['vibration', 'network', 'notifications'],
+    // `camera`는 승차권을 찍어 쪽지를 채우는 데(lib/ticket.ts) — @capacitor/camera가 따라온다.
+    // 글자 인식은 mobile/native/android/TicketOcrPlugin.kt가 기기 안에서 한다.
+    capabilities: ['vibration', 'network', 'notifications', 'camera'],
 
     plugins: [
       /**

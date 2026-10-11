@@ -37,6 +37,8 @@ const MEET_PRESETS = ['15종', '10종', '10홈', '15홈', '15•9창', '10•9�
 export function SlipEditor({
   kind,
   slip,
+  prefill,
+  notice,
   date,
   team,
   me,
@@ -46,6 +48,10 @@ export function SlipEditor({
 }: {
   kind: Kind;
   slip?: Slip;
+  /** 승차권에서 읽은 값. 새 쪽지의 빈칸 위에 얹는다. */
+  prefill?: Partial<SlipDraft>;
+  /** 쓰기 화면 위에 한 줄로 — "표에서 읽음: 107열차 · 3-12A …". */
+  notice?: string;
   date: string;
   team: Team;
   me: Person;
@@ -72,7 +78,7 @@ export function SlipEditor({
           haengsin: slip.haengsin,
           online: slip.online,
         }
-      : emptyDraft(kind, date)
+      : { ...emptyDraft(kind, date), ...prefill }
   );
   const [saving, setSaving] = useState(false);
   const [recent, setRecent] = useState<Record<RecentField, string[]>>({ station: [], meet: [], memo: [] });
@@ -143,6 +149,8 @@ export function SlipEditor({
         onClick={(event) => event.stopPropagation()}
       >
         <div className="grip" aria-hidden="true" />
+
+        {notice && <p className="notice scan-notice">📷 {notice} — 맞는지 확인하고 올리세요.</p>}
 
         <div className="segmented kinds">
           {(['depart', 'arrive'] as const).map((value) => (
