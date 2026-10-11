@@ -14,8 +14,8 @@ import { RETENTION_DAYS, dateKey, shiftDate, toSlip, type Person, type Slip, typ
  * 헷갈리는 글자(0과 O, 1과 I)를 뺐다. 팀 목록은 누구도 읽을 수 없으므로(`firestore.rules`)
  * 코드를 모르면 팀이 있는지조차 알 수 없다.
  *
- * 로그인은 익명이다. 근무 중에 구글 계정을 꺼낼 사람은 없고, 필요한 건 "이 폰이 누구인지"
- * 하나라서 앱이 처음 켜질 때 한 번 받아 두면 된다. 이름은 사람이 적는다.
+ * 로그인은 구글 계정이다. 한 번 로그인하면 기기에 남으므로 매번 묻지 않고, 폰을 바꿔도
+ * 같은 계정이면 같은 사람으로 남는다. 쪽지에 붙는 이름은 구글 이름을 기본으로 하되 고칠 수 있다.
  */
 
 let instance: Promise<{ auth: Auth; db: Firestore } | null> | null = null;
@@ -59,39 +59,111 @@ export function firebase() {
 /** Firebase 오류를 사람 말로. */
 export function reason(error: any): string {
   const code = String(error?.code ?? '');
-  if (
-    code.includes('admin-restricted-operation') ||
-    code.includes('operation-not-allowed') ||
-    String(error?.message ?? '').includes('ADMIN_ONLY_OPERATION')
-  ) {
-    return 'Firebase 콘솔에서 익명 로그인을 켜야 합니다 (Authentication → 로그인 방법 → 익명).';
+  const message = String(error?.message ?? '');
+  if (code.includes('operation-not-allowed')) {
+    return 'Firebase 콘솔에서 구글 로그인을 켜야 합니다 (Authentication → 로그인 방법 → Google).';
+  }
+  if (code.includes('unauthorized-domain')) {
+    return '이 주소가 Firebase 인증의 승인된 도메인에 없습니다. 콘솔에서 추가하세요.';
+  }
+  // 앱 안의 구글 창은 패키지 이름과 서명 지문이 Firebase에 등록돼 있어야 열린다.
+  if (/DEVELOPER_ERROR|10:|12500|No credentials available|default_web_client_id/i.test(message)) {
+    return '구글 로그인 창을 열지 못했습니다. Firebase 콘솔에 안드로이드 앱(com.donghaeng.app)과 서명 키의 SHA-1 지문을 등록해야 합니다.';
   }
   if (code.includes('permission-denied')) return '권한이 없습니다. 팀 코드를 다시 확인하세요.';
   if (code.includes('unavailable') || code.includes('network')) return '네트워크에 연결되어 있지 않습니다.';
-  return error?.message ?? '알 수 없는 오류가 났습니다.';
+  return message || '알 수 없는 오류가 났습니다.';
+}
+
+/* 로그인 ------------------------------------------------------------ */
+
+export interface Account {
+  uid: string;
+  name: string;
+  email: string | null;
+}
+
+/** Capacitor 셸의 플러그인. 웹에서는 `null`. */
+function nativePlugin(name: string): any {
+  if (typeof window === 'undefined') return null;
+  return (globalThis as any).Capacitor?.Plugins?.[name] ?? null;
+}
+
+function isNative(): boolean {
+  return Boolean((globalThis as any).Capacitor?.isNativePlatform?.());
 }
 
 /**
- * 이 폰의 uid. 처음이면 익명으로 로그인한다.
+ * 로그인 상태를 지켜본다. 해지 함수를 돌려준다.
  *
- * 익명 계정은 앱 데이터가 지워지기 전까지 같은 uid를 유지한다. 지워지면 새 uid가 되고,
- * 팀 코드를 다시 넣으면 그만이다 — 잃을 것이 없게 쪽지는 사람이 아니라 팀에 붙어 있다.
+ * 한 번 로그인하면 Firebase가 기기에 남겨 두므로, 다음에 켤 때는 이 리스너가 곧바로
+ * 그 계정을 알려 준다 — 매번 구글 창을 거치지 않는다.
  */
-export async function ensureUser(): Promise<string> {
+export function watchAccount(listener: (account: Account | null) => void): () => void {
+  let stop: (() => void) | null = null;
+  let cancelled = false;
+  void (async () => {
+    const ready = await firebase();
+    if (!ready || cancelled) return listener(null);
+    const { onAuthStateChanged } = await import('firebase/auth');
+    if (cancelled) return;
+    stop = onAuthStateChanged(ready.auth, (user) =>
+      listener(
+        user
+          ? { uid: user.uid, name: user.displayName ?? user.email?.split('@')[0] ?? '', email: user.email }
+          : null
+      )
+    );
+  })();
+  return () => {
+    cancelled = true;
+    stop?.();
+  };
+}
+
+/**
+ * 구글로 로그인한다. 취소하면 `null`.
+ *
+ * 앱과 웹의 길이 다르다. 구글은 WebView 안의 OAuth를 거절하므로(`disallowed_useragent`)
+ * 앱에서는 네이티브 플러그인이 구글 창을 띄워 idToken을 받아 오고, 그걸 자바스크립트 SDK의
+ * 자격증명으로 바꾼다. 웹에서는 팝업이다. 끝은 같다 — 같은 구글 계정이면 같은 uid.
+ */
+export async function signInWithGoogle(): Promise<Account | null> {
   const ready = await firebase();
   if (!ready) throw new Error('Firebase가 설정되지 않았습니다.');
   const auth = await import('firebase/auth');
-  await ready.auth.authStateReady();
-  if (ready.auth.currentUser) return ready.auth.currentUser.uid;
-  // 처음 켤 때 신호가 없으면 로그인 요청이 끝나지 않는다. "불러오는 중"에 영영 머무는
-  // 것보다 무엇이 안 되는지 말하고 다시 시도하게 하는 편이 낫다.
-  const signedIn = await Promise.race([
-    auth.signInAnonymously(ready.auth),
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'network-timeout' })), 15_000)
-    ),
-  ]);
-  return signedIn.user.uid;
+
+  if (isNative()) {
+    const native = nativePlugin('FirebaseAuthentication');
+    if (!native?.signInWithGoogle) {
+      throw new Error('이 앱 버전에는 구글 로그인이 들어 있지 않습니다. 새 APK를 설치하세요.');
+    }
+    const result = await native.signInWithGoogle();
+    const idToken = result?.credential?.idToken;
+    if (!idToken) return null;
+    const credential = auth.GoogleAuthProvider.credential(idToken, result.credential?.accessToken);
+    const { user } = await auth.signInWithCredential(ready.auth, credential);
+    return { uid: user.uid, name: user.displayName ?? '', email: user.email };
+  }
+
+  const provider = new auth.GoogleAuthProvider();
+  // 역 사무실 폰은 여럿이 돌려 쓴다. 매번 계정을 고르게 한다.
+  provider.setCustomParameters({ prompt: 'select_account' });
+  try {
+    const { user } = await auth.signInWithPopup(ready.auth, provider);
+    return { uid: user.uid, name: user.displayName ?? '', email: user.email };
+  } catch (error: any) {
+    if (String(error?.code ?? '').match(/popup-closed|cancelled/)) return null;
+    throw error;
+  }
+}
+
+export async function signOut(): Promise<void> {
+  const ready = await firebase();
+  if (!ready) return;
+  if (isNative()) await nativePlugin('FirebaseAuthentication')?.signOut?.().catch?.(() => {});
+  const { signOut: firebaseSignOut } = await import('firebase/auth');
+  await firebaseSignOut(ready.auth);
 }
 
 /* 팀 ---------------------------------------------------------------- */

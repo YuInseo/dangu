@@ -128,6 +128,23 @@ export function SettingsPanel() {
 
         {notice && <p className="notice">{notice}</p>}
 
+        {session.account && (
+          <section className="panel">
+            <h2>계정</h2>
+            <p>{session.account.email ?? session.account.name}</p>
+            <button
+              className="secondary wide"
+              onClick={async () => {
+                tap();
+                await session.signOut();
+                router.push('/');
+              }}
+            >
+              로그아웃
+            </button>
+          </section>
+        )}
+
         <section className="panel">
           <h2>개인정보</h2>
           <p className="muted">

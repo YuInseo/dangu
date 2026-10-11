@@ -30,11 +30,18 @@
 ## 설정해야 하는 것 — Firebase 콘솔
 
 당구 점수판과 같은 Firebase 프로젝트(`moneywalk-551ca`)를 씁니다. 데이터는 `teams/` 아래에만
-있어서 점수판의 `users/`와 섞이지 않습니다. 콘솔에서 두 가지를 해야 합니다:
+있어서 점수판의 `users/`와 섞이지 않습니다. 콘솔에서 할 일:
 
-1. **Authentication → 로그인 방법 → 익명** 켜기. 동행은 계정 없이 익명으로 로그인합니다 —
-   근무 중에 구글 계정을 꺼낼 일은 없고, 필요한 건 "이 폰이 누구인지" 하나뿐입니다.
-2. **Firestore 규칙**에 저장소 맨 위의 `firestore.rules`를 통째로 붙여넣기. 당구 점수판과
+1. **Authentication → 로그인 방법 → Google**이 켜져 있는지 확인. 당구 점수판이 이미 쓰고
+   있으면 켜져 있습니다.
+2. **프로젝트 설정 → 내 앱 → 앱 추가 → Android**로 패키지 이름 `com.donghaeng.app`을 등록하고,
+   **SHA-1 지문**에 APK 서명 키(CI의 업로드 키)의 지문을 넣기. 이게 없으면 앱 안의 구글 로그인
+   창이 `DEVELOPER_ERROR`로 닫힙니다. 지문은 당구 점수판에 넣은 것과 같은 값입니다:
+
+   ```bash
+   keytool -list -v -keystore release.keystore -alias upload
+   ```
+3. **Firestore 규칙**에 저장소 맨 위의 `firestore.rules`를 통째로 붙여넣기. 당구 점수판과
    동행의 규칙이 합쳐져 있습니다(동행만의 규칙은 `donghaeng/firestore.rules`).
 
 색인은 따로 만들 필요가 없습니다 — 쪽지는 날짜 하나로만 묻습니다.
@@ -65,7 +72,7 @@ node scripts/make-icons.mjs   # 아이콘 다시 만들기
 | 파일 | 무엇 |
 | --- | --- |
 | `donghaeng/lib/slip.ts` | 쪽지의 모양, 시각·날짜 계산, 공유 글. UI도 Firebase도 모릅니다 |
-| `donghaeng/lib/firebase.ts` | 익명 로그인, 팀 만들기·들어가기, 쪽지 읽기·쓰기·지우기 |
+| `donghaeng/lib/firebase.ts` | 구글 로그인, 팀 만들기·들어가기, 쪽지 읽기·쓰기·지우기 |
 | `donghaeng/lib/session.ts` | 이 폰의 이름과 팀 |
 | `donghaeng/lib/platform.ts` | 기기 저장소·진동·공유 |
 | `donghaeng/app/home.tsx` | 첫 화면 — 이름과 팀이 없으면 설정, 있으면 쪽지판 |

@@ -193,15 +193,7 @@ export function Board({ session }: { session: Session }) {
       </div>
 
       <main className="board">
-        {session.error && (
-          <div className="notice error">
-            <p>{session.error}</p>
-            <button className="secondary" onClick={session.retry}>
-              다시 시도
-            </button>
-          </div>
-        )}
-        {error && !session.error && <p className="notice error">{error}</p>}
+        {error && <p className="notice error">{error}</p>}
 
         {visible.length === 0 ? (
           <div className="empty">

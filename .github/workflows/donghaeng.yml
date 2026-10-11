@@ -100,6 +100,16 @@ jobs:
       - name: 권한·오버레이 적용
         run: node .framework/graft/bin/graft.js build --target mobile --platform android
 
+      # 구글 로그인 플러그인은 `rgcfaIncludeGoogle`이 켜져 있어야 구글 라이브러리를 넣는다.
+      # 꺼진 채로 지으면 앱은 뜨지만 로그인 버튼이 "Google 제공자가 없다"로 끝난다.
+      - name: 구글 로그인 켜기
+        working-directory: donghaeng/.graft/mobile/android
+        run: |
+          if ! grep -q rgcfaIncludeGoogle variables.gradle; then
+            sed -i 's/^ext {/ext {\n    rgcfaIncludeGoogle = true/' variables.gradle
+          fi
+          grep -n rgcfaIncludeGoogle variables.gradle
+
       - name: 웹 자산 동기화
         working-directory: donghaeng/.graft/mobile
         run: npx cap sync android

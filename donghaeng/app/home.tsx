@@ -28,8 +28,46 @@ export function Home() {
     );
   }
 
+  if (!session.account) return <SignIn session={session} />;
   if (!session.name || !session.team) return <Setup session={session} />;
   return <Board session={session} />;
+}
+
+/**
+ * 로그인. 구글 계정 하나로 끝난다.
+ *
+ * 한 번 로그인하면 기기에 남으므로 이 화면은 처음에만 본다.
+ */
+function SignIn({ session }: { session: Session }) {
+  return (
+    <div className="app">
+      <header className="topbar">
+        <h1>동행</h1>
+      </header>
+
+      <main className="setup">
+        <p className="lead">
+          승하차 도움 쪽지를 팀이 같이 봅니다. 한 사람이 적으면 모두의 폰에 바로 뜹니다.
+        </p>
+
+        <button
+          className="google wide"
+          disabled={session.signingIn}
+          onClick={() => {
+            tap();
+            void session.signIn();
+          }}
+        >
+          <span className="g" aria-hidden="true">
+            G
+          </span>
+          {session.signingIn ? '로그인 중…' : 'Google로 로그인'}
+        </button>
+
+        {session.error && <p className="notice error">{session.error}</p>}
+      </main>
+    </div>
+  );
 }
 
 /**
@@ -152,16 +190,14 @@ function Setup({ session }: { session: Session }) {
           {busy ? '잠시만요…' : mode === 'join' ? '들어가기' : '만들기'}
         </button>
 
-        {(error || session.error) && (
-          <div className="notice error">
-            <p>{error ?? session.error}</p>
-            {!session.uid && (
-              <button className="secondary" onClick={session.retry}>
-                다시 시도
-              </button>
-            )}
-          </div>
-        )}
+        {error && <p className="notice error">{error}</p>}
+
+        <p className="muted account-line">
+          {session.account?.email ?? session.account?.name} 계정으로 로그인됨 ·{' '}
+          <button className="link" onClick={() => void session.signOut()}>
+            다른 계정
+          </button>
+        </p>
       </main>
     </div>
   );

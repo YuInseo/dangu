@@ -48,13 +48,18 @@ export default defineConfig({
     // 새 쪽지가 오면 손에 알린다. 카메라·위치는 쓰지 않으므로 선언하지 않는다.
     capabilities: ['vibration', 'network'],
 
-    /**
-     * 로그인은 Firebase 익명 인증이라 전부 자바스크립트다 — 네이티브 로그인 플러그인이
-     * 필요 없고, 그래서 `google-services.json`도 필요 없다.
-     *
-     * 플러그인은 상태 표시줄 색, 공유 시트, 뒤로 가기 버튼 셋뿐이다.
-     */
     plugins: [
+      /**
+       * 구글 로그인.
+       *
+       * 안드로이드 WebView 안에서는 구글 OAuth 팝업이 막혀 있다(`disallowed_useragent`).
+       * 그래서 앱에서는 이 플러그인이 네이티브 로그인 창을 띄우고, 받은 idToken을 자바스크립트
+       * SDK에 넘긴다(`skipNativeAuth`, `mobile/overlay/capacitor.config.json`).
+       *
+       * 이 플러그인은 구글 쪽 라이브러리를 기본으로 빼고 짓는다. 넣으라는 Gradle 변수
+       * `rgcfaIncludeGoogle`은 CI가 생성된 프로젝트에 적는다(donghaeng.yml).
+       */
+      '@capacitor-firebase/authentication',
       '@capacitor/status-bar',
       /**
        * 공유 시트. 안드로이드 WebView에는 `navigator.share`가 없어서, 이게 없으면 공유
