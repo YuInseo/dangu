@@ -59,7 +59,12 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - uses: android-actions/setup-android@v3
+      # 안드로이드 SDK는 ubuntu 러너에 이미 깔려 있다(ANDROID_HOME). setup-android@v3는
+      # 기본으로 없어진 `tools` 패키지를 설치하려다 실패하므로 쓰지 않는다.
+      - name: 안드로이드 SDK 확인
+        run: |
+          test -n "${ANDROID_HOME:-$ANDROID_SDK_ROOT}" || { echo "::error::ANDROID_HOME이 없습니다"; exit 1; }
+          echo "sdk.dir=${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
 
       - name: Gradle 캐시
         uses: actions/cache@v4
