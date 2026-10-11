@@ -1,7 +1,8 @@
 rules_version = '2';
 
 /*
- * 이 앱이 Firestore에 두는 것은 한 사람의 게임 기록뿐이다.
+ * 당구 점수판이 Firestore에 두는 것은 한 사람의 게임 기록뿐이다. (같은 프로젝트를 쓰는
+ * 동행 앱의 `teams/` 블록이 아래에 함께 있다.)
  *
  * 그래서 규칙도 한 줄로 요약된다: 자기 문서만, 로그인한 사람만. 웹 Firebase 설정값이
  * 앱 번들에 그대로 들어 있어도 괜찮은 이유가 이것이다 — 그 값들은 "어느 프로젝트인지"를
@@ -11,6 +12,46 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /users/{uid}/games/{gameId} {
       allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // 동행(donghaeng/) — 팀 코드를 아는 사람만 그 팀의 쪽지를 읽고 쓴다.
+    // 설명은 donghaeng/firestore.rules에 있다.
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function member(team) {
+      return signedIn() && exists(/databases/$(database)/documents/teams/$(team)/members/$(request.auth.uid));
+    }
+
+    match /teams/{team} {
+      // 코드로 하나를 집어 읽는 것만 된다. 목록(list)은 막혀 있어서 코드를 모르면
+      // 어떤 팀이 있는지조차 알 수 없다.
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 60;
+      allow update: if member(team)
+        && request.resource.data.createdBy == resource.data.createdBy;
+
+      // 구성원 문서는 자기 것만 만들고 지운다. 팀이 있어야 들어갈 수 있다.
+      match /members/{uid} {
+        allow read: if member(team);
+        allow create, update: if signedIn()
+          && request.auth.uid == uid
+          && exists(/databases/$(database)/documents/teams/$(team));
+        allow delete: if signedIn() && request.auth.uid == uid;
+      }
+
+      match /slips/{slip} {
+        allow read, delete: if member(team);
+        allow create, update: if member(team)
+          && request.resource.data.date is string
+          && request.resource.data.time is string
+          && request.resource.data.kind in ['depart', 'arrive']
+          && request.resource.data.status in ['waiting', 'doing', 'done'];
+      }
     }
 
     // 그 밖의 모든 경로는 닫힌다. 나중에 컬렉션이 늘어나도 기본이 거절이어야 한다.

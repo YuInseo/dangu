@@ -16,6 +16,11 @@ on:
       - 'v*'
     branches:
       - '**'
+    # 동행(donghaeng/)만 바뀐 푸시는 점수판을 다시 지을 이유가 없다. 그쪽은
+    # donghaeng.yml이 짓는다. (경로 조건은 태그 푸시에는 걸리지 않는다.)
+    paths-ignore:
+      - 'donghaeng/**'
+      - '.github/workflows/donghaeng.yml'
   # 손으로 돌릴 때. 판올림 폭을 고를 수 있는 유일한 길이라 minor·major는 여기로 낸다.
   workflow_dispatch:
     inputs:

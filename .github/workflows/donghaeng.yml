@@ -1,0 +1,142 @@
+name: donghaeng
+
+# 동행(donghaeng/)의 APK를 만든다.
+#
+# 당구 점수판과 같은 저장소에 살지만 릴리스는 섞지 않는다. 점수판의 업데이트 버튼은
+# `/releases/latest`와 `v*` 태그를 보므로, 동행은 그 둘을 건드리지 않고 `donghaeng-ci`
+# 프리릴리스 한 자리에만 APK를 올린다 — 폰에서 링크 하나로 받아 설치하는 자리다.
+on:
+  push:
+    branches:
+      - '**'
+    paths:
+      - 'donghaeng/**'
+      - '.github/workflows/donghaeng.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: donghaeng-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android:
+    runs-on: ubuntu-latest
+    env:
+      GRAFT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
+      GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
+      GRAFT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
+      GRAFT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
+      GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
+      GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      GRAFT_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      GRAFT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      GRAFT_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      GRAFT_PUBLIC_APP_VERSION: 0.1.0-ci.${{ github.run_number }}
+
+    defaults:
+      run:
+        working-directory: donghaeng
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 프레임워크는 아직 npm에 없으므로 저장소에서 가져와 파일 의존으로 설치한다.
+      - uses: actions/checkout@v4
+        with:
+          repository: YuInseo/graft
+          path: .framework
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Gradle 캐시
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-donghaeng-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            gradle-donghaeng-${{ runner.os }}-
+            gradle-${{ runner.os }}-
+
+      - name: 의존성 설치
+        run: |
+          npm pkg set dependencies.graft="file:../.framework/graft"
+          npm install --no-audit --no-fund
+
+      - name: 웹·모바일 페이로드 빌드
+        run: node ../.framework/graft/bin/graft.js build --target mobile --platform android
+
+      - name: 안드로이드 프로젝트 생성
+        working-directory: donghaeng/.graft/mobile
+        run: |
+          npm install
+          if [ -d android ] && [ ! -f android/app/build.gradle ]; then
+            rm -rf android
+          fi
+          npx cap add android
+
+      # 프로젝트가 생긴 뒤 한 번 더: 권한·오버레이는 생성된 프로젝트 안에 쓰인다.
+      - name: 권한·오버레이 적용
+        run: node ../.framework/graft/bin/graft.js build --target mobile --platform android
+
+      - name: 웹 자산 동기화
+        working-directory: donghaeng/.graft/mobile
+        run: npx cap sync android
+
+      - name: 업로드 키 복원
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          echo "GRAFT_ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore" >> "$GITHUB_ENV"
+
+      - name: APK 빌드
+        working-directory: donghaeng/.graft/mobile/android
+        env:
+          GRADLE_OPTS: -Dorg.gradle.jvmargs=-Xmx4g -Dorg.gradle.daemon=false
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --parallel --build-cache
+
+      - name: 서명 확인
+        id: apk
+        run: |
+          FOUND=$(find .graft/mobile/android -name '*.apk' -path '*release*' | head -n1)
+          test -n "$FOUND" || { echo "APK를 찾지 못했습니다"; exit 1; }
+          if ! unzip -l "$FOUND" | grep -qiE 'META-INF/.*\.(RSA|DSA|EC)'; then
+            echo "::error::APK가 서명되지 않았습니다 ($FOUND). ANDROID_KEYSTORE_BASE64 등 서명 시크릿을 확인하세요."
+            exit 1
+          fi
+          cp "$FOUND" "$GITHUB_WORKSPACE/donghaeng-ci.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: donghaeng-apk
+          path: donghaeng-ci.apk
+
+      - name: 개발 빌드 올리기
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: donghaeng-ci
+          name: 동행 개발 빌드 ${{ env.GRAFT_PUBLIC_APP_VERSION }}
+          body: |
+            동행 앱의 최신 빌드입니다. 브랜치 `${{ github.ref_name }}` (`${{ github.sha }}`)
+
+            당구 점수판과는 다른 앱(`com.donghaeng.app`)이라 한 폰에 같이 깔립니다.
+            새 빌드가 올라올 때마다 이 자리의 파일이 교체됩니다.
+          prerelease: true
+          make_latest: false
+          files: donghaeng-ci.apk

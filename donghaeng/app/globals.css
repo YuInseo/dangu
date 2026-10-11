@@ -1,0 +1,865 @@
+/*
+ * 승강장에서 읽히는 화면.
+ *
+ * 밝은 바탕이다 — 쪽지는 낮에 실외에서도 읽어야 하고, 어두운 화면은 햇빛 아래에서
+ * 반사만 보인다. 출발은 파랑, 도착은 빨강: 종이 양식의 "도착"이 빨간 글씨였다.
+ * 어떤 버튼도 44px보다 작지 않다.
+ */
+
+:root {
+  --bg: #f3f5f9;
+  --paper: #ffffff;
+  --ink: #141a24;
+  --muted: #5d6676;
+  --line: #d9dee7;
+  --navy: #1d3a6e;
+  --depart: #1d5fd1;
+  --depart-soft: #e5eefc;
+  --arrive: #cf2a2a;
+  --arrive-soft: #fdeaea;
+  --waiting: #b26a00;
+  --waiting-soft: #fff3dc;
+  --doing: #1d5fd1;
+  --doing-soft: #e5eefc;
+  --done: #2f7d4f;
+  --done-soft: #e4f4ea;
+  --radius: 14px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 16px;
+  line-height: 1.45;
+}
+
+button,
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: 0;
+  border-radius: var(--radius);
+  min-height: 44px;
+  padding: 0 1rem;
+  transition: transform 0.06s ease, filter 0.12s ease;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+input,
+textarea {
+  width: 100%;
+  min-height: 48px;
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  padding: 0.6rem 0.75rem;
+  background: var(--paper);
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:focus-visible,
+textarea:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid #3b82f6;
+  outline-offset: 2px;
+}
+
+input[aria-invalid='true'] {
+  border-color: var(--arrive);
+}
+
+a {
+  color: inherit;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* 버튼 종류 -------------------------------------------------------- */
+
+.primary {
+  background: var(--navy);
+  color: #fff;
+  font-weight: 700;
+}
+
+.primary.depart {
+  background: var(--depart);
+}
+
+.primary.arrive {
+  background: var(--arrive);
+}
+
+.primary.done {
+  background: var(--done);
+}
+
+.secondary {
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  font-weight: 600;
+}
+
+.danger {
+  background: var(--arrive);
+  color: #fff;
+  font-weight: 700;
+}
+
+.ghost {
+  background: transparent;
+  color: inherit;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 0.75rem;
+  border-radius: var(--radius);
+}
+
+.wide {
+  width: 100%;
+  min-height: 52px;
+}
+
+/* 뼈대 ------------------------------------------------------------- */
+
+.app {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.app.center {
+  align-items: center;
+  justify-content: center;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: calc(var(--safe-top) + 0.5rem) 0.75rem 0.5rem 1rem;
+  background: var(--navy);
+  color: #fff;
+}
+
+.topbar h1 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.topbar .title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.topbar .title h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sync {
+  font-size: 0.75rem;
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.sync.on::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #4ade80;
+  margin-right: 0.3rem;
+  vertical-align: 1px;
+}
+
+.topbar .ghost {
+  color: #fff;
+  font-weight: 600;
+}
+
+/* 날짜 줄 ---------------------------------------------------------- */
+
+.datebar {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem 0;
+}
+
+.datebar > button {
+  background: transparent;
+  font-size: 1.6rem;
+  line-height: 1;
+  min-width: 48px;
+  color: var(--navy);
+}
+
+.datebar .date {
+  flex: 1;
+  font-size: 1.05rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+}
+
+.datebar .date:disabled {
+  opacity: 1;
+}
+
+.datebar .date small {
+  font-size: 0.75rem;
+  color: var(--depart);
+}
+
+/* 거르개 ----------------------------------------------------------- */
+
+.filters {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.segmented {
+  display: flex;
+  background: #e3e7ee;
+  border-radius: 12px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.filters .segmented {
+  flex: 1;
+}
+
+.segmented button {
+  flex: 1;
+  background: transparent;
+  border-radius: 9px;
+  font-weight: 600;
+  color: var(--muted);
+  padding: 0 0.5rem;
+}
+
+.segmented button.on {
+  background: var(--paper);
+  color: var(--ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.segmented.small button {
+  min-height: 40px;
+  font-size: 0.9rem;
+}
+
+.segmented b {
+  font-weight: 700;
+  margin-left: 0.15rem;
+}
+
+.toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  white-space: nowrap;
+  min-height: 44px;
+}
+
+.toggle input {
+  width: 20px;
+  height: 20px;
+  min-height: 0;
+  margin: 0;
+}
+
+/* 쪽지판 ----------------------------------------------------------- */
+
+.board {
+  flex: 1;
+  padding: 0.25rem 0.75rem calc(6rem + var(--safe-bottom));
+}
+
+.slips {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.card {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem 0.9rem 0.8rem;
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  border-left: 6px solid var(--depart);
+  border-radius: var(--radius);
+  box-shadow: 0 1px 2px rgba(20, 26, 36, 0.05);
+}
+
+.card.arrive {
+  border-left-color: var(--arrive);
+}
+
+.card.done {
+  opacity: 0.6;
+}
+
+.card.fresh {
+  box-shadow: 0 0 0 3px #facc15;
+}
+
+.card-head {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.kind {
+  font-size: 0.8rem;
+  font-weight: 800;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  color: var(--depart);
+  background: var(--depart-soft);
+}
+
+.arrive .kind {
+  color: var(--arrive);
+  background: var(--arrive-soft);
+}
+
+.time {
+  font-size: 1.6rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.countdown {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.countdown.soon {
+  color: var(--arrive);
+  font-weight: 700;
+}
+
+.countdown.late {
+  color: var(--waiting);
+}
+
+.status {
+  margin-left: auto;
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+  color: var(--waiting);
+  background: var(--waiting-soft);
+}
+
+.status.doing {
+  color: var(--doing);
+  background: var(--doing-soft);
+}
+
+.status.done {
+  color: var(--done);
+  background: var(--done-soft);
+}
+
+.card-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.75rem;
+  font-size: 0.98rem;
+}
+
+.train {
+  font-weight: 700;
+}
+
+.seat {
+  font-size: 1.15rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip {
+  font-size: 0.85rem;
+  font-weight: 700;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  border: 1.5px solid currentColor;
+  color: var(--navy);
+}
+
+.card-meet {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.empty {
+  text-align: center;
+  padding: 3rem 1rem;
+}
+
+.empty p {
+  margin: 0.25rem 0;
+}
+
+.tally {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 1rem 0 0;
+}
+
+/* 아래 버튼 -------------------------------------------------------- */
+
+.dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  display: flex;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem calc(0.6rem + var(--safe-bottom));
+  background: linear-gradient(to top, var(--bg) 70%, transparent);
+}
+
+.dock .add {
+  flex: 1;
+  min-height: 56px;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(20, 26, 36, 0.18);
+}
+
+.dock .add.depart {
+  background: var(--depart);
+}
+
+.dock .add.arrive {
+  background: var(--arrive);
+}
+
+/* 시트 ------------------------------------------------------------- */
+
+.sheet-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgba(10, 14, 22, 0.45);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  animation: fade 0.15s ease;
+}
+
+.sheet {
+  width: 100%;
+  max-width: 560px;
+  max-height: 94dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--bg);
+  border-radius: 20px 20px 0 0;
+  padding: 0.5rem 1rem calc(1rem + var(--safe-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  animation: rise 0.18s ease;
+}
+
+.grip {
+  width: 40px;
+  height: 5px;
+  border-radius: 3px;
+  background: var(--line);
+  margin: 0 auto 0.25rem;
+  flex: none;
+}
+
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    transform: translateY(24px);
+    opacity: 0.6;
+  }
+}
+
+/* 펼친 쪽지 — 종이 양식을 닮게 */
+
+.paper {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  table-layout: fixed;
+}
+
+.paper th,
+.paper td {
+  border: 1.5px solid var(--ink);
+  padding: 0.5rem 0.55rem;
+  vertical-align: middle;
+}
+
+.paper th {
+  width: 24%;
+  font-weight: 700;
+  font-size: 0.9rem;
+  text-align: center;
+  background: #f6f7f9;
+}
+
+.paper td {
+  font-size: 1.05rem;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+.paper td.big {
+  font-size: 1.4rem;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.paper .paper-kind {
+  width: auto;
+  font-size: 1.3rem;
+  font-weight: 900;
+  color: var(--depart);
+  background: var(--paper);
+}
+
+.arrive .paper .paper-kind {
+  color: var(--arrive);
+}
+
+.paper .memo {
+  white-space: pre-wrap;
+}
+
+.tel {
+  color: var(--depart);
+  font-weight: 700;
+  text-decoration: none;
+  display: inline-flex;
+  min-height: 36px;
+  align-items: center;
+}
+
+.needs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.need {
+  font-weight: 700;
+  font-size: 0.95rem;
+  padding: 0.2rem 0.65rem;
+  border-radius: 999px;
+  color: #a5adbb;
+  border: 1.5px solid transparent;
+}
+
+.need.on {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+/* 쓰기 화면의 내용 칸은 눌러서 켜고 끈다. */
+.needs.pick .need {
+  min-height: 48px;
+  padding: 0 1.1rem;
+  font-size: 1.05rem;
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  color: var(--muted);
+}
+
+.needs.pick .need.on {
+  background: var(--navy);
+  border-color: var(--navy);
+  color: #fff;
+}
+
+.byline {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.byline .status {
+  margin-left: 0;
+}
+
+.actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.row > * {
+  flex: 1;
+}
+
+/* 쓰기 */
+
+.editor .kinds button {
+  min-height: 48px;
+  font-size: 1.05rem;
+}
+
+.editor .kinds button.on.depart {
+  color: var(--depart);
+}
+
+.editor .kinds button.on.arrive {
+  color: var(--arrive);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 0.8fr;
+  gap: 0.5rem;
+}
+
+.grid.two {
+  grid-template-columns: 1fr 1fr;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.field > span {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+.field small {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.field input.big {
+  font-size: 1.3rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 알림 ------------------------------------------------------------- */
+
+.notice {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border-radius: 10px;
+  background: var(--doing-soft);
+  font-size: 0.92rem;
+}
+
+.notice.error {
+  background: var(--arrive-soft);
+  color: #8f1717;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.6rem;
+}
+
+.notice.error p {
+  margin: 0;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(5.5rem + var(--safe-bottom));
+  transform: translateX(-50%);
+  z-index: 30;
+  max-width: calc(100% - 2rem);
+  background: var(--ink);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  border-radius: 12px;
+  font-weight: 600;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  animation: rise 0.18s ease;
+}
+
+/* 처음 화면 -------------------------------------------------------- */
+
+.setup,
+.settings {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.lead {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+input.code,
+.team-code {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  letter-spacing: 0.12em;
+  font-weight: 700;
+}
+
+input.code {
+  font-size: 1.3rem;
+  text-transform: uppercase;
+}
+
+/* 설정 ------------------------------------------------------------- */
+
+.panel {
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.panel h3 {
+  margin: 0.4rem 0 0;
+  font-size: 0.9rem;
+}
+
+.panel p {
+  margin: 0;
+}
+
+.team-name {
+  font-size: 1.15rem;
+  font-weight: 800;
+}
+
+.code-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.code-row > input {
+  flex: 1;
+}
+
+.team-code {
+  flex: 1;
+  font-size: 1.5rem;
+  color: var(--navy);
+}
+
+.members {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.version {
+  text-align: center;
+  font-size: 0.8rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
