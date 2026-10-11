@@ -1,7 +1,7 @@
 import type { Auth } from 'firebase/auth';
 import type { Firestore } from 'firebase/firestore';
 
-import { RETENTION_DAYS, dateKey, shiftDate, toSlip, type Person, type Slip, type SlipDraft, type Status } from './slip';
+import { RETENTION_DAYS, dateKey, shiftDate, toSlip, type CheckId, type Person, type Slip, type SlipDraft, type Status } from './slip';
 
 /**
  * Firestore에 두는 것 전부.
@@ -374,6 +374,18 @@ export async function updateSlip(code: string, id: string, draft: Partial<SlipDr
   const { doc, updateDoc } = await import('firebase/firestore');
   void updateDoc(doc(ready.db, 'teams', code, 'slips', id), {
     ...draft,
+    updatedAt: Date.now(),
+    updatedBy: me,
+  }).catch(() => {});
+}
+
+/** 승무원 인계·해당역 전화 체크. 쪽지의 다른 칸은 건드리지 않는다. */
+export async function setCheck(code: string, id: string, check: CheckId, value: boolean, me: Person): Promise<void> {
+  const ready = await firebase();
+  if (!ready) return;
+  const { doc, updateDoc } = await import('firebase/firestore');
+  void updateDoc(doc(ready.db, 'teams', code, 'slips', id), {
+    [check]: value,
     updatedAt: Date.now(),
     updatedBy: me,
   }).catch(() => {});

@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  CHECKS,
   KIND_LABEL,
   STATUS_LABEL,
   minutesUntil,
@@ -73,6 +74,14 @@ export function SlipCard({
       )}
 
       {slip.meet && <div className="card-meet">만날 곳 · {slip.meet}</div>}
+
+      {CHECKS.some((check) => slip[check.id]) && (
+        <div className="card-checks">
+          {CHECKS.filter((check) => slip[check.id]).map((check) => (
+            <span key={check.id}>✓ {check.label}</span>
+          ))}
+        </div>
+      )}
     </button>
   );
 }

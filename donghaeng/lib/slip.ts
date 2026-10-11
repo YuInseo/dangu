@@ -82,6 +82,10 @@ export interface Slip {
   haengsin: boolean;
   /** 온라인으로 신청한 도움인지. 종이 쪽지에 "온"이라고 동그라미 치던 것. */
   online: boolean;
+  /** 승무원에게 넘겼는지. 모시는 도중에 펼친 쪽지에서 바로 체크한다. */
+  crewHandover: boolean;
+  /** 상대 역(출발이면 도착역, 도착이면 출발역)에 전화했는지. */
+  stationCalled: boolean;
   status: Status;
   /** 맡은 사람. 대기 중이면 없다. */
   assignee: Person | null;
@@ -109,6 +113,14 @@ export type SlipDraft = Pick<
   | 'haengsin'
   | 'online'
 >;
+
+/** 진행하면서 체크하는 것들. 펼친 쪽지에서 누르면 곧바로 팀 모두에게 반영된다. */
+export const CHECKS = [
+  { id: 'crewHandover', label: '승무원 인계' },
+  { id: 'stationCalled', label: '해당역 전화' },
+] as const;
+
+export type CheckId = (typeof CHECKS)[number]['id'];
 
 /** 체크한 표시들. 목록·펼친 쪽지·공유 글에 같은 말로 붙는다. */
 export function flagLabels(slip: Pick<Slip, 'haengsin' | 'online'>): string[] {
@@ -228,6 +240,8 @@ export function shareText(slip: Slip): string {
   if (route || seat) lines.push([route, seat && `좌석 ${seat}`].filter(Boolean).join(' · '));
   const flags = flagLabels(slip);
   if (flags.length) lines.push(flags.join(' · '));
+  const done = CHECKS.filter((check) => slip[check.id]).map((check) => `${check.label} ✓`);
+  if (done.length) lines.push(done.join(' · '));
   const needs = needLabels(slip.needs);
   if (needs.length) lines.push(`내용: ${needs.join(', ')}`);
   if (slip.meet) lines.push(`만날 곳: ${slip.meet}`);
@@ -297,6 +311,8 @@ export function toSlip(id: string, data: any): Slip {
     memo: text(data?.memo),
     haengsin: data?.haengsin === true,
     online: data?.online === true,
+    crewHandover: data?.crewHandover === true,
+    stationCalled: data?.stationCalled === true,
     status,
     assignee: data?.assignee?.uid ? { uid: text(data.assignee.uid), name: text(data.assignee.name) } : null,
     createdBy: data?.createdBy?.uid ? data.createdBy : someone,

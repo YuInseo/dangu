@@ -2,9 +2,10 @@
 
 import { useEffect, useState } from 'react';
 
-import { deleteSlip, setStatus, type Team } from '../lib/firebase';
+import { deleteSlip, setCheck, setStatus, type Team } from '../lib/firebase';
 import { shareText, tap } from '../lib/platform';
 import {
+  CHECKS,
   KIND_LABEL,
   NEEDS,
   STATUS_LABEL,
@@ -163,6 +164,23 @@ export function SlipSheet({
             )}
           </tbody>
         </table>
+
+        {/* 모시는 도중에 하는 일들. 누르는 즉시 저장되고 팀 모두의 화면에 반영된다. */}
+        <div className="checks">
+          {CHECKS.map((check) => (
+            <label key={check.id} className={slip[check.id] ? 'check on' : 'check'}>
+              <input
+                type="checkbox"
+                checked={slip[check.id]}
+                onChange={(event) => {
+                  tap('medium');
+                  void setCheck(team.code, slip.id, check.id, event.target.checked, me);
+                }}
+              />
+              {check.label}
+            </label>
+          ))}
+        </div>
 
         <p className="byline">
           <span className={`status ${slip.status}`}>{STATUS_LABEL[slip.status]}</span>
