@@ -71,7 +71,12 @@ export function reason(error: any): string {
     // 원문을 붙여 둔다. 같은 안내 뒤에 원인이 여럿 숨어 있어서, 원문 없이는 무엇을 고칠지 모른다.
     return `구글 로그인 창을 열지 못했습니다. Firebase 콘솔에 이 앱의 패키지 이름과 서명 키의 SHA-1 지문이 등록돼 있어야 합니다. (원인: ${message})`;
   }
-  if (code.includes('permission-denied')) return '권한이 없습니다. 팀 코드를 다시 확인하세요.';
+  if (code.includes('server-timeout')) {
+    return '서버에서 답이 없습니다. 네트워크를 확인하세요. 계속 이러면 Firebase 콘솔에 Firestore 데이터베이스가 만들어져 있는지 확인해야 합니다.';
+  }
+  if (code.includes('permission-denied')) {
+    return '권한이 없습니다. 팀 코드를 확인하고, Firebase 콘솔의 Firestore 규칙에 동행 규칙이 들어 있는지 확인하세요.';
+  }
   if (code.includes('unavailable') || code.includes('network')) return '네트워크에 연결되어 있지 않습니다.';
   return message || '알 수 없는 오류가 났습니다.';
 }
@@ -167,6 +172,22 @@ export async function signOut(): Promise<void> {
   await firebaseSignOut(ready.auth);
 }
 
+/**
+ * 서버의 답을 기다리되 끝없이 기다리지는 않는다.
+ *
+ * Firestore는 서버에 닿지 못하면 오류를 내지 않고 조용히 다시 시도한다 — 데이터베이스가
+ * 아직 없는 프로젝트에서도 그렇다. 팀 만들기처럼 서버의 답이 있어야 다음으로 가는 일에서
+ * 그걸 그대로 기다리면 버튼이 "잠시만요…"에서 영영 멈춘다.
+ */
+function withTimeout<T>(work: Promise<T>, ms = 15_000): Promise<T> {
+  return Promise.race([
+    work,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'server-timeout' })), ms)
+    ),
+  ]);
+}
+
 /* 팀 ---------------------------------------------------------------- */
 
 // 0·O, 1·I·L을 뺀 서른 글자. 여덟 자리면 6천억 가지가 넘는다.
@@ -197,17 +218,22 @@ export async function createTeam(name: string, me: Person): Promise<Team> {
   // 겹칠 일은 사실상 없지만, 겹치면 남의 팀에 들어가게 되므로 확인은 한다.
   let code = newCode();
   for (let tries = 0; tries < 3; tries++) {
-    const existing = await getDoc(doc(ready.db, 'teams', code)).catch(() => null);
+    const existing = await withTimeout(getDoc(doc(ready.db, 'teams', code))).catch((error) => {
+      if (error?.code === 'server-timeout') throw error;
+      return null;
+    });
     if (!existing?.exists()) break;
     code = newCode();
   }
 
-  await setDoc(doc(ready.db, 'teams', code), {
-    name: name.trim(),
-    createdBy: me.uid,
-    createdAt: Date.now(),
-  });
-  await setDoc(doc(ready.db, 'teams', code, 'members', me.uid), { name: me.name, joinedAt: Date.now() });
+  await withTimeout(
+    setDoc(doc(ready.db, 'teams', code), {
+      name: name.trim(),
+      createdBy: me.uid,
+      createdAt: Date.now(),
+    })
+  );
+  await withTimeout(setDoc(doc(ready.db, 'teams', code, 'members', me.uid), { name: me.name, joinedAt: Date.now() }));
   return { code, name: name.trim() };
 }
 
@@ -220,9 +246,9 @@ export async function joinTeam(input: string, me: Person): Promise<Team | null> 
   const { doc, getDoc, setDoc } = await import('firebase/firestore');
 
   // 오프라인 캐시가 아니라 서버에 묻는다 — "없는 코드"를 캐시에서 답하면 안 된다.
-  const team = await getDoc(doc(ready.db, 'teams', code));
+  const team = await withTimeout(getDoc(doc(ready.db, 'teams', code)));
   if (!team.exists()) return null;
-  await setDoc(doc(ready.db, 'teams', code, 'members', me.uid), { name: me.name, joinedAt: Date.now() });
+  await withTimeout(setDoc(doc(ready.db, 'teams', code, 'members', me.uid), { name: me.name, joinedAt: Date.now() }));
   return { code, name: String(team.data()?.name ?? '') };
 }
 
