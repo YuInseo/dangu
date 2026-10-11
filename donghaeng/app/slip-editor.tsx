@@ -69,6 +69,8 @@ export function SlipEditor({
           phone: slip.phone,
           meet: slip.meet,
           memo: slip.memo,
+          haengsin: slip.haengsin,
+          online: slip.online,
         }
       : emptyDraft(kind, date)
   );
@@ -204,6 +206,31 @@ export function SlipEditor({
           onPick={(value) => set('station', value)}
           onForget={(value) => drop('station', value)}
         />
+
+        <div className="checks">
+          <label className={draft.haengsin ? 'check on' : 'check'}>
+            <input
+              type="checkbox"
+              checked={draft.haengsin}
+              onChange={(event) => {
+                tap();
+                set('haengsin', event.target.checked);
+              }}
+            />
+            행신행
+          </label>
+          <label className={draft.online ? 'check on' : 'check'}>
+            <input
+              type="checkbox"
+              checked={draft.online}
+              onChange={(event) => {
+                tap();
+                set('online', event.target.checked);
+              }}
+            />
+            온라인
+          </label>
+        </div>
 
         <div className="grid two">
           <label className="field">

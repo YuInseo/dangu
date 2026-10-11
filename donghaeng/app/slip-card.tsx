@@ -4,6 +4,7 @@ import {
   KIND_LABEL,
   STATUS_LABEL,
   minutesUntil,
+  flagLabels,
   needLabels,
   routeLabel,
   seatLabel,
@@ -53,6 +54,11 @@ export function SlipCard({
         {slip.train && <span className="train">{slip.train}열차</span>}
         {slip.platform && <span>{slip.platform}번 홈</span>}
         {route && <span>{route}</span>}
+        {flagLabels(slip).map((flag) => (
+          <span key={flag} className="chip flag">
+            {flag}
+          </span>
+        ))}
       </div>
 
       {(seat || needs.length > 0) && (

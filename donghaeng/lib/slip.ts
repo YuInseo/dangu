@@ -78,6 +78,10 @@ export interface Slip {
   /** 만날 곳. "17시 3층 대합실". */
   meet: string;
   memo: string;
+  /** 행신까지 가는(오는) 열차인지. 서울에서 끝나지 않고 행신으로 이어지는 열차는 따로 챙긴다. */
+  haengsin: boolean;
+  /** 온라인으로 신청한 도움인지. 종이 쪽지에 "온"이라고 동그라미 치던 것. */
+  online: boolean;
   status: Status;
   /** 맡은 사람. 대기 중이면 없다. */
   assignee: Person | null;
@@ -90,8 +94,26 @@ export interface Slip {
 /** 새 쪽지를 쓸 때 채우는 칸들. 나머지는 저장하면서 붙는다. */
 export type SlipDraft = Pick<
   Slip,
-  'kind' | 'date' | 'time' | 'train' | 'platform' | 'station' | 'car' | 'seat' | 'needs' | 'phone' | 'meet' | 'memo'
+    | 'kind'
+  | 'date'
+  | 'time'
+  | 'train'
+  | 'platform'
+  | 'station'
+  | 'car'
+  | 'seat'
+  | 'needs'
+  | 'phone'
+  | 'meet'
+  | 'memo'
+  | 'haengsin'
+  | 'online'
 >;
+
+/** 체크한 표시들. 목록·펼친 쪽지·공유 글에 같은 말로 붙는다. */
+export function flagLabels(slip: Pick<Slip, 'haengsin' | 'online'>): string[] {
+  return [slip.haengsin && '행신행', slip.online && '온라인'].filter(Boolean) as string[];
+}
 
 /**
  * 쪽지를 며칠 남겨 두는지.
@@ -204,6 +226,8 @@ export function shareText(slip: Slip): string {
   const route = routeLabel(slip);
   const seat = seatLabel(slip);
   if (route || seat) lines.push([route, seat && `좌석 ${seat}`].filter(Boolean).join(' · '));
+  const flags = flagLabels(slip);
+  if (flags.length) lines.push(flags.join(' · '));
   const needs = needLabels(slip.needs);
   if (needs.length) lines.push(`내용: ${needs.join(', ')}`);
   if (slip.meet) lines.push(`만날 곳: ${slip.meet}`);
@@ -244,6 +268,8 @@ export function emptyDraft(kind: Kind, date = dateKey()): SlipDraft {
     phone: '',
     meet: '',
     memo: '',
+    haengsin: false,
+    online: false,
   };
 }
 
@@ -269,6 +295,8 @@ export function toSlip(id: string, data: any): Slip {
     phone: text(data?.phone),
     meet: text(data?.meet),
     memo: text(data?.memo),
+    haengsin: data?.haengsin === true,
+    online: data?.online === true,
     status,
     assignee: data?.assignee?.uid ? { uid: text(data.assignee.uid), name: text(data.assignee.name) } : null,
     createdBy: data?.createdBy?.uid ? data.createdBy : someone,

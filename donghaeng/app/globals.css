@@ -1349,3 +1349,52 @@ button.link {
   flex-wrap: wrap;
   overflow: visible;
 }
+
+/* 행신행·온라인 ---------------------------------------------------- */
+
+.checks {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.check {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 48px;
+  border-radius: 12px;
+  border: 1.5px solid var(--line);
+  background: var(--paper);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.check input {
+  width: 22px;
+  height: 22px;
+  min-height: 0;
+  margin: 0;
+  accent-color: var(--navy);
+}
+
+.check.on {
+  border-color: var(--navy);
+  background: var(--depart-soft);
+  color: var(--ink);
+}
+
+.chip.flag {
+  color: #fff;
+  background: var(--navy);
+  border-color: var(--navy);
+}
+
+.chip.flag.inline {
+  margin-left: 0.4rem;
+  font-size: 0.8rem;
+  vertical-align: 2px;
+}

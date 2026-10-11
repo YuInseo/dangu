@@ -8,6 +8,7 @@ import {
   KIND_LABEL,
   NEEDS,
   STATUS_LABEL,
+  flagLabels,
   formatPhone,
   routeLabel,
   seatLabel,
@@ -105,7 +106,14 @@ export function SlipSheet({
             </tr>
             <tr>
               <th>구간</th>
-              <td colSpan={3}>{routeLabel(slip) || '—'}</td>
+              <td colSpan={3}>
+                {routeLabel(slip) || '—'}
+                {flagLabels(slip).map((flag) => (
+                  <span key={flag} className="chip flag inline">
+                    {flag}
+                  </span>
+                ))}
+              </td>
             </tr>
             <tr>
               <th>좌석번호</th>
