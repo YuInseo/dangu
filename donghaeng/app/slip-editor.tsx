@@ -169,7 +169,7 @@ export function SlipEditor({
           <TimeWheel value={time} onChange={(value) => set('time', value)} />
         </div>
 
-        <div className="grid two">
+        <div className="grid four">
           <label className="field">
             <span>열차번호</span>
             <input
@@ -188,6 +188,26 @@ export function SlipEditor({
               placeholder="6"
               value={draft.platform}
               onChange={(event) => set('platform', event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>호차</span>
+            <input
+              className="big"
+              inputMode="numeric"
+              placeholder="2"
+              value={draft.car}
+              onChange={(event) => set('car', event.target.value)}
+            />
+          </label>
+          <label className="field">
+            <span>좌석</span>
+            <input
+              className="big"
+              placeholder="1A"
+              autoCapitalize="characters"
+              value={draft.seat}
+              onChange={(event) => set('seat', event.target.value)}
             />
           </label>
         </div>
@@ -232,28 +252,6 @@ export function SlipEditor({
           </label>
         </div>
 
-        <div className="grid two">
-          <label className="field">
-            <span>호차</span>
-            <input
-              className="big"
-              inputMode="numeric"
-              placeholder="2"
-              value={draft.car}
-              onChange={(event) => set('car', event.target.value)}
-            />
-          </label>
-          <label className="field">
-            <span>좌석</span>
-            <input
-              className="big"
-              placeholder="1A"
-              autoCapitalize="characters"
-              value={draft.seat}
-              onChange={(event) => set('seat', event.target.value)}
-            />
-          </label>
-        </div>
 
         <div className="field">
           <span>내용</span>

@@ -1443,3 +1443,14 @@ button.link {
   font-weight: 700;
   color: var(--done);
 }
+
+/* 열차번호·홈·호차·좌석을 한 줄에. 종이 쪽지에서 이 넷은 늘 같이 읽힌다. */
+.grid.four {
+  grid-template-columns: 1.25fr 0.8fr 0.8fr 1fr;
+  gap: 0.4rem;
+}
+
+.grid.four input {
+  padding-left: 0.55rem;
+  padding-right: 0.4rem;
+}
