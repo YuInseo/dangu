@@ -169,7 +169,7 @@ export function SlipEditor({
           <TimeWheel value={time} onChange={(value) => set('time', value)} />
         </div>
 
-        <div className="grid four">
+        <div className="grid two tight">
           <label className="field">
             <span>열차번호</span>
             <input
@@ -190,6 +190,8 @@ export function SlipEditor({
               onChange={(event) => set('platform', event.target.value)}
             />
           </label>
+        </div>
+        <div className="grid two tight">
           <label className="field">
             <span>호차</span>
             <input
