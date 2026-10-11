@@ -29,18 +29,18 @@
 
 ## 설정해야 하는 것 — Firebase 콘솔
 
-당구 점수판과 같은 Firebase 프로젝트(`moneywalk-551ca`)를 씁니다. 데이터는 `teams/` 아래에만
-있어서 점수판의 `users/`와 섞이지 않습니다. 콘솔에서 할 일:
+동행은 전용 Firebase 프로젝트 **`motion-8b939`("With")**를 씁니다. 당구 점수판(`moneywalk-551ca`)과
+로그인·데이터가 섞이지 않습니다. 그 프로젝트에 해 둘 것:
 
-1. **Authentication → 로그인 방법 → Google**이 켜져 있는지 확인. 당구 점수판이 이미 쓰고
-   있으면 켜져 있습니다.
-2. 앱 안의 구글 로그인 창은 콘솔에 **패키지 이름 + 서명 키의 SHA-1**이 등록된 앱에서만 열립니다.
-   동행의 패키지 이름은 **`com.donghaeng.app`**입니다. **프로젝트 설정 → 앱 추가 → Android**로
-   이 이름을 등록하고 서명 키의 SHA-1을 넣은 뒤, 나온 앱 ID를
-   `donghaeng/mobile/overlay/android/app/src/main/res/values/firebase.xml`의 `google_app_id`와
-   `donghaeng/graft.config.ts`의 `GRAFT_PUBLIC_FIREBASE_APP_ID`에 넣습니다.
-3. **Firestore 규칙**에 저장소 맨 위의 `firestore.rules`를 통째로 붙여넣기. 당구 점수판과
-   동행의 규칙이 합쳐져 있습니다(동행만의 규칙은 `donghaeng/firestore.rules`).
+1. **프로젝트 설정 → 내 앱**에 Android 앱 `com.donghaeng.app`과 서명 키의 SHA-1
+   (`D4:67:06:0E:4C:1D:99:8D:5F:01:EA:B2:25:B0:17:31:3F:0A:5C:7A`, CI 업로드 키)이 등록돼 있어야
+   합니다 — 앱 안의 구글 로그인 창이 이걸로 열립니다. (등록돼 있음)
+2. **Authentication → 로그인 방법**에서 **Google**을 켭니다. "로그인 없이 시작"을 쓰려면 **익명**도.
+3. **Firestore Database**를 만들고, **규칙**에 `donghaeng/firestore.rules`를 통째로 붙여넣습니다.
+
+앱 설정값은 `donghaeng/graft.config.ts`(웹 SDK)와
+`donghaeng/mobile/overlay/android/app/src/main/res/values/firebase.xml`(안드로이드)에 있고, 둘 다 그
+앱의 `google-services.json`에서 옮긴 값입니다.
 
 색인은 따로 만들 필요가 없습니다 — 쪽지는 날짜 하나로만 묻습니다.
 

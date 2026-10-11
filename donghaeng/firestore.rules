@@ -3,9 +3,8 @@ rules_version = '2';
 /*
  * 동행의 규칙.
  *
- * ⚠️ 당구 점수판과 같은 Firebase 프로젝트를 쓴다. 콘솔에 이 파일을 통째로 붙여넣지
- * 말고, 아래 `match /teams/...` 블록만 기존 규칙의 `match /databases/{database}/documents`
- * 안에 더하세요. 저장소 맨 위의 firestore.rules에는 두 앱의 블록이 합쳐져 있습니다.
+ * 동행 전용 Firebase 프로젝트(motion-8b939)의 Firestore 규칙이다. 콘솔의 규칙 탭에 이
+ * 파일을 통째로 붙여넣으면 된다. 여기 없는 경로는 전부 거절된다(규칙의 기본값).
  *
  * 요약하면: 팀 코드를 알아야 들어갈 수 있고, 들어온 사람만 쪽지를 읽고 쓴다.
  */

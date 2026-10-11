@@ -33,12 +33,8 @@ jobs:
   android:
     runs-on: ubuntu-latest
     env:
-      GRAFT_PUBLIC_FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-      GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${{ secrets.FIREBASE_AUTH_DOMAIN }}
-      GRAFT_PUBLIC_FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
-      GRAFT_PUBLIC_FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
-      GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${{ secrets.FIREBASE_STORAGE_BUCKET }}
-      GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.FIREBASE_MESSAGING_SENDER_ID }}
+      # Firebase 설정은 donghaeng/graft.config.ts에 적힌 동행 프로젝트(motion-8b939) 값을 쓴다.
+      # 저장소의 FIREBASE_* 시크릿은 당구 점수판 프로젝트의 것이라 여기서 넘기지 않는다.
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       GRAFT_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       GRAFT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}

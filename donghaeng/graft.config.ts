@@ -19,9 +19,9 @@ export default defineConfig({
   /**
    * 클라이언트 번들에 그대로 박히는 값들.
    *
-   * Firebase 프로젝트는 당구 점수판과 같은 것을 쓴다 — 컬렉션이 `teams/`로 갈라져 있고,
-   * 규칙도 그 경로에만 따로 붙는다(`firestore.rules`). 다른 프로젝트로 옮기려면 시크릿이나
-   * `.env.local`에 값을 넣으면 그쪽이 이긴다.
+   * Firebase 프로젝트는 동행 전용인 motion-8b939("With")다. 당구 점수판(moneywalk-551ca)과
+   * 데이터·로그인이 섞이지 않는다. 다른 프로젝트로 옮기려면 `.env.local`에 값을 넣으면 그쪽이
+   * 이긴다. (CI는 이 값을 덮어쓰지 않는다 — 저장소의 FIREBASE_* 시크릿은 점수판의 것이다.)
    *
    * `??`가 아니라 `||`인 이유는 CI다. 시크릿이 없어도 변수가 빈 문자열로 정의된다.
    */
@@ -31,17 +31,17 @@ export default defineConfig({
     GRAFT_PUBLIC_GITHUB_REPO: process.env.GRAFT_PUBLIC_GITHUB_REPO || 'YuInseo/dangu',
     GRAFT_PUBLIC_NATIVE_KEY: process.env.GRAFT_PUBLIC_NATIVE_KEY || '',
     GRAFT_PUBLIC_FIREBASE_API_KEY:
-      process.env.GRAFT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyCrGaNU7hKTHM2Cqc5LRNgeeTRBWVkbV8w',
+      process.env.GRAFT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyARET0dMJUBuveOwmxMPa9rVOOJHRCQGBc',
     GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN:
-      process.env.GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'moneywalk-551ca.firebaseapp.com',
+      process.env.GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN || 'motion-8b939.firebaseapp.com',
     GRAFT_PUBLIC_FIREBASE_PROJECT_ID:
-      process.env.GRAFT_PUBLIC_FIREBASE_PROJECT_ID || 'moneywalk-551ca',
+      process.env.GRAFT_PUBLIC_FIREBASE_PROJECT_ID || 'motion-8b939',
     GRAFT_PUBLIC_FIREBASE_APP_ID:
-      process.env.GRAFT_PUBLIC_FIREBASE_APP_ID || '1:1073558096483:android:faf99adce285e6e2d08656',
+      process.env.GRAFT_PUBLIC_FIREBASE_APP_ID || '1:309766835892:android:be5960ccc0bf9ba54e91e1',
     GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET:
-      process.env.GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'moneywalk-551ca.firebasestorage.app',
+      process.env.GRAFT_PUBLIC_FIREBASE_STORAGE_BUCKET || 'motion-8b939.firebasestorage.app',
     GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:
-      process.env.GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '1073558096483',
+      process.env.GRAFT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID || '309766835892',
   },
 
   mobile: {

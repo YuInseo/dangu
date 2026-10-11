@@ -9,7 +9,7 @@
 
   그래서 플러그인이 만들어 낼 결과물을 직접 적었다. 플러그인이 하는 일이 정확히 이것뿐이고
   — json을 이 문자열들로 옮기는 것 — 읽는 쪽(FirebaseInitProvider)은 json이 아니라 이
-  리소스를 본다. 값은 당구 점수판의 `google-services.json`에서 그대로 왔다(같은 Firebase 프로젝트).
+  리소스를 본다. 값은 동행 앱의 `google-services.json`에서 그대로 왔다.
 
   이게 없으면 두 가지가 조용히 죽는다: FirebaseApp이 초기화되지 않아 네이티브 로그인이
   "기본 앱이 없다"로 실패하고, `default_web_client_id`가 없어서 구글 로그인 창이 뜨기 전에
@@ -20,17 +20,16 @@
 -->
 <resources>
   <!--
-    어느 프로젝트의 어느 앱인지. 동행의 패키지 이름은 com.donghaeng.app이다.
-    TODO: google_app_id는 아직 당구 점수판(com.dangu.score)의 값이다. 콘솔에 com.donghaeng.app을
-    등록하면 나오는 앱 ID("1:1073558096483:android:...")로 바꾼다. 구글 로그인 창은 콘솔에
-    등록된 패키지 이름과 서명 키 지문으로 열린다.
+    어느 프로젝트의 어느 앱인지. 동행 전용 Firebase 프로젝트 motion-8b939("With")에
+    com.donghaeng.app으로 등록된 앱이다. 값은 그 앱의 google-services.json에서 그대로 왔다.
+    구글 로그인 창은 그 앱에 등록된 서명 키 지문(SHA-1 d4:67:…:5c:7a, CI 업로드 키)으로 열린다.
   -->
-  <string name="google_app_id" translatable="false">1:1073558096483:android:faf99adce285e6e2d08656</string>
-  <string name="project_id" translatable="false">moneywalk-551ca</string>
-  <string name="gcm_defaultSenderId" translatable="false">1073558096483</string>
-  <string name="google_api_key" translatable="false">AIzaSyCrGaNU7hKTHM2Cqc5LRNgeeTRBWVkbV8w</string>
-  <string name="google_crash_reporting_api_key" translatable="false">AIzaSyCrGaNU7hKTHM2Cqc5LRNgeeTRBWVkbV8w</string>
-  <string name="google_storage_bucket" translatable="false">moneywalk-551ca.firebasestorage.app</string>
+  <string name="google_app_id" translatable="false">1:309766835892:android:be5960ccc0bf9ba54e91e1</string>
+  <string name="project_id" translatable="false">motion-8b939</string>
+  <string name="gcm_defaultSenderId" translatable="false">309766835892</string>
+  <string name="google_api_key" translatable="false">AIzaSyARET0dMJUBuveOwmxMPa9rVOOJHRCQGBc</string>
+  <string name="google_crash_reporting_api_key" translatable="false">AIzaSyARET0dMJUBuveOwmxMPa9rVOOJHRCQGBc</string>
+  <string name="google_storage_bucket" translatable="false">motion-8b939.firebasestorage.app</string>
 
   <!--
     구글 로그인이 idToken을 받아 올 때 쓰는 OAuth 클라이언트.
@@ -38,5 +37,5 @@
     안드로이드 클라이언트가 아니라 *웹* 클라이언트인 것이 맞다 — 네이티브 창이 받아 온
     토큰을 Firebase가 검증하려면 그 토큰의 대상이 프로젝트의 웹 클라이언트여야 한다.
   -->
-  <string name="default_web_client_id" translatable="false">1073558096483-jm8m6mpvjauvaj901hcsvpe260tet9s5.apps.googleusercontent.com</string>
+  <string name="default_web_client_id" translatable="false">309766835892-d3991q0kqo68o5qli0us8pp5o6c78am6.apps.googleusercontent.com</string>
 </resources>
