@@ -39,7 +39,7 @@ export function Home() {
  * 역에 한 사람이면 된다.
  */
 function Setup({ session }: { session: Session }) {
-  const [name, setName] = useState(session.name);
+  const [name, setName] = useState(session.name ?? '');
   const [code, setCode] = useState('');
   const [teamName, setTeamName] = useState('');
   const [mode, setMode] = useState<'join' | 'create'>('join');

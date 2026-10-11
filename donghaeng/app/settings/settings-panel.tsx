@@ -21,12 +21,12 @@ const pretty = (code: string) => `${code.slice(0, 4)}-${code.slice(4)}`;
 export function SettingsPanel() {
   const session = useSession();
   const router = useRouter();
-  const [name, setName] = useState(session.name);
+  const [name, setName] = useState(session.name ?? '');
   const [members, setMembers] = useState<Person[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
 
-  useEffect(() => setName(session.name), [session.name]);
+  useEffect(() => setName(session.name ?? ''), [session.name]);
 
   useEffect(() => {
     if (!session.team || !session.uid) return;

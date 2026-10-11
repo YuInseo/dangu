@@ -59,7 +59,11 @@ export function firebase() {
 /** Firebase 오류를 사람 말로. */
 export function reason(error: any): string {
   const code = String(error?.code ?? '');
-  if (code.includes('admin-restricted-operation') || code.includes('operation-not-allowed')) {
+  if (
+    code.includes('admin-restricted-operation') ||
+    code.includes('operation-not-allowed') ||
+    String(error?.message ?? '').includes('ADMIN_ONLY_OPERATION')
+  ) {
     return 'Firebase 콘솔에서 익명 로그인을 켜야 합니다 (Authentication → 로그인 방법 → 익명).';
   }
   if (code.includes('permission-denied')) return '권한이 없습니다. 팀 코드를 다시 확인하세요.';
@@ -79,7 +83,14 @@ export async function ensureUser(): Promise<string> {
   const auth = await import('firebase/auth');
   await ready.auth.authStateReady();
   if (ready.auth.currentUser) return ready.auth.currentUser.uid;
-  const signedIn = await auth.signInAnonymously(ready.auth);
+  // 처음 켤 때 신호가 없으면 로그인 요청이 끝나지 않는다. "불러오는 중"에 영영 머무는
+  // 것보다 무엇이 안 되는지 말하고 다시 시도하게 하는 편이 낫다.
+  const signedIn = await Promise.race([
+    auth.signInAnonymously(ready.auth),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'network-timeout' })), 15_000)
+    ),
+  ]);
   return signedIn.user.uid;
 }
 
