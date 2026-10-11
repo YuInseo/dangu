@@ -68,7 +68,8 @@ export function reason(error: any): string {
   }
   // 앱 안의 구글 창은 패키지 이름과 서명 지문이 Firebase에 등록돼 있어야 열린다.
   if (/DEVELOPER_ERROR|10:|12500|No credentials available|default_web_client_id/i.test(message)) {
-    return '구글 로그인 창을 열지 못했습니다. Firebase 콘솔에 이 앱의 패키지 이름과 서명 키의 SHA-1 지문이 등록돼 있어야 합니다.';
+    // 원문을 붙여 둔다. 같은 안내 뒤에 원인이 여럿 숨어 있어서, 원문 없이는 무엇을 고칠지 모른다.
+    return `구글 로그인 창을 열지 못했습니다. Firebase 콘솔에 이 앱의 패키지 이름과 서명 키의 SHA-1 지문이 등록돼 있어야 합니다. (원인: ${message})`;
   }
   if (code.includes('permission-denied')) return '권한이 없습니다. 팀 코드를 다시 확인하세요.';
   if (code.includes('unavailable') || code.includes('network')) return '네트워크에 연결되어 있지 않습니다.';
