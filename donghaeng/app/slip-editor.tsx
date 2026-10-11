@@ -1,9 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { addSlip, updateSlip, type Team } from '../lib/firebase';
 import { tap } from '../lib/platform';
+import { forget, recentValues, remember, type RecentField } from '../lib/recent';
 import {
   KIND_LABEL,
   NEEDS,
@@ -64,9 +65,23 @@ export function SlipEditor({
       : emptyDraft(kind, date)
   );
   const [saving, setSaving] = useState(false);
+  const [recent, setRecent] = useState<Record<RecentField, string[]>>({ station: [], meet: [], memo: [] });
+
+  useEffect(() => {
+    void recentValues().then(setRecent);
+  }, []);
 
   const set = <K extends keyof SlipDraft>(key: K, value: SlipDraft[K]) =>
     setDraft((current) => ({ ...current, [key]: value }));
+
+  // 구간은 내가 자주 쓴 역에 오늘 팀이 적은 역을 더한다. 겹치면 한 번만.
+  const stationChoices = [...new Set([...recent.station, ...stations])].slice(0, 8);
+
+  const drop = (field: RecentField, value: string) => {
+    tap('medium');
+    void forget(field, value);
+    setRecent((current) => ({ ...current, [field]: current[field].filter((item) => item !== value) }));
+  };
 
   const toggleNeed = (need: Need) => {
     tap();
@@ -92,6 +107,7 @@ export function SlipEditor({
       meet: draft.meet.trim(),
       memo: draft.memo.trim(),
     };
+    void remember({ station: clean.station, meet: clean.meet, memo: clean.memo });
     try {
       if (slip) {
         await updateSlip(team.code, slip.id, clean, me);
@@ -164,17 +180,17 @@ export function SlipEditor({
         <label className="field">
           <span>{departing ? '구간 — 어디로 가나요 (행)' : '구간 — 어디서 오나요 (온)'}</span>
           <input
-            list="stations"
             placeholder={departing ? '예: 부산' : '예: 동대구'}
             value={draft.station}
             onChange={(event) => set('station', event.target.value)}
           />
-          <datalist id="stations">
-            {stations.map((station) => (
-              <option key={station} value={station} />
-            ))}
-          </datalist>
         </label>
+        <Quick
+          values={stationChoices}
+          current={draft.station}
+          onPick={(value) => set('station', value)}
+          onForget={(value) => drop('station', value)}
+        />
 
         <div className="grid two">
           <label className="field">
@@ -225,6 +241,12 @@ export function SlipEditor({
             onChange={(event) => set('meet', event.target.value)}
           />
         </label>
+        <Quick
+          values={recent.meet}
+          current={draft.meet}
+          onPick={(value) => set('meet', value)}
+          onForget={(value) => drop('meet', value)}
+        />
 
         <label className="field">
           <span>연락처</span>
@@ -247,6 +269,16 @@ export function SlipEditor({
             onChange={(event) => set('memo', event.target.value)}
           />
         </label>
+        <Quick
+          values={recent.memo}
+          current={draft.memo}
+          // 메모는 여러 개를 이어 붙인다 — "보호자 동행, 짐 많음".
+          onPick={(value) =>
+            set('memo', draft.memo.includes(value) ? draft.memo : [draft.memo.trim(), value].filter(Boolean).join(', '))
+          }
+          onForget={(value) => drop('memo', value)}
+          contains
+        />
 
         <div className="actions">
           <button className={`primary wide ${draft.kind}`} disabled={!valid || saving} onClick={() => void save()}>
@@ -257,6 +289,54 @@ export function SlipEditor({
           </button>
         </div>
       </section>
+    </div>
+  );
+}
+
+/**
+ * 자주 적은 말 배지. 누르면 칸에 들어가고, 길게 누르면 목록에서 지운다.
+ *
+ * 지금 칸에 든 말과 같은 배지는 켜진 모양으로 — 눌렀는지 한눈에 보이게.
+ */
+function Quick({
+  values,
+  current,
+  onPick,
+  onForget,
+  contains = false,
+}: {
+  values: string[];
+  current: string;
+  onPick: (value: string) => void;
+  onForget: (value: string) => void;
+  /** 칸에 여러 말이 이어 붙는 경우(메모). 들어 있기만 하면 켜진 것으로. */
+  contains?: boolean;
+}) {
+  if (values.length === 0) return null;
+  const text = current.trim();
+  return (
+    <div className="quick" aria-label="자주 적은 말">
+      {values.map((value) => {
+        const on = contains ? text.includes(value) : text === value;
+        return (
+          <button
+            key={value}
+            type="button"
+            className={on ? 'badge on' : 'badge'}
+            aria-pressed={on}
+            onClick={() => {
+              tap();
+              onPick(value);
+            }}
+            onContextMenu={(event) => {
+              event.preventDefault();
+              onForget(value);
+            }}
+          >
+            {value}
+          </button>
+        );
+      })}
     </div>
   );
 }

@@ -1,8 +1,8 @@
 'use client';
 
-import Link from 'graft/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
+import { ensurePermission, loadAlarmSettings, syncAlarms } from '../lib/alarm';
 import { sweepOldSlips, watchSlips } from '../lib/firebase';
 import { onBack, tap } from '../lib/platform';
 import type { Session } from '../lib/session';
@@ -18,6 +18,7 @@ import {
 import { SlipCard } from './slip-card';
 import { SlipEditor } from './slip-editor';
 import { SlipSheet } from './slip-sheet';
+import { TabBar } from './tab-bar';
 
 type Filter = 'all' | Kind;
 
@@ -61,6 +62,31 @@ export function Board({ session }: { session: Session }) {
   useEffect(() => {
     void sweepOldSlips(team.code);
   }, [team.code]);
+
+  // 알림은 보고 있는 날과 상관없이 오늘 쪽지로 건다. 어제를 펼쳐 두었다고 오늘 열차를 놓치면 안 된다.
+  // 자정을 넘기면 위의 날짜 타이머가 화면을 다시 그리고, 그때 `today`가 바뀌어 다시 구독한다.
+  const today = dateKey();
+  useEffect(() => {
+    let stop = () => {};
+    let alive = true;
+    void (async () => {
+      const settings = await loadAlarmSettings();
+      if (settings.enabled) await ensurePermission();
+      if (!alive) return;
+      const unsubscribe = await watchSlips(
+        team.code,
+        today,
+        (todays) => void syncAlarms(todays, me?.uid ?? null, settings),
+        () => {}
+      );
+      if (alive) stop = unsubscribe;
+      else unsubscribe();
+    })();
+    return () => {
+      alive = false;
+      stop();
+    };
+  }, [team.code, today, me?.uid]);
 
   useEffect(() => {
     let stop = () => {};
@@ -130,7 +156,6 @@ export function Board({ session }: { session: Session }) {
   );
 
   const opened = openId ? (slips.find((slip) => slip.id === openId) ?? null) : null;
-  const today = dateKey();
 
   // 시트가 열려 있으면 뒤로 가기는 시트를 닫는다. 앱이 꺼지면 적던 쪽지가 날아간다.
   const sheetOpen = Boolean(opened || editing);
@@ -160,9 +185,6 @@ export function Board({ session }: { session: Session }) {
           <h1>{team.name || '동행'}</h1>
           <span className={synced ? 'sync on' : 'sync'}>{synced ? '실시간' : '연결 중…'}</span>
         </div>
-        <Link className="ghost" href="/settings" aria-label="설정">
-          설정
-        </Link>
       </header>
 
       <nav className="datebar" aria-label="날짜">
@@ -256,6 +278,8 @@ export function Board({ session }: { session: Session }) {
           {toast}
         </div>
       )}
+
+      <TabBar current="home" />
     </div>
   );
 }

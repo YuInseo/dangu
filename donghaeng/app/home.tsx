@@ -80,6 +80,20 @@ function SignIn({ session }: { session: Session }) {
           {session.signingIn ? '로그인 중…' : 'Google로 로그인'}
         </button>
 
+        <button
+          className="secondary wide"
+          disabled={session.signingIn}
+          onClick={() => {
+            tap();
+            void session.signInAnonymously();
+          }}
+        >
+          로그인 없이 시작
+        </button>
+        <p className="muted account-line">
+          로그인 없이 시작하면 이 폰에서만 같은 사람으로 남습니다. 앱을 지우면 팀에 다시 들어가야 합니다.
+        </p>
+
         {session.error && <p className="notice error">{session.error}</p>}
       </main>
     </div>
@@ -209,7 +223,10 @@ function Setup({ session }: { session: Session }) {
         {error && <p className="notice error">{error}</p>}
 
         <p className="muted account-line">
-          {session.account?.email ?? session.account?.name} 계정으로 로그인됨 ·{' '}
+          {session.account?.anonymous
+            ? '로그인 없이 사용 중'
+            : `${session.account?.email ?? session.account?.name} 계정으로 로그인됨`}{' '}
+          ·{' '}
           <button className="link" onClick={() => void session.signOut()}>
             다른 계정
           </button>

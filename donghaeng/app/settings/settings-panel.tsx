@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'graft/link';
 import { useRouter } from 'graft/navigation';
 import { useEffect, useState } from 'react';
 
@@ -9,6 +8,15 @@ import { shareText, tap } from '../../lib/platform';
 import { useSession } from '../../lib/session';
 import { RETENTION_DAYS, type Person } from '../../lib/slip';
 import { applyNow, currentVersion, liveUpdatable, openApk, prepareUpdate, type UpdatePlan } from '../../lib/update';
+import {
+  LEADS,
+  alarmsSupported,
+  ensurePermission,
+  loadAlarmSettings,
+  saveAlarmSettings,
+  type AlarmSettings,
+} from '../../lib/alarm';
+import { TabBar } from '../tab-bar';
 
 /** `ABCD2345` → `ABCD-2345`. 불러 줄 때 네 글자씩 끊는 편이 덜 틀린다. */
 const pretty = (code: string) => `${code.slice(0, 4)}-${code.slice(4)}`;
@@ -27,6 +35,20 @@ export function SettingsPanel() {
   const [notice, setNotice] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
   const [update, setUpdate] = useState<UpdatePlan | 'checking' | 'current' | null>(null);
+  const [alarm, setAlarm] = useState<AlarmSettings | null>(null);
+
+  useEffect(() => {
+    void loadAlarmSettings().then(setAlarm);
+  }, []);
+
+  const changeAlarm = async (next: AlarmSettings) => {
+    tap();
+    setAlarm(next);
+    await saveAlarmSettings(next);
+    if (next.enabled && !(await ensurePermission()) && alarmsSupported()) {
+      setNotice('알림 권한이 꺼져 있습니다. 폰의 설정 → 앱 → 동행 → 알림에서 켜 주세요.');
+    }
+  };
 
   const checkUpdate = async () => {
     tap();
@@ -88,9 +110,6 @@ export function SettingsPanel() {
   return (
     <div className="app">
       <header className="topbar">
-        <Link className="ghost" href="/" aria-label="뒤로">
-          ←
-        </Link>
         <h1>설정</h1>
       </header>
 
@@ -137,14 +156,67 @@ export function SettingsPanel() {
 
         {notice && <p className="notice">{notice}</p>}
 
+        {alarm && (
+          <section className="panel">
+            <h2>쪽지 알림</h2>
+            <label className="toggle">
+              <input
+                type="checkbox"
+                checked={alarm.enabled}
+                onChange={(event) => void changeAlarm({ ...alarm, enabled: event.target.checked })}
+              />
+              열차 시각 전에 알림 받기
+            </label>
+            {alarm.enabled && (
+              <>
+                <div className="segmented small" role="radiogroup" aria-label="언제 울릴지">
+                  {LEADS.map((lead) => (
+                    <button
+                      key={lead}
+                      role="radio"
+                      aria-checked={alarm.lead === lead}
+                      className={alarm.lead === lead ? 'on' : ''}
+                      onClick={() => void changeAlarm({ ...alarm, lead })}
+                    >
+                      {lead ? `${lead}분 전` : '정각'}
+                    </button>
+                  ))}
+                </div>
+                <label className="toggle">
+                  <input
+                    type="checkbox"
+                    checked={alarm.mineOnly}
+                    onChange={(event) => void changeAlarm({ ...alarm, mineOnly: event.target.checked })}
+                  />
+                  내가 맡은 쪽지만
+                </label>
+              </>
+            )}
+            <p className="muted">
+              {alarmsSupported()
+                ? '끝나지 않은 오늘 쪽지마다 울립니다. 앱을 닫아도 울립니다.'
+                : '알림은 안드로이드 앱에서만 울립니다.'}
+            </p>
+          </section>
+        )}
+
         {session.account && (
           <section className="panel">
             <h2>계정</h2>
-            <p>{session.account.email ?? session.account.name}</p>
+            <p>{session.account.anonymous ? '로그인 없이 사용 중' : (session.account.email ?? session.account.name)}</p>
+            {session.account.anonymous && (
+              <p className="muted">로그아웃하면 이 폰에서도 같은 사람으로 돌아올 수 없습니다. 팀 코드로 다시 들어가야 합니다.</p>
+            )}
             <button
               className="secondary wide"
               onClick={async () => {
                 tap();
+                if (
+                  session.account?.anonymous &&
+                  !window.confirm('로그아웃하면 이 익명 계정으로 돌아올 수 없습니다. 계속할까요?')
+                ) {
+                  return;
+                }
                 await session.signOut();
                 router.push('/');
               }}
@@ -198,6 +270,8 @@ export function SettingsPanel() {
           </button>
         </section>
       </main>
+
+      <TabBar current="settings" />
     </div>
   );
 }

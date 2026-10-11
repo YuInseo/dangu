@@ -178,7 +178,7 @@ jobs:
             동행 앱의 최신 빌드입니다. 브랜치 `${{ github.ref_name }}` (`${{ github.sha }}`)
 
             처음 설치할 때만 `donghaeng-ci.apk`를 받으면 됩니다. 그다음부터는 앱이 스스로
-            업데이트합니다. 지금은 당구 점수판의 패키지 이름(`com.dangu.score`)을 빌려 써서, 한 폰에 둘을 같이 깔 수 없습니다.
+            업데이트합니다. 패키지 이름은 `com.donghaeng.app`이라 당구 점수판과 같이 깔립니다.
 
             native: ${{ env.GRAFT_PUBLIC_NATIVE_KEY }}
           prerelease: true

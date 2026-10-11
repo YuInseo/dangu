@@ -3,8 +3,7 @@ import { defineConfig } from 'graft';
 /**
  * 동행 — 설정 전부.
  *
- * 당구 점수판과 같은 저장소에 살지만 서로 다른 앱이다. (패키지 이름은 지금 점수판 것을
- * 빌려 쓴다 — 아래 `appId`의 주석.)
+ * 당구 점수판과 같은 저장소에 살지만 서로 다른 앱이다.
  */
 export default defineConfig({
   /**
@@ -48,20 +47,20 @@ export default defineConfig({
   mobile: {
     enabled: true,
     /**
-     * 당분간 당구 점수판의 패키지 이름을 빌려 쓴다.
+     * 동행만의 패키지 이름. 당구 점수판(com.dangu.score)과 한 폰에 같이 깔린다.
      *
      * 앱 안의 구글 로그인 창은 Firebase 콘솔에 "패키지 이름 + 서명 키 지문"이 등록된 앱에서만
-     * 열린다. com.dangu.score는 이미 같은 서명 키로 등록돼 있으므로 이 이름을 쓰면 콘솔에서
-     * 할 일 없이 로그인이 된다. 대신 한 폰에 당구 점수판과 동행을 같이 깔 수 없다 — 같은
-     * 이름의 앱은 하나뿐이다. 콘솔에 com.donghaeng.app을 등록하면 되돌린다.
+     * 열린다. 그래서 콘솔에 이 이름으로 안드로이드 앱을 등록하고 서명 키의 SHA-1을 넣어야 한다
+     * (README). 등록하면 나오는 앱 ID는 `mobile/overlay/.../firebase.xml`의 `google_app_id`로.
      */
-    appId: 'com.dangu.score',
+    appId: 'com.donghaeng.app',
     appName: '동행',
     // 승강장 끝이나 지하 통로에서는 신호가 끊긴다. 쪽지는 기기에 먼저 쓰이고, 붙으면 올라간다.
     offline: true,
 
     // 새 쪽지가 오면 손에 알린다. 카메라·위치는 쓰지 않으므로 선언하지 않는다.
-    capabilities: ['vibration', 'network'],
+    // `notifications`는 열차 시각 전에 울리는 쪽지 알림(lib/alarm.ts) — 앱이 꺼져 있어도 울린다.
+    capabilities: ['vibration', 'network', 'notifications'],
 
     plugins: [
       /**
@@ -93,13 +92,6 @@ export default defineConfig({
       '@capacitor/app',
     ],
 
-    /**
-     * 안드로이드 versionCode. 판 번호(0.1.N)에서 그대로 만들면 110 같은 작은 수가 되는데,
-     * 패키지 이름을 빌려 쓰는 당구 점수판은 v1.0.54 → 10054다. 안드로이드는 더 작은
-     * versionCode를 "옛 버전"으로 보고 설치를 거절한다("앱이 설치되지 않음"). 그래서 100000을
-     * 더해 점수판 위에 그대로 깔리게 한다. 빌드마다 커지므로 동행끼리의 업데이트도 된다.
-     */
-    build: 100000 + (Number((process.env.GRAFT_PUBLIC_APP_VERSION ?? '').split('.')[2]) || 0),
     android: {
       // 당구 점수판과 같은 이유로 34에 머문다(그쪽 graft.config.ts의 주석).
       targetSdk: 34,

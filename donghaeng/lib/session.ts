@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { reason, signInWithGoogle, signOut, watchAccount, type Account, type Team } from './firebase';
+import {
+  reason,
+  signInAnonymously,
+  signInWithGoogle,
+  signOut,
+  watchAccount,
+  type Account,
+  type Team,
+} from './firebase';
 import { preferencesGet, preferencesSet } from './platform';
 import type { Person } from './slip';
 
@@ -26,6 +34,7 @@ export interface Session {
   me: Person | null;
   signingIn: boolean;
   signIn: () => Promise<void>;
+  signInAnonymously: () => Promise<void>;
   signOut: () => Promise<void>;
   setName: (name: string) => Promise<void>;
   setTeam: (team: Team | null) => Promise<void>;
@@ -72,17 +81,20 @@ export function useSession(): Session {
     setStored((current) => ({ name: current?.name ?? '', team }));
   }, []);
 
-  const signIn = useCallback(async () => {
+  const attempt = useCallback(async (work: () => Promise<unknown>) => {
     setSigningIn(true);
     setError(null);
     try {
-      await signInWithGoogle();
+      await work();
     } catch (failure) {
       setError(reason(failure));
     } finally {
       setSigningIn(false);
     }
   }, []);
+
+  const signIn = useCallback(() => attempt(signInWithGoogle), [attempt]);
+  const signInAnon = useCallback(() => attempt(signInAnonymously), [attempt]);
 
   const signOutNow = useCallback(async () => {
     await signOut();
@@ -101,6 +113,7 @@ export function useSession(): Session {
     me: account && name ? { uid: account.uid, name } : null,
     signingIn,
     signIn,
+    signInAnonymously: signInAnon,
     signOut: signOutNow,
     setName,
     setTeam,

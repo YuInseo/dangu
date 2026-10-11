@@ -16,6 +16,7 @@ import { RETENTION_DAYS, dateKey, shiftDate, toSlip, type Person, type Slip, typ
  *
  * 로그인은 구글 계정이다. 한 번 로그인하면 기기에 남으므로 매번 묻지 않고, 폰을 바꿔도
  * 같은 계정이면 같은 사람으로 남는다. 쪽지에 붙는 이름은 구글 이름을 기본으로 하되 고칠 수 있다.
+ * 구글 계정이 없거나 쓰기 싫은 사람은 익명으로 들어간다 — 그 기기에서만 같은 사람이다.
  */
 
 let instance: Promise<{ auth: Auth; db: Firestore } | null> | null = null;
@@ -61,7 +62,7 @@ export function reason(error: any): string {
   const code = String(error?.code ?? '');
   const message = String(error?.message ?? '');
   if (code.includes('operation-not-allowed')) {
-    return 'Firebase 콘솔에서 구글 로그인을 켜야 합니다 (Authentication → 로그인 방법 → Google).';
+    return 'Firebase 콘솔에서 이 로그인 방법을 켜야 합니다 (Authentication → 로그인 방법 → Google 또는 익명).';
   }
   if (code.includes('unauthorized-domain')) {
     return '이 주소가 Firebase 인증의 승인된 도메인에 없습니다. 콘솔에서 추가하세요.';
@@ -87,6 +88,8 @@ export interface Account {
   uid: string;
   name: string;
   email: string | null;
+  /** 구글 없이 들어온 계정. 로그아웃하거나 앱을 지우면 같은 사람으로 돌아올 수 없다. */
+  anonymous: boolean;
 }
 
 /** Capacitor 셸의 플러그인. 웹에서는 `null`. */
@@ -116,7 +119,12 @@ export function watchAccount(listener: (account: Account | null) => void): () =>
     stop = onAuthStateChanged(ready.auth, (user) =>
       listener(
         user
-          ? { uid: user.uid, name: user.displayName ?? user.email?.split('@')[0] ?? '', email: user.email }
+          ? {
+              uid: user.uid,
+              name: user.displayName ?? user.email?.split('@')[0] ?? '',
+              email: user.email,
+              anonymous: user.isAnonymous,
+            }
           : null
       )
     );
@@ -149,7 +157,7 @@ export async function signInWithGoogle(): Promise<Account | null> {
     if (!idToken) return null;
     const credential = auth.GoogleAuthProvider.credential(idToken, result.credential?.accessToken);
     const { user } = await auth.signInWithCredential(ready.auth, credential);
-    return { uid: user.uid, name: user.displayName ?? '', email: user.email };
+    return { uid: user.uid, name: user.displayName ?? '', email: user.email, anonymous: false };
   }
 
   const provider = new auth.GoogleAuthProvider();
@@ -157,11 +165,25 @@ export async function signInWithGoogle(): Promise<Account | null> {
   provider.setCustomParameters({ prompt: 'select_account' });
   try {
     const { user } = await auth.signInWithPopup(ready.auth, provider);
-    return { uid: user.uid, name: user.displayName ?? '', email: user.email };
+    return { uid: user.uid, name: user.displayName ?? '', email: user.email, anonymous: false };
   } catch (error: any) {
     if (String(error?.code ?? '').match(/popup-closed|cancelled/)) return null;
     throw error;
   }
+}
+
+/**
+ * 구글 계정 없이 들어간다.
+ *
+ * 앱과 웹의 길이 같다 — 구글 창이 없으므로 자바스크립트 SDK가 바로 처리한다. uid는 이
+ * 기기에만 남는다. 로그아웃하거나 앱을 지우면 새 사람이 되어 팀에 다시 들어가야 한다.
+ */
+export async function signInAnonymously(): Promise<Account> {
+  const ready = await firebase();
+  if (!ready) throw new Error('Firebase가 설정되지 않았습니다.');
+  const auth = await import('firebase/auth');
+  const { user } = await auth.signInAnonymously(ready.auth);
+  return { uid: user.uid, name: '', email: null, anonymous: true };
 }
 
 export async function signOut(): Promise<void> {

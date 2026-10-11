@@ -26,6 +26,16 @@
   --radius: 14px;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  /* 아래 탭의 높이(안전 영역 제외). 그 위에 뜨는 것들이 이만큼 올라간다. */
+  --tabbar-h: 60px;
+  --shift-day: #c77700;
+  --shift-day-soft: #fff1d6;
+  --shift-night: #4b3aa8;
+  --shift-night-soft: #ebe7fb;
+  --shift-off: #5d6676;
+  --shift-off-soft: #e9ecf1;
+  --shift-rest: #2f7d4f;
+  --shift-rest-soft: #e4f4ea;
 }
 
 * {
@@ -325,7 +335,7 @@ a {
 
 .board {
   flex: 1;
-  padding: 0.25rem 0.75rem calc(6rem + var(--safe-bottom));
+  padding: 0.25rem 0.75rem calc(6rem + var(--tabbar-h) + var(--safe-bottom));
 }
 
 .slips {
@@ -479,11 +489,11 @@ a {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 0;
+  bottom: calc(var(--tabbar-h) + var(--safe-bottom));
   z-index: 5;
   display: flex;
   gap: 0.6rem;
-  padding: 0.6rem 0.75rem calc(0.6rem + var(--safe-bottom));
+  padding: 0.6rem 0.75rem;
   background: linear-gradient(to top, var(--bg) 70%, transparent);
 }
 
@@ -756,7 +766,7 @@ a {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(5.5rem + var(--safe-bottom));
+  bottom: calc(5.5rem + var(--tabbar-h) + var(--safe-bottom));
   transform: translateX(-50%);
   z-index: 30;
   max-width: calc(100% - 2rem);
@@ -932,4 +942,301 @@ button.link {
   color: #fff;
   min-width: 44px;
   padding: 0;
+}
+
+/* 아래 탭 ----------------------------------------------------------- */
+
+.settings,
+.calendar {
+  padding-bottom: calc(1.5rem + var(--tabbar-h) + var(--safe-bottom));
+}
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  height: calc(var(--tabbar-h) + var(--safe-bottom));
+  padding-bottom: var(--safe-bottom);
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+}
+
+/* graft/link는 서버에서 그린 화면에서 <graft-island>로 감싸이고, 안쪽은 <graft-slot>에
+   담긴다. 감싼 것이 있든 없든 탭 세 칸이 같은 너비가 되게. */
+.tabbar > * {
+  flex: 1;
+  display: flex;
+}
+
+.tabbar graft-slot {
+  display: contents;
+}
+
+.tabbar a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  color: var(--muted);
+  text-decoration: none;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.tabbar a .icon {
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.tabbar a.on {
+  color: var(--navy);
+  font-weight: 800;
+}
+
+/* 근무표 ----------------------------------------------------------- */
+
+.calendar {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding-top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.calendar .panel {
+  margin: 1rem 1rem 0;
+}
+
+.month {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 4px;
+  padding: 0 0.75rem;
+}
+
+.weekday {
+  text-align: center;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  padding: 0.25rem 0;
+}
+
+.weekday.w0,
+.cell.w0 .num {
+  color: var(--arrive);
+}
+
+.weekday.w6,
+.cell.w6 .num {
+  color: var(--depart);
+}
+
+.cell {
+  aspect-ratio: 1 / 1.15;
+  min-height: 0;
+  padding: 0.3rem 0 0.25rem;
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cell.blank {
+  background: transparent;
+  border-color: transparent;
+}
+
+.cell.today {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 1.5px var(--navy);
+}
+
+.cell .num {
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.7rem;
+  height: 1.55rem;
+  border-radius: 7px;
+  font-weight: 800;
+  font-size: 0.95rem;
+  position: relative;
+}
+
+.chip.day {
+  color: var(--shift-day);
+  background: var(--shift-day-soft);
+}
+
+.chip.night {
+  color: var(--shift-night);
+  background: var(--shift-night-soft);
+}
+
+.chip.off {
+  color: var(--shift-off);
+  background: var(--shift-off-soft);
+}
+
+.chip.rest {
+  color: var(--shift-rest);
+  background: var(--shift-rest-soft);
+}
+
+/* 순서에서 벗어나 손으로 바꾼 날. */
+.chip.changed::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--arrive);
+}
+
+.legend {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.9rem;
+  margin: 0.25rem 0 0;
+  font-size: 0.85rem;
+}
+
+.legend .chip {
+  min-width: 1.4rem;
+  height: 1.3rem;
+  font-size: 0.8rem;
+}
+
+.legend-note {
+  text-align: center;
+  font-size: 0.8rem;
+  margin: 0 1rem;
+}
+
+.sheet-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.shift-picks {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(4.2rem, 1fr));
+  gap: 0.5rem;
+}
+
+.shift-pick {
+  min-height: 64px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.shift-pick b {
+  font-size: 1.3rem;
+  font-weight: 900;
+}
+
+.shift-pick.day {
+  color: var(--shift-day);
+  background: var(--shift-day-soft);
+}
+
+.shift-pick.night {
+  color: var(--shift-night);
+  background: var(--shift-night-soft);
+}
+
+.shift-pick.off {
+  color: var(--shift-off);
+  background: var(--shift-off-soft);
+}
+
+.shift-pick.rest {
+  color: var(--shift-rest);
+  background: var(--shift-rest-soft);
+}
+
+.shift-pick.on {
+  border-color: currentColor;
+}
+
+.presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.presets button {
+  min-height: 40px;
+  padding: 0 0.8rem;
+  font-weight: 700;
+}
+
+.presets button.on {
+  border-color: var(--navy);
+  color: var(--navy);
+}
+
+/* 자주 적은 말 ------------------------------------------------------ */
+
+.quick {
+  display: flex;
+  gap: 0.4rem;
+  overflow-x: auto;
+  margin-top: -0.4rem;
+  /* 시트는 스크롤되는 flex 열이라, 이게 없으면 줄이 납작하게 눌린다. */
+  flex: none;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.quick::-webkit-scrollbar {
+  display: none;
+}
+
+.badge {
+  flex: none;
+  min-height: 36px;
+  padding: 0 0.8rem;
+  border-radius: 999px;
+  border: 1.5px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  max-width: 14rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.badge.on {
+  border-color: var(--navy);
+  background: var(--navy);
+  color: #fff;
 }

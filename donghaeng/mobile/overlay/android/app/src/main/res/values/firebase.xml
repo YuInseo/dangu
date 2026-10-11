@@ -20,9 +20,10 @@
 -->
 <resources>
   <!--
-    어느 프로젝트의 어느 앱인지. 동행은 지금 당구 점수판의 패키지 이름(com.dangu.score)을
-    빌려 쓰므로 그 앱의 값이 그대로 맞는다. 구글 로그인 창은 콘솔에 등록된 그 이름과 서명 키
-    지문으로 열린다. 나중에 com.donghaeng.app을 따로 등록하면 그 앱의 값으로 바꾼다.
+    어느 프로젝트의 어느 앱인지. 동행의 패키지 이름은 com.donghaeng.app이다.
+    TODO: google_app_id는 아직 당구 점수판(com.dangu.score)의 값이다. 콘솔에 com.donghaeng.app을
+    등록하면 나오는 앱 ID("1:1073558096483:android:...")로 바꾼다. 구글 로그인 창은 콘솔에
+    등록된 패키지 이름과 서명 키 지문으로 열린다.
   -->
   <string name="google_app_id" translatable="false">1:1073558096483:android:faf99adce285e6e2d08656</string>
   <string name="project_id" translatable="false">moneywalk-551ca</string>
