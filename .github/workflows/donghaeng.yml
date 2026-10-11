@@ -48,7 +48,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: YuInseo/graft
-          path: .framework
+          # 앱 폴더 안에 둔다. 프레임워크가 import하는 esbuild 등은 donghaeng/node_modules에
+          # 설치되므로, 프레임워크가 그 위쪽에 있어야 찾는다.
+          path: donghaeng/.framework
 
       - uses: actions/setup-node@v4
         with:
@@ -79,11 +81,11 @@ jobs:
 
       - name: 의존성 설치
         run: |
-          npm pkg set dependencies.graft="file:../.framework/graft"
+          npm pkg set dependencies.graft="file:.framework/graft"
           npm install --no-audit --no-fund
 
       - name: 웹·모바일 페이로드 빌드
-        run: node ../.framework/graft/bin/graft.js build --target mobile --platform android
+        run: node .framework/graft/bin/graft.js build --target mobile --platform android
 
       - name: 안드로이드 프로젝트 생성
         working-directory: donghaeng/.graft/mobile
@@ -96,7 +98,7 @@ jobs:
 
       # 프로젝트가 생긴 뒤 한 번 더: 권한·오버레이는 생성된 프로젝트 안에 쓰인다.
       - name: 권한·오버레이 적용
-        run: node ../.framework/graft/bin/graft.js build --target mobile --platform android
+        run: node .framework/graft/bin/graft.js build --target mobile --platform android
 
       - name: 웹 자산 동기화
         working-directory: donghaeng/.graft/mobile
