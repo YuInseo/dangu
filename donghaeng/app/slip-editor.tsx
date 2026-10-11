@@ -322,12 +322,14 @@ export function SlipEditor({
           contains
         />
 
-        <div className="actions">
-          <button className={`primary wide ${draft.kind}`} disabled={!valid || saving} onClick={() => void save()}>
-            {slip ? '고친 내용 저장' : `${KIND_LABEL[draft.kind]} 쪽지 올리기`}
-          </button>
-          <button className="ghost wide" onClick={onClose}>
+        {/* 올리기는 시트 아래에 붙어 있다 — 칸을 어디까지 채웠든 엄지 밑에서 바로 누른다.
+            맨 아래까지 굴려야 보이는 버튼은 급할 때 찾느라 늦는다. */}
+        <div className="dock-actions">
+          <button className="ghost" onClick={onClose}>
             취소
+          </button>
+          <button className={`primary ${draft.kind}`} disabled={!valid || saving} onClick={() => void save()}>
+            {slip ? '고친 내용 저장' : `${KIND_LABEL[draft.kind]} 쪽지 올리기`}
           </button>
         </div>
       </section>
