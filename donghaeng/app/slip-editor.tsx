@@ -5,11 +5,13 @@ import { useEffect, useState } from 'react';
 import { addSlip, updateSlip, type Team } from '../lib/firebase';
 import { tap } from '../lib/platform';
 import { forget, recentValues, remember, type RecentField } from '../lib/recent';
+import { TimeWheel } from './time-wheel';
 import {
   KIND_LABEL,
   NEEDS,
   emptyDraft,
   normalizeTime,
+  nowTime,
   type Kind,
   type Need,
   type Person,
@@ -18,10 +20,16 @@ import {
 } from '../lib/slip';
 
 /**
+ * 만날 곳 배지. 역에서 늘 쓰는 자리라 처음부터 깔려 있고, 지울 수 없다.
+ * 직접 적은 다른 자리는 이 뒤에 "자주 적은 말"로 붙는다.
+ */
+const MEET_PRESETS = ['15종', '10종', '10홈', '15홈', '15•9창', '10•9창'];
+
+/**
  * 쪽지 쓰기.
  *
  * 전화를 받으면서 한 손으로 적는 화면이다. 그래서:
- * - 숫자 칸은 숫자 키패드가 뜬다. 시각은 `1713`만 쳐도 `17:13`이 된다.
+ * - 시각은 시·분을 굴려서 고른다. 나머지 숫자 칸은 숫자 키패드가 뜬다.
  * - 꼭 채워야 하는 칸은 시각 하나다. 나머지는 모르면 비워 두고, 알게 되면 고친다 —
  *   종이 쪽지도 "행( )"을 비워 둔 채 넘어갔다.
  * - 칸 순서는 종이 양식과 같다. 전화로 듣는 순서도 대개 그렇다.
@@ -142,19 +150,24 @@ export function SlipEditor({
           ))}
         </div>
 
-        <div className="grid">
-          <label className="field">
-            <span>시간 *</span>
-            <input
-              className="big"
-              inputMode="numeric"
-              placeholder="17:13"
-              value={draft.time}
-              onChange={(event) => set('time', event.target.value)}
-              onBlur={() => set('time', normalizeTime(draft.time))}
-              aria-invalid={!valid}
-            />
-          </label>
+        <div className="field">
+          <span className="field-head">
+            시간 *
+            <button
+              type="button"
+              className="badge"
+              onClick={() => {
+                tap();
+                set('time', nowTime());
+              }}
+            >
+              지금
+            </button>
+          </span>
+          <TimeWheel value={time} onChange={(value) => set('time', value)} />
+        </div>
+
+        <div className="grid two">
           <label className="field">
             <span>열차번호</span>
             <input
@@ -242,10 +255,12 @@ export function SlipEditor({
           />
         </label>
         <Quick
-          values={recent.meet}
+          values={[...MEET_PRESETS, ...recent.meet.filter((value) => !MEET_PRESETS.includes(value))]}
           current={draft.meet}
           onPick={(value) => set('meet', value)}
-          onForget={(value) => drop('meet', value)}
+          // 기본 자리는 지우지 않는다. 길게 눌러 지우는 건 직접 적은 말뿐.
+          onForget={(value) => !MEET_PRESETS.includes(value) && drop('meet', value)}
+          wrap
         />
 
         <label className="field">
@@ -304,6 +319,7 @@ function Quick({
   onPick,
   onForget,
   contains = false,
+  wrap = false,
 }: {
   values: string[];
   current: string;
@@ -311,11 +327,13 @@ function Quick({
   onForget: (value: string) => void;
   /** 칸에 여러 말이 이어 붙는 경우(메모). 들어 있기만 하면 켜진 것으로. */
   contains?: boolean;
+  /** 옆으로 밀지 않고 여러 줄로. 한눈에 다 보여야 하는 짧은 배지들(만날 곳). */
+  wrap?: boolean;
 }) {
   if (values.length === 0) return null;
   const text = current.trim();
   return (
-    <div className="quick" aria-label="자주 적은 말">
+    <div className={wrap ? 'quick wrap' : 'quick'} aria-label="자주 적은 말">
       {values.map((value) => {
         const on = contains ? text.includes(value) : text === value;
         return (

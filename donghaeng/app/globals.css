@@ -1240,3 +1240,112 @@ button.link {
   background: var(--navy);
   color: #fff;
 }
+
+/* 시각 휠 ---------------------------------------------------------- */
+
+.field-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.field-head .badge {
+  min-height: 32px;
+  font-size: 0.85rem;
+}
+
+.time-wheel {
+  --wheel-item: 44px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  background: var(--paper);
+  border: 1.5px solid var(--line);
+  border-radius: 12px;
+  padding: 0.25rem 0.75rem;
+}
+
+/* 가운데 줄 — 지금 고른 값이 놓이는 자리. */
+.time-wheel::before {
+  content: '';
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  top: 50%;
+  height: var(--wheel-item);
+  transform: translateY(-50%);
+  border-radius: 10px;
+  background: var(--depart-soft);
+  pointer-events: none;
+}
+
+.arrive .time-wheel::before {
+  background: var(--arrive-soft);
+}
+
+.time-colon {
+  position: relative;
+  font-size: 1.8rem;
+  font-weight: 800;
+}
+
+.wheel {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.wheel-list {
+  height: calc(var(--wheel-item) * 3);
+  width: 4.2rem;
+  overflow-y: auto;
+  scroll-snap-type: y mandatory;
+  overscroll-behavior: contain;
+  scrollbar-width: none;
+  /* 위아래 칸은 흐리게 — 가운데가 고른 값이라는 걸 모양으로 말한다. */
+  mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 30%, #000 70%, transparent);
+}
+
+.wheel-list::-webkit-scrollbar {
+  display: none;
+}
+
+.wheel-pad {
+  height: var(--wheel-item);
+}
+
+.wheel-item {
+  height: var(--wheel-item);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  scroll-snap-align: center;
+  font-size: 1.6rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.wheel-item.on {
+  color: var(--ink);
+  font-weight: 800;
+}
+
+.wheel-unit {
+  position: relative;
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+}
+
+/* 만날 곳처럼 짧은 배지는 한눈에 다 보이게 여러 줄로. */
+.quick.wrap {
+  flex-wrap: wrap;
+  overflow: visible;
+}
