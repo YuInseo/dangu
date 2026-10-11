@@ -7,7 +7,11 @@ import { defineConfig } from 'graft';
  * 한 폰에 둘 다 깔리고, 서로를 덮어쓰지 않는다.
  */
 export default defineConfig({
-  version: '0.1.0',
+  /**
+   * 버전. CI가 빌드 번호로 채운다(`0.1.<run_number>`) — 업데이트가 이 값으로 새것을 알아보고,
+   * 안드로이드의 versionCode도 여기서 나와서 새 APK가 옛것 위에 깔린다.
+   */
+  version: process.env.GRAFT_PUBLIC_APP_VERSION || '0.1.0',
 
   reactStrictMode: true,
   // 쪽지는 전부 Firestore에서 실시간으로 온다. 서버가 캐시할 만한 게 없다.
@@ -23,7 +27,10 @@ export default defineConfig({
    * `??`가 아니라 `||`인 이유는 CI다. 시크릿이 없어도 변수가 빈 문자열로 정의된다.
    */
   env: {
-    GRAFT_PUBLIC_APP_VERSION: process.env.GRAFT_PUBLIC_APP_VERSION ?? '0.0.0-dev',
+    GRAFT_PUBLIC_APP_VERSION: process.env.GRAFT_PUBLIC_APP_VERSION || '0.0.0-dev',
+    // 업데이트를 확인할 저장소와, 이 빌드의 네이티브 껍데기 지문(lib/update.ts).
+    GRAFT_PUBLIC_GITHUB_REPO: process.env.GRAFT_PUBLIC_GITHUB_REPO || 'YuInseo/dangu',
+    GRAFT_PUBLIC_NATIVE_KEY: process.env.GRAFT_PUBLIC_NATIVE_KEY || '',
     GRAFT_PUBLIC_FIREBASE_API_KEY:
       process.env.GRAFT_PUBLIC_FIREBASE_API_KEY || 'AIzaSyCrGaNU7hKTHM2Cqc5LRNgeeTRBWVkbV8w',
     GRAFT_PUBLIC_FIREBASE_AUTH_DOMAIN:
@@ -67,6 +74,13 @@ export default defineConfig({
        * 시트가 바로 떠야 한다.
        */
       '@capacitor/share',
+      /**
+       * 조용한 업데이트. 릴리스의 웹 번들을 받아 다음 실행에 적용한다(lib/update.ts).
+       * 설정은 `mobile/overlay/capacitor.config.json` — `autoUpdate: false`가 중요하다.
+       * 기본값이면 플러그인이 자기 회사 서버에 기기 정보를 물으러 간다.
+       * 버전은 CI가 6.13.2로 못박는다(당구 점수판과 같은 이유: compileSdk 34).
+       */
+      '@capgo/capacitor-updater',
       // 뒤로 가기 버튼. 쪽지를 적던 시트가 열려 있을 때 앱이 꺼지지 않고 시트만 닫히게.
       '@capacitor/app',
     ],

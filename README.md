@@ -58,14 +58,22 @@ npx tsc --noEmit
 node scripts/make-icons.mjs   # 아이콘 다시 만들기
 ```
 
-## 안드로이드 앱
+## 안드로이드 앱과 자동 업데이트
 
-`donghaeng/` 아래가 바뀐 푸시마다 `.github/workflows/donghaeng.yml`이 APK를 지어
-**`donghaeng-ci` 프리릴리스**에 올립니다. 폰에서 그 릴리스의 `donghaeng-ci.apk`를 받아 설치하면
-됩니다. 서명은 점수판과 같은 시크릿(`ANDROID_KEYSTORE_BASE64` 등)을 씁니다.
+`donghaeng` 브랜치에 `donghaeng/`가 바뀐 푸시가 들어오면 `.github/workflows/donghaeng.yml`이
+APK와 화면 묶음을 지어 **`donghaeng-ci` 프리릴리스**에 올립니다. 판 번호는 `0.1.<빌드 번호>`입니다.
 
-패키지 이름이 `com.donghaeng.app`이라 당구 점수판과 한 폰에 같이 깔립니다. 점수판의
-업데이트 버튼(`v*` 릴리스)과도 섞이지 않습니다.
+- **처음 한 번만** 위의 APK 링크로 설치합니다.
+- 그다음부터는 **앱이 스스로 업데이트합니다.** 켤 때 새 판이 있으면 화면을 조용히 받아 두고
+  "새 버전 준비됨"을 띄웁니다 — 다음에 켜면 적용되고, **지금 적용**을 눌러도 됩니다.
+- 플러그인이나 설정처럼 앱 껍데기까지 바뀐 판이면 **받기** 버튼이 뜨고, 받은 APK를 눌러
+  설치합니다(안드로이드가 사이드로딩 앱의 조용한 설치를 막기 때문에 이것만은 한 번 눌러야 합니다).
+- 새 화면이 앱을 띄우지 못하면 다음 실행에서 이전 화면으로 저절로 돌아갑니다.
+- 설정 → 업데이트에서 지금 판을 보고 직접 확인할 수 있습니다.
+
+서명은 점수판과 같은 시크릿(`ANDROID_KEYSTORE_BASE64` 등)을 씁니다. 패키지 이름이
+`com.donghaeng.app`이라 당구 점수판과 한 폰에 같이 깔리고, 점수판의 업데이트(`v*` 릴리스)와도
+섞이지 않습니다.
 
 ## 코드가 어디 있는지
 
@@ -75,6 +83,7 @@ node scripts/make-icons.mjs   # 아이콘 다시 만들기
 | `donghaeng/lib/firebase.ts` | 구글 로그인, 팀 만들기·들어가기, 쪽지 읽기·쓰기·지우기 |
 | `donghaeng/lib/session.ts` | 이 폰의 이름과 팀 |
 | `donghaeng/lib/platform.ts` | 기기 저장소·진동·공유 |
+| `donghaeng/lib/update.ts` | 자동 업데이트 — 화면 갈아끼우기와 APK 안내 |
 | `donghaeng/app/home.tsx` | 첫 화면 — 이름과 팀이 없으면 설정, 있으면 쪽지판 |
 | `donghaeng/app/board.tsx` | 쪽지판 |
 | `donghaeng/app/slip-card.tsx` | 목록의 쪽지 한 장 |

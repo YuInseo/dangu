@@ -8,6 +8,7 @@ import { leaveTeam, renameMember, watchMembers } from '../../lib/firebase';
 import { shareText, tap } from '../../lib/platform';
 import { useSession } from '../../lib/session';
 import { RETENTION_DAYS, type Person } from '../../lib/slip';
+import { applyNow, currentVersion, liveUpdatable, openApk, prepareUpdate, type UpdatePlan } from '../../lib/update';
 
 /** `ABCD2345` → `ABCD-2345`. 불러 줄 때 네 글자씩 끊는 편이 덜 틀린다. */
 const pretty = (code: string) => `${code.slice(0, 4)}-${code.slice(4)}`;
@@ -25,6 +26,14 @@ export function SettingsPanel() {
   const [members, setMembers] = useState<Person[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [update, setUpdate] = useState<UpdatePlan | 'checking' | 'current' | null>(null);
+
+  const checkUpdate = async () => {
+    tap();
+    setUpdate('checking');
+    const plan = await prepareUpdate(true);
+    setUpdate(plan.kind === 'none' ? 'current' : plan);
+  };
 
   useEffect(() => setName(session.name ?? ''), [session.name]);
 
@@ -163,7 +172,31 @@ export function SettingsPanel() {
           </section>
         )}
 
-        <p className="version muted">동행 v{process.env.GRAFT_PUBLIC_APP_VERSION}</p>
+        <section className="panel" id="update">
+          <h2>업데이트</h2>
+          <p>
+            지금 버전 <b>{currentVersion()}</b>
+          </p>
+          <p className="muted">
+            {liveUpdatable()
+              ? '새 버전은 앱을 켤 때 저절로 받아 두고, 다음에 켜면 적용됩니다.'
+              : '앱에서만 자동으로 업데이트됩니다.'}
+          </p>
+          {update === 'current' && <p className="notice">최신 버전입니다.</p>}
+          {update && typeof update === 'object' && update.kind === 'staged' && (
+            <button className="primary wide" onClick={() => void applyNow(update.bundleId)}>
+              {update.release.version} 지금 적용
+            </button>
+          )}
+          {update && typeof update === 'object' && update.kind === 'apk' && (
+            <button className="primary wide" onClick={() => openApk(update.release)}>
+              새 앱 {update.release.version} 받기
+            </button>
+          )}
+          <button className="secondary wide" disabled={update === 'checking'} onClick={() => void checkUpdate()}>
+            {update === 'checking' ? '확인 중…' : '업데이트 확인'}
+          </button>
+        </section>
       </main>
     </div>
   );

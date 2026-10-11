@@ -4,11 +4,19 @@ name: donghaeng
 #
 # 당구 점수판과 같은 저장소에 살지만 릴리스는 섞지 않는다. 점수판의 업데이트 버튼은
 # `/releases/latest`와 `v*` 태그를 보므로, 동행은 그 둘을 건드리지 않고 `donghaeng-ci`
-# 프리릴리스 한 자리에만 APK를 올린다 — 폰에서 링크 하나로 받아 설치하는 자리다.
+# 프리릴리스 한 자리에만 올린다. 앱의 자동 업데이트(donghaeng/lib/update.ts)가 이 자리를 본다:
+#
+#   donghaeng-ci.apk     껍데기. 네이티브가 바뀐 판에서만 앱이 설치를 권한다
+#   donghaeng-www.zip    화면. 앱이 조용히 받아 다음 실행에 적용한다
+#   릴리스 이름의 버전   0.1.<빌드 번호>. 앱이 자기 버전과 비교한다
+#   릴리스 본문 native:  껍데기 지문. 앱이 자기 것과 비교해 APK가 필요한지 정한다
+#
+# `donghaeng` 브랜치에서만 짓는다. 여러 브랜치가 같은 자리에 올리면 앱이 어느 판을
+# 받을지 브랜치마다 오락가락한다.
 on:
   push:
     branches:
-      - '**'
+      - donghaeng
     paths:
       - 'donghaeng/**'
       - '.github/workflows/donghaeng.yml'
@@ -35,7 +43,9 @@ jobs:
       GRAFT_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
       GRAFT_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       GRAFT_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-      GRAFT_PUBLIC_APP_VERSION: 0.1.0-ci.${{ github.run_number }}
+      # 빌드 번호가 곧 판이다. 앱의 업데이트 비교와 안드로이드 versionCode가 이 값에서 나온다.
+      GRAFT_PUBLIC_APP_VERSION: 0.1.${{ github.run_number }}
+      GRAFT_PUBLIC_GITHUB_REPO: ${{ github.repository }}
 
     defaults:
       run:
@@ -79,6 +89,14 @@ jobs:
             gradle-donghaeng-${{ runner.os }}-
             gradle-${{ runner.os }}-
 
+      # 네이티브 껍데기의 지문. 껍데기를 정하는 것은 graft.config.ts와 mobile/뿐이다 —
+      # 화면 코드는 여기 넣지 않는다. 매번 바뀌는 값으로는 아무것도 구분할 수 없다.
+      - name: 껍데기 지문
+        run: |
+          KEY=$( { sha256sum graft.config.ts; find mobile -type f | sort | xargs -r sha256sum; } | sha256sum | cut -c1-12 )
+          echo "GRAFT_PUBLIC_NATIVE_KEY=$KEY" >> "$GITHUB_ENV"
+          echo "### 동행 ${GRAFT_PUBLIC_APP_VERSION} · native $KEY" >> "$GITHUB_STEP_SUMMARY"
+
       - name: 의존성 설치
         run: |
           npm pkg set dependencies.graft="file:.framework/graft"
@@ -90,6 +108,9 @@ jobs:
       - name: 안드로이드 프로젝트 생성
         working-directory: donghaeng/.graft/mobile
         run: |
+          # 업데이터 플러그인을 못박는다. 최신 6.x는 compileSdk 35를 요구하는데 이 앱은
+          # 34다(당구 점수판의 release.yml과 같은 이유). 6.13.2가 34에서 지어지는 마지막 판이다.
+          npm pkg set "dependencies.@capgo/capacitor-updater=6.13.2"
           npm install
           if [ -d android ] && [ ! -f android/app/build.gradle ]; then
             rm -rf android
@@ -139,6 +160,10 @@ jobs:
           fi
           cp "$FOUND" "$GITHUB_WORKSPACE/donghaeng-ci.apk"
 
+      # 화면만 담은 zip. 뿌리에 index.html이 있어야 한다 — 한 겹 감싸면 업데이터가 빈 화면을 연다.
+      - name: 웹 번들 묶기
+        run: (cd .graft/mobile/www && zip -qr "$GITHUB_WORKSPACE/donghaeng-www.zip" .)
+
       - uses: actions/upload-artifact@v4
         with:
           name: donghaeng-apk
@@ -148,12 +173,16 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: donghaeng-ci
-          name: 동행 개발 빌드 ${{ env.GRAFT_PUBLIC_APP_VERSION }}
+          name: 동행 ${{ env.GRAFT_PUBLIC_APP_VERSION }}
           body: |
             동행 앱의 최신 빌드입니다. 브랜치 `${{ github.ref_name }}` (`${{ github.sha }}`)
 
-            당구 점수판과는 다른 앱(`com.donghaeng.app`)이라 한 폰에 같이 깔립니다.
-            새 빌드가 올라올 때마다 이 자리의 파일이 교체됩니다.
+            처음 설치할 때만 `donghaeng-ci.apk`를 받으면 됩니다. 그다음부터는 앱이 스스로
+            업데이트합니다. 당구 점수판과는 다른 앱(`com.donghaeng.app`)이라 한 폰에 같이 깔립니다.
+
+            native: ${{ env.GRAFT_PUBLIC_NATIVE_KEY }}
           prerelease: true
           make_latest: false
-          files: donghaeng-ci.apk
+          files: |
+            donghaeng-ci.apk
+            donghaeng-www.zip

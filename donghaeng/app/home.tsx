@@ -6,6 +6,8 @@ import { cleanCode, createTeam, joinTeam, reason } from '../lib/firebase';
 import { prepareShell, tap } from '../lib/platform';
 import { useSession, type Session } from '../lib/session';
 import { Board } from './board';
+import { UpdateBanner } from './update-banner';
+import { confirmBundle } from '../lib/update';
 
 /**
  * 첫 화면이 무엇일지 정한다.
@@ -18,6 +20,9 @@ export function Home() {
 
   useEffect(() => {
     void prepareShell();
+    // 이 실행이 멀쩡하다는 신호. 로그인 확인을 기다리지 않고 먼저 보낸다 — 늦으면
+    // 업데이터가 새 화면을 망가진 것으로 보고 되돌린다.
+    void confirmBundle();
   }, []);
 
   if (session.loading) {
@@ -28,9 +33,20 @@ export function Home() {
     );
   }
 
-  if (!session.account) return <SignIn session={session} />;
-  if (!session.name || !session.team) return <Setup session={session} />;
-  return <Board session={session} />;
+  // 업데이트 알림은 어느 화면에서든 뜬다. 로그인 전이라도 고친 판이 나왔으면 받아야 한다.
+  const screen = !session.account ? (
+    <SignIn session={session} />
+  ) : !session.name || !session.team ? (
+    <Setup session={session} />
+  ) : (
+    <Board session={session} />
+  );
+  return (
+    <>
+      {screen}
+      <UpdateBanner />
+    </>
+  );
 }
 
 /**
