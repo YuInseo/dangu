@@ -39,7 +39,11 @@ service cloud.firestore {
       }
 
       match /slips/{slip} {
-        allow read, delete: if member(team);
+        allow read: if member(team);
+        // 완료된 쪽지는 지울 수 없다 — 기록이다. 보관 기한 정리(하루가 지난 것)만 예외.
+        allow delete: if member(team)
+          && (resource.data.status != 'done'
+              || resource.data.createdAt < request.time.toMillis() - 86400000);
         allow create, update: if member(team)
           && request.resource.data.date is string
           && request.resource.data.time is string

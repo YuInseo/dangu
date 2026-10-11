@@ -68,7 +68,12 @@ export function SlipSheet({
     if (result === 'failed') onNotice('공유하지 못했습니다.');
   };
 
+  // 완료된 쪽지는 기록이다. 누가 모셨는지는 끝난 뒤에 더 자주 묻고, 실수로 지우면 되살릴
+  // 길이 없다. 그래서 지우기를 아예 내놓지 않는다(규칙도 막는다). 기한이 지나면 저절로 지워진다.
+  const locked = slip.status === 'done';
+
   const remove = () => {
+    if (locked) return;
     if (!confirming) {
       setConfirming(true);
       return;
@@ -218,9 +223,11 @@ export function SlipSheet({
             <button className="secondary" onClick={() => void share()}>
               공유
             </button>
-            <button className={confirming ? 'danger' : 'secondary'} onClick={remove}>
-              {confirming ? '정말 지우기' : '지우기'}
-            </button>
+            {!locked && (
+              <button className={confirming ? 'danger' : 'secondary'} onClick={remove}>
+                {confirming ? '정말 지우기' : '지우기'}
+              </button>
+            )}
           </div>
           <button className="ghost wide" onClick={onClose}>
             닫기

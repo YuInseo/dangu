@@ -433,11 +433,18 @@ export async function sweepOldSlips(code: string): Promise<number> {
     const old = await getDocs(
       query(collection(ready.db, 'teams', code, 'slips'), where('date', '<', cutoff), limit(400))
     );
-    if (old.empty) return 0;
+    // 완료된 쪽지는 손으로 지울 수 없지만, 보관 기한이 지나면 여기서 지운다. 규칙도 하루가
+    // 지난 완료 쪽지만 지우게 하므로 같은 선으로 거른다 — 하나라도 거절되면 배치 전체가
+    // 실패한다.
+    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const removable = old.docs.filter(
+      (entry) => entry.data()?.status !== 'done' || Number(entry.data()?.createdAt) < dayAgo
+    );
+    if (removable.length === 0) return 0;
     const batch = writeBatch(ready.db);
-    old.docs.forEach((entry) => batch.delete(entry.ref));
+    removable.forEach((entry) => batch.delete(entry.ref));
     await batch.commit();
-    return old.size;
+    return removable.length;
   } catch {
     return 0;
   }
