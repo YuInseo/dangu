@@ -24,6 +24,14 @@
   --done: #2f7d4f;
   --done-soft: #e4f4ea;
   --radius: 14px;
+  --seg-bg: #e3e7ee;
+  --th-bg: #f6f7f9;
+  --need-off: #a5adbb;
+  --error-ink: #8f1717;
+  --toast-bg: #141a24;
+  /* 강조색을 글자로 쓸 때. 밝은 바탕에서는 남색 그대로, 어두운 바탕에서는 밝힌다. */
+  --accent-ink: #1d3a6e;
+  color-scheme: light;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   /* 아래 탭의 높이(안전 영역 제외). 그 위에 뜨는 것들이 이만큼 올라간다. */
@@ -37,6 +45,83 @@
   --shift-rest: #2f7d4f;
   --shift-rest-soft: #e4f4ea;
 }
+/*
+ * 어두운 테마.
+ *
+ * 야간 근무 때 어두운 대합실에서 흰 화면은 눈이 부시다. 설정에서 "시스템/밝게/어둡게"를
+ * 고르고(`data-theme`), 시스템이면 폰의 다크 모드를 따른다. 색은 전부 위의 토큰을 바꿔서
+ * 칠한다 — 화면 코드는 어느 테마인지 모른다.
+ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+  --bg: #0e131b;
+  --paper: #171e29;
+  --ink: #e8edf5;
+  --muted: #95a0b2;
+  --line: #2b3546;
+  --navy: #2c55a0;
+  --depart: #5b8ff0;
+  --depart-soft: #1a2a48;
+  --arrive: #f06262;
+  --arrive-soft: #3a1c20;
+  --waiting: #f0a640;
+  --waiting-soft: #3a2a12;
+  --doing: #5b8ff0;
+  --doing-soft: #1a2a48;
+  --done: #4fc27f;
+  --done-soft: #163323;
+  --shift-day: #f0a640;
+  --shift-day-soft: #3a2a12;
+  --shift-night: #9d8cf5;
+  --shift-night-soft: #2a2350;
+  --shift-off: #95a0b2;
+  --shift-off-soft: #222a37;
+  --shift-rest: #4fc27f;
+  --shift-rest-soft: #163323;
+  --seg-bg: #1f2735;
+  --th-bg: #1d2532;
+  --need-off: #5d6878;
+  --error-ink: #ffb4b4;
+  --toast-bg: #2a3343;
+  --accent-ink: #9dbcff;
+  color-scheme: dark;
+  }
+}
+
+:root[data-theme='dark'] {
+  --bg: #0e131b;
+  --paper: #171e29;
+  --ink: #e8edf5;
+  --muted: #95a0b2;
+  --line: #2b3546;
+  --navy: #2c55a0;
+  --depart: #5b8ff0;
+  --depart-soft: #1a2a48;
+  --arrive: #f06262;
+  --arrive-soft: #3a1c20;
+  --waiting: #f0a640;
+  --waiting-soft: #3a2a12;
+  --doing: #5b8ff0;
+  --doing-soft: #1a2a48;
+  --done: #4fc27f;
+  --done-soft: #163323;
+  --shift-day: #f0a640;
+  --shift-day-soft: #3a2a12;
+  --shift-night: #9d8cf5;
+  --shift-night-soft: #2a2350;
+  --shift-off: #95a0b2;
+  --shift-off-soft: #222a37;
+  --shift-rest: #4fc27f;
+  --shift-rest-soft: #163323;
+  --seg-bg: #1f2735;
+  --th-bg: #1d2532;
+  --need-off: #5d6878;
+  --error-ink: #ffb4b4;
+  --toast-bg: #2a3343;
+  --accent-ink: #9dbcff;
+  color-scheme: dark;
+}
+
 
 * {
   box-sizing: border-box;
@@ -85,6 +170,7 @@ button:disabled {
 
 input,
 textarea {
+  color: var(--ink);
   width: 100%;
   min-height: 48px;
   border: 1.5px solid var(--line);
@@ -247,7 +333,7 @@ a {
   font-size: 1.6rem;
   line-height: 1;
   min-width: 48px;
-  color: var(--navy);
+  color: var(--accent-ink);
 }
 
 .datebar .date {
@@ -279,7 +365,7 @@ a {
 
 .segmented {
   display: flex;
-  background: #e3e7ee;
+  background: var(--seg-bg);
   border-radius: 12px;
   padding: 3px;
   gap: 3px;
@@ -459,7 +545,7 @@ a {
   padding: 0.1rem 0.5rem;
   border-radius: 999px;
   border: 1.5px solid currentColor;
-  color: var(--navy);
+  color: var(--accent-ink);
 }
 
 .card-meet {
@@ -586,7 +672,7 @@ a {
   font-weight: 700;
   font-size: 0.9rem;
   text-align: center;
-  background: #f6f7f9;
+  background: var(--th-bg);
 }
 
 .paper td {
@@ -637,7 +723,7 @@ a {
   font-size: 0.95rem;
   padding: 0.2rem 0.65rem;
   border-radius: 999px;
-  color: #a5adbb;
+  color: var(--need-off);
   border: 1.5px solid transparent;
 }
 
@@ -658,7 +744,7 @@ a {
 
 .needs.pick .need.on {
   background: var(--navy);
-  border-color: var(--navy);
+  border-color: var(--accent-ink);
   color: #fff;
 }
 
@@ -752,7 +838,7 @@ a {
 
 .notice.error {
   background: var(--arrive-soft);
-  color: #8f1717;
+  color: var(--error-ink);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -770,7 +856,7 @@ a {
   transform: translateX(-50%);
   z-index: 30;
   max-width: calc(100% - 2rem);
-  background: var(--ink);
+  background: var(--toast-bg);
   color: #fff;
   padding: 0.75rem 1rem;
   border-radius: 12px;
@@ -854,7 +940,7 @@ input.code {
 .team-code {
   flex: 1;
   font-size: 1.5rem;
-  color: var(--navy);
+  color: var(--accent-ink);
 }
 
 .members {
@@ -919,7 +1005,7 @@ button.link {
   align-items: center;
   gap: 0.5rem;
   padding: 0.4rem 0.4rem 0.4rem 0.9rem;
-  background: var(--ink);
+  background: var(--toast-bg);
   color: #fff;
   border-radius: 14px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
@@ -994,7 +1080,7 @@ button.link {
 }
 
 .tabbar a.on {
-  color: var(--navy);
+  color: var(--accent-ink);
   font-weight: 800;
 }
 
@@ -1058,7 +1144,7 @@ button.link {
 }
 
 .cell.today {
-  border-color: var(--navy);
+  border-color: var(--accent-ink);
   box-shadow: 0 0 0 1.5px var(--navy);
 }
 
@@ -1198,8 +1284,8 @@ button.link {
 }
 
 .presets button.on {
-  border-color: var(--navy);
-  color: var(--navy);
+  border-color: var(--accent-ink);
+  color: var(--accent-ink);
 }
 
 /* 자주 적은 말 ------------------------------------------------------ */
@@ -1236,7 +1322,7 @@ button.link {
 }
 
 .badge.on {
-  border-color: var(--navy);
+  border-color: var(--accent-ink);
   background: var(--navy);
   color: #fff;
 }
@@ -1378,11 +1464,11 @@ button.link {
   height: 22px;
   min-height: 0;
   margin: 0;
-  accent-color: var(--navy);
+  accent-color: var(--accent-ink);
 }
 
 .check.on {
-  border-color: var(--navy);
+  border-color: var(--accent-ink);
   background: var(--depart-soft);
   color: var(--ink);
 }
@@ -1390,7 +1476,7 @@ button.link {
 .chip.flag {
   color: #fff;
   background: var(--navy);
-  border-color: var(--navy);
+  border-color: var(--accent-ink);
 }
 
 .chip.flag.inline {

@@ -20,7 +20,16 @@ export const viewport = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="ko">
-      <body>{children}</body>
+      <body>
+        {/* 고른 테마를 첫 화면이 그려지기 전에 붙인다. 리액트를 기다리면 밝은 화면이 한 번 번쩍인다. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "try{var t=localStorage.getItem('donghaeng.theme');if(t==='light'||t==='dark')document.documentElement.setAttribute('data-theme',t)}catch(e){}",
+          }}
+        />
+        {children}
+      </body>
     </html>
   );
 }

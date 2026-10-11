@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import { leaveTeam, renameMember, watchMembers } from '../../lib/firebase';
 import { shareText, tap } from '../../lib/platform';
 import { useSession } from '../../lib/session';
+import { loadTheme, saveTheme, type ThemeChoice } from '../../lib/theme';
 import { RETENTION_DAYS, type Person } from '../../lib/slip';
 import { applyNow, currentVersion, liveUpdatable, openApk, prepareUpdate, type UpdatePlan } from '../../lib/update';
 import {
@@ -34,6 +35,8 @@ export function SettingsPanel() {
   const [members, setMembers] = useState<Person[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
   const [leaving, setLeaving] = useState(false);
+  const [theme, setTheme] = useState<ThemeChoice>('system');
+  useEffect(() => setTheme(loadTheme()), []);
   const [update, setUpdate] = useState<UpdatePlan | 'checking' | 'current' | null>(null);
   const [alarm, setAlarm] = useState<AlarmSettings | null>(null);
 
@@ -243,6 +246,34 @@ export function SettingsPanel() {
             </button>
           </section>
         )}
+
+        <section className="panel">
+          <h2>화면</h2>
+          <div className="segmented" role="radiogroup" aria-label="테마">
+            {(
+              [
+                ['system', '시스템'],
+                ['light', '밝게'],
+                ['dark', '어둡게'],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                role="radio"
+                aria-checked={theme === value}
+                className={theme === value ? 'on' : ''}
+                onClick={() => {
+                  tap();
+                  setTheme(value);
+                  saveTheme(value);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <p className="muted">시스템을 고르면 폰의 다크 모드를 따릅니다.</p>
+        </section>
 
         <section className="panel" id="update">
           <h2>업데이트</h2>
