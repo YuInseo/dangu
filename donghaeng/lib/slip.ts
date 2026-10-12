@@ -114,6 +114,12 @@ export type SlipDraft = Pick<
   | 'online'
 >;
 
+/**
+ * 이 역의 타는 곳. 홈은 열차가 들어오기 직전까지 바뀌곤 해서, 펼친 쪽지에서 바로 고치게
+ * 버튼으로 깔아 둔다(4번부터 14번).
+ */
+export const PLATFORMS = Array.from({ length: 11 }, (_, i) => String(i + 4));
+
 /** 진행하면서 체크하는 것들. 펼친 쪽지에서 누르면 곧바로 팀 모두에게 반영된다. */
 export const CHECKS = [
   { id: 'crewHandover', label: '승무원 인계' },

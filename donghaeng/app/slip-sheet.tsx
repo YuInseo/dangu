@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react';
 
-import { deleteSlip, setCheck, setStatus, type Team } from '../lib/firebase';
+import { deleteSlip, setCheck, setStatus, updateSlip, type Team } from '../lib/firebase';
 import { shareText, tap } from '../lib/platform';
 import {
   CHECKS,
+  PLATFORMS,
   KIND_LABEL,
   NEEDS,
   STATUS_LABEL,
@@ -43,6 +44,16 @@ export function SlipSheet({
   onNotice: (message: string) => void;
 }) {
   const [confirming, setConfirming] = useState(false);
+  const [pickingPlatform, setPickingPlatform] = useState(false);
+
+  // 홈은 열차가 들어오기 직전까지 바뀐다. 고치기 화면을 거치지 않고 여기서 바로 바꾼다.
+  const changePlatform = (platform: string) => {
+    tap('medium');
+    setPickingPlatform(false);
+    if (platform === slip.platform) return;
+    void updateSlip(team.code, slip.id, { platform }, me);
+    onNotice(`홈을 ${platform}번으로 바꿨습니다.`);
+  };
 
   // 뒤로 가기(안드로이드)와 Esc로 닫힌다.
   useEffect(() => {
@@ -108,8 +119,40 @@ export function SlipSheet({
               <th>열차번호</th>
               <td className="big">{slip.train || '—'}</td>
               <th>홈</th>
-              <td className="big">{slip.platform || '—'}</td>
+              <td className="big editable">
+                <button
+                  type="button"
+                  className={pickingPlatform ? 'cell-edit on' : 'cell-edit'}
+                  aria-expanded={pickingPlatform}
+                  aria-label={`홈 ${slip.platform || '없음'}, 눌러서 바꾸기`}
+                  onClick={() => {
+                    tap();
+                    setPickingPlatform((open) => !open);
+                  }}
+                >
+                  {slip.platform || '—'}
+                  <span className="pencil" aria-hidden="true">
+                    ✎
+                  </span>
+                </button>
+              </td>
             </tr>
+            {pickingPlatform && (
+              <tr>
+                <td colSpan={4} className="platform-pick">
+                  {PLATFORMS.map((platform) => (
+                    <button
+                      key={platform}
+                      type="button"
+                      className={platform === slip.platform ? 'badge on' : 'badge'}
+                      onClick={() => changePlatform(platform)}
+                    >
+                      {platform}
+                    </button>
+                  ))}
+                </td>
+              </tr>
+            )}
             <tr>
               <th>구간</th>
               <td colSpan={3}>

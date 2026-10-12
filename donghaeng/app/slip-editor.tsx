@@ -9,6 +9,7 @@ import { TimeWheel } from './time-wheel';
 import {
   KIND_LABEL,
   NEEDS,
+  PLATFORMS,
   emptyDraft,
   normalizeTime,
   nowTime,
@@ -198,6 +199,21 @@ export function SlipEditor({
               onChange={(event) => set('platform', event.target.value)}
             />
           </label>
+        </div>
+        <div className="quick wrap platform-quick" aria-label="홈 고르기">
+          {PLATFORMS.map((platform) => (
+            <button
+              key={platform}
+              type="button"
+              className={draft.platform === platform ? 'badge on' : 'badge'}
+              onClick={() => {
+                tap();
+                set('platform', draft.platform === platform ? '' : platform);
+              }}
+            >
+              {platform}
+            </button>
+          ))}
         </div>
         <div className="grid two tight">
           <label className="field">

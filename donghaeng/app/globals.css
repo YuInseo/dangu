@@ -1559,3 +1559,53 @@ button.link {
 .scan-notice {
   font-weight: 600;
 }
+
+/* 홈 바로 고치기 ------------------------------------------------- */
+
+.paper td.editable {
+  padding: 0;
+}
+
+.cell-edit {
+  width: 100%;
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.25rem;
+  padding: 0 0.55rem;
+  border-radius: 0;
+  background: transparent;
+  font: inherit;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: var(--ink);
+  text-align: left;
+}
+
+.cell-edit .pencil {
+  font-size: 0.9rem;
+  color: var(--accent-ink);
+}
+
+.cell-edit.on {
+  background: var(--depart-soft);
+}
+
+.paper td.platform-pick {
+  display: table-cell;
+  padding: 0.5rem;
+}
+
+.platform-pick .badge,
+.platform-quick .badge {
+  min-width: 44px;
+  min-height: 40px;
+  font-size: 1rem;
+  font-weight: 800;
+  margin: 0.15rem;
+}
+
+.platform-quick {
+  margin-top: -0.35rem;
+}
