@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react';
 
 import { tap } from '../lib/platform';
+import { PLATFORMS } from '../lib/slip';
 
 /**
  * 시각 고르기 — 시와 분을 굴려서.
@@ -20,14 +21,38 @@ export function TimeWheel({ value, onChange }: { value: string; onChange: (value
 
   return (
     <div className="time-wheel" role="group" aria-label="시각">
-      <Wheel count={24} value={hour} label="시" onChange={(h) => onChange(`${pad(h)}:${pad(minute)}`)} />
+      <Wheel items={HOURS} value={hour} label="시" onChange={(h) => onChange(`${pad(h)}:${pad(minute)}`)} />
       <span className="time-colon" aria-hidden="true">
         :
       </span>
-      <Wheel count={60} value={minute} label="분" onChange={(m) => onChange(`${pad(hour)}:${pad(m)}`)} />
+      <Wheel items={MINUTES} value={minute} label="분" onChange={(m) => onChange(`${pad(hour)}:${pad(m)}`)} />
     </div>
   );
 }
+
+/**
+ * 홈 고르기 — 4번부터 14번까지 굴려서. 맨 위의 "—"는 아직 모른다는 뜻이다.
+ *
+ * 홈은 열차가 들어오기 직전까지 바뀌곤 해서, 쓰기 화면과 펼친 쪽지 양쪽에서 같은 휠로 고친다.
+ */
+const PLATFORM_ITEMS = ['—', ...PLATFORMS];
+
+export function PlatformWheel({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const index = Math.max(0, PLATFORM_ITEMS.indexOf(value || '—'));
+  return (
+    <div className="time-wheel platform-wheel" role="group" aria-label="홈">
+      <Wheel
+        items={PLATFORM_ITEMS}
+        value={index}
+        label="번 홈"
+        onChange={(next) => onChange(next === 0 ? '' : PLATFORM_ITEMS[next])}
+      />
+    </div>
+  );
+}
+
+const HOURS = Array.from({ length: 24 }, (_, n) => String(n).padStart(2, '0'));
+const MINUTES = Array.from({ length: 60 }, (_, n) => String(n).padStart(2, '0'));
 
 /** 한 칸 높이. CSS의 `--wheel-item`과 같아야 한다. */
 const ITEM = 44;
@@ -38,17 +63,19 @@ const ITEM = 44;
  * 브라우저의 스크롤 스냅이 칸에 딱 맞춰 멈추게 해 준다. 멈춘 뒤에 위치에서 값을 읽는다 —
  * 굴리는 도중에 값을 바꾸면 화면이 다시 그려지면서 손가락 밑의 목록이 튄다.
  */
-function Wheel({
-  count,
+export function Wheel({
+  items,
   value,
   label,
   onChange,
 }: {
-  count: number;
+  /** 칸마다 보일 글자. `value`는 이 배열의 자리(index)다. */
+  items: string[];
   value: number;
   label: string;
   onChange: (value: number) => void;
 }) {
+  const count = items.length;
   const ref = useRef<HTMLDivElement>(null);
   const settle = useRef<ReturnType<typeof setTimeout> | null>(null);
   const shown = useRef(value);
@@ -106,7 +133,7 @@ function Wheel({
         }}
       >
         <div className="wheel-pad" aria-hidden="true" />
-        {Array.from({ length: count }, (_, n) => (
+        {items.map((item, n) => (
           <div
             key={n}
             role="option"
@@ -116,7 +143,7 @@ function Wheel({
               ref.current?.scrollTo({ top: n * ITEM, behavior: 'smooth' });
             }}
           >
-            {String(n).padStart(2, '0')}
+            {item}
           </div>
         ))}
         <div className="wheel-pad" aria-hidden="true" />

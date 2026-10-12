@@ -5,11 +5,10 @@ import { useEffect, useState } from 'react';
 import { addSlip, updateSlip, type Team } from '../lib/firebase';
 import { tap } from '../lib/platform';
 import { forget, recentValues, remember, type RecentField } from '../lib/recent';
-import { TimeWheel } from './time-wheel';
+import { PlatformWheel, TimeWheel } from './time-wheel';
 import {
   KIND_LABEL,
   NEEDS,
-  PLATFORMS,
   emptyDraft,
   normalizeTime,
   nowTime,
@@ -189,31 +188,10 @@ export function SlipEditor({
               onChange={(event) => set('train', event.target.value)}
             />
           </label>
-          <label className="field">
+          <div className="field">
             <span>홈</span>
-            <input
-              className="big"
-              inputMode="numeric"
-              placeholder="6"
-              value={draft.platform}
-              onChange={(event) => set('platform', event.target.value)}
-            />
-          </label>
-        </div>
-        <div className="quick wrap platform-quick" aria-label="홈 고르기">
-          {PLATFORMS.map((platform) => (
-            <button
-              key={platform}
-              type="button"
-              className={draft.platform === platform ? 'badge on' : 'badge'}
-              onClick={() => {
-                tap();
-                set('platform', draft.platform === platform ? '' : platform);
-              }}
-            >
-              {platform}
-            </button>
-          ))}
+            <PlatformWheel value={draft.platform} onChange={(value) => set('platform', value)} />
+          </div>
         </div>
         <div className="grid two tight">
           <label className="field">

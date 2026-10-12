@@ -4,9 +4,9 @@ import { useEffect, useState } from 'react';
 
 import { deleteSlip, setCheck, setStatus, updateSlip, type Team } from '../lib/firebase';
 import { shareText, tap } from '../lib/platform';
+import { PlatformWheel } from './time-wheel';
 import {
   CHECKS,
-  PLATFORMS,
   KIND_LABEL,
   NEEDS,
   STATUS_LABEL,
@@ -45,6 +45,8 @@ export function SlipSheet({
 }) {
   const [confirming, setConfirming] = useState(false);
   const [pickingPlatform, setPickingPlatform] = useState(false);
+  /** 휠로 굴리는 중인 홈. 확인을 눌러야 저장된다 — 굴리다 지나친 번호가 올라가지 않게. */
+  const [pendingPlatform, setPendingPlatform] = useState(slip.platform);
 
   // 홈은 열차가 들어오기 직전까지 바뀐다. 고치기 화면을 거치지 않고 여기서 바로 바꾼다.
   const changePlatform = (platform: string) => {
@@ -52,7 +54,7 @@ export function SlipSheet({
     setPickingPlatform(false);
     if (platform === slip.platform) return;
     void updateSlip(team.code, slip.id, { platform }, me);
-    onNotice(`홈을 ${platform}번으로 바꿨습니다.`);
+    onNotice(platform ? `홈을 ${platform}번으로 바꿨습니다.` : '홈을 비웠습니다.');
   };
 
   // 뒤로 가기(안드로이드)와 Esc로 닫힌다.
@@ -127,6 +129,7 @@ export function SlipSheet({
                   aria-label={`홈 ${slip.platform || '없음'}, 눌러서 바꾸기`}
                   onClick={() => {
                     tap();
+                    setPendingPlatform(slip.platform);
                     setPickingPlatform((open) => !open);
                   }}
                 >
@@ -140,16 +143,15 @@ export function SlipSheet({
             {pickingPlatform && (
               <tr>
                 <td colSpan={4} className="platform-pick">
-                  {PLATFORMS.map((platform) => (
-                    <button
-                      key={platform}
-                      type="button"
-                      className={platform === slip.platform ? 'badge on' : 'badge'}
-                      onClick={() => changePlatform(platform)}
-                    >
-                      {platform}
+                  <PlatformWheel value={pendingPlatform} onChange={setPendingPlatform} />
+                  <div className="platform-actions">
+                    <button type="button" className="ghost" onClick={() => setPickingPlatform(false)}>
+                      취소
                     </button>
-                  ))}
+                    <button type="button" className="primary" onClick={() => changePlatform(pendingPlatform)}>
+                      {pendingPlatform ? `${pendingPlatform}번 홈으로` : '홈 비우기'}
+                    </button>
+                  </div>
                 </td>
               </tr>
             )}

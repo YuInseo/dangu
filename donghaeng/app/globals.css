@@ -1597,15 +1597,22 @@ button.link {
   padding: 0.5rem;
 }
 
-.platform-pick .badge,
-.platform-quick .badge {
-  min-width: 44px;
-  min-height: 40px;
-  font-size: 1rem;
-  font-weight: 800;
-  margin: 0.15rem;
+.platform-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
-.platform-quick {
-  margin-top: -0.35rem;
+.platform-actions .primary {
+  flex: 1;
+  min-height: 48px;
+}
+
+/* 홈 휠은 한 열뿐이라 좁게. 쓰기 화면에서는 열차번호 칸 옆에 선다. */
+.platform-wheel {
+  padding: 0.15rem 0.5rem;
+}
+
+.grid.two.tight {
+  align-items: start;
 }
