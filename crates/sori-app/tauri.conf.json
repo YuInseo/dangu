@@ -1,0 +1,31 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Sori",
+  "version": "0.2.0",
+  "identifier": "app.sori.player",
+  "build": {
+    "frontendDist": "../../ui/dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis", "msi"],
+    "publisher": "Sori",
+    "category": "Music",
+    "shortDescription": "내 음악을 원본 그대로",
+    "longDescription": "무손실 음악 플레이어. 64비트 DSP, 볼륨 레벨링, DSD 재생.",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"],
+    "windows": {
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": { "languages": ["Korean", "English"], "displayLanguageSelector": false }
+    },
+    "android": {
+      "minSdkVersion": 26
+    }
+  }
+}

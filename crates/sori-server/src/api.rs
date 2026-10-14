@@ -73,6 +73,7 @@ async fn library(State(app): State<App>) -> Json<Value> {
         "version": sori_core::VERSION,
         "auth": !app.password.is_empty(),
         "platform": std::env::consts::OS,
+        "host": app.host.as_ref().map(|h| h.name()),
     }))
 }
 
@@ -110,7 +111,7 @@ async fn albums(State(app): State<App>, Query(q): Q) -> Json<Value> {
     match sort {
         "title" => list.sort_by(|a, b| compare(sort_name(&a.title), sort_name(&b.title))),
         "year" => list.sort_by(|a, b| b.year.unwrap_or(0).cmp(&a.year.unwrap_or(0)).then_with(|| compare(&a.title, &b.title))),
-        "added" => list.sort_by(|a, b| b.added_at.cmp(&a.added_at)),
+        "added" => list.sort_by_key(|a| std::cmp::Reverse(a.added_at)),
         _ => list.sort_by(|a, b| compare_artist(&a.artist, &b.artist).then(a.year.unwrap_or(0).cmp(&b.year.unwrap_or(0)))),
     }
     Json(json!({ "albums": list.into_iter().map(AlbumCard::from).collect::<Vec<_>>() }))
@@ -235,6 +236,20 @@ async fn set_music_dir(State(app): State<App>, Json(b): Json<MusicDirBody>) -> R
     }
 }
 
+/// 앱이면 폴더 고르기 창을 띄우고, 고른 폴더로 바꾼다.
+async fn pick_music_dir(State(app): State<App>) -> Response {
+    let Some(host) = app.host.clone() else {
+        return (StatusCode::NOT_IMPLEMENTED, Json(json!({ "error": "이 서버에서는 폴더 고르기 창을 띄울 수 없습니다" }))).into_response();
+    };
+    let start = Some(app.store.music_dir());
+    let picked = tokio::task::spawn_blocking(move || host.pick_folder(start)).await.ok().flatten();
+    let Some(dir) = picked else { return Json(json!({ "ok": false })).into_response() };
+    match app.store.set_music_dir(Some(dir.to_string_lossy().to_string())) {
+        Ok(()) => Json(json!({ "ok": true, "musicDir": app.store.music_dir().to_string_lossy() })).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, Json(json!({ "error": e.to_string() }))).into_response(),
+    }
+}
+
 /// 라이브러리와 스캔·분석 상태가 바뀔 때마다 알린다. 화면은 폴링 대신 이걸 듣는다.
 async fn events(State(app): State<App>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let s = stream::unfold((app, String::new()), |(app, last)| async move {
@@ -271,6 +286,7 @@ pub fn routes() -> Router<App> {
         .route("/api/analysis", get(analysis_status).post(analysis_set))
         .route("/api/waveform/{id}", get(waveform))
         .route("/api/settings/music-dir", post(set_music_dir))
+        .route("/api/settings/pick-music-dir", post(pick_music_dir))
         .route("/api/events", get(events))
 }
 

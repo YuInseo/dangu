@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/sori-core", "crates/sori-server"]
+members = ["crates/sori-core", "crates/sori-server", "crates/sori-app"]
 # 데스크톱 GUI 셸(Tauri)은 WebView 개발 패키지가 있는 곳(CI, 윈도우, 안드로이드)에서만 빌드한다.
 default-members = ["crates/sori-core", "crates/sori-server"]
 

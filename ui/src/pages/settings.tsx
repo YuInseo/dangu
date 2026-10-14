@@ -43,11 +43,10 @@ export function PlaySettings() {
 }
 
 /** 음악 폴더 바꾸기. 앱에서는 폴더 고르기 창이 뜨고, 브라우저에서는 경로를 적는다. */
-function MusicDirRow({ current }: { current: string }) {
+function MusicDirRow({ current, canPick }: { current: string; canPick: boolean }) {
   const [value, setValue] = useState(current);
   const [busy, setBusy] = useState(false);
   const toast = useToast();
-  const tauri = (window as unknown as { __TAURI__?: { dialog?: { open: (o: object) => Promise<string | null> } } }).__TAURI__;
 
   const save = async (dir: string) => {
     setBusy(true);
@@ -66,11 +65,20 @@ function MusicDirRow({ current }: { current: string }) {
     }
   };
 
+  // 앱이면 소리 서버가 운영체제의 폴더 고르기 창을 띄운다.
   const pick = async () => {
-    const dir = await tauri?.dialog?.open({ directory: true, multiple: false, defaultPath: current });
-    if (dir) {
-      setValue(dir);
-      await save(dir);
+    setBusy(true);
+    try {
+      const r = await fetchJson<{ ok: boolean; musicDir?: string }>('/api/settings/pick-music-dir', { method: 'POST' });
+      if (r.ok && r.musicDir) {
+        setValue(r.musicDir);
+        toast('음악 폴더를 바꿨습니다. 다시 스캔합니다.');
+        refreshData();
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '바꾸지 못했습니다', 'error');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -91,7 +99,7 @@ function MusicDirRow({ current }: { current: string }) {
           <FolderOpen size={16} />
           <input value={value} onChange={(e) => setValue(e.target.value)} spellCheck={false} aria-label="음악 폴더 경로" />
         </label>
-        {tauri?.dialog ? (
+        {canPick ? (
           <button type="button" className="btn btn-sm" onClick={pick} disabled={busy}>
             폴더 고르기
           </button>
@@ -112,7 +120,7 @@ export function LibrarySettings() {
     <section>
       <h2 className="settings-h2">라이브러리</h2>
       <p className="settings-lede">음악 폴더는 읽기만 합니다. 색인과 표지, 분석 결과는 캐시 폴더에 두며 지워도 다시 만들어집니다.</p>
-      <MusicDirRow key={info.musicDir} current={info.musicDir} />
+      <MusicDirRow key={info.musicDir} current={info.musicDir} canPick={!!info.host && info.host !== 'android'} />
       <div className="pref-row">
         <div className="pref-label">캐시 폴더</div>
         <code className="pref-code">{info.dataDir}</code>

@@ -40,5 +40,5 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!(music = %config.music_dir.display(), data = %config.data_dir.display(), "라이브러리를 엽니다");
     let store = Store::open(config);
     store.start_scan();
-    serve(App { store, password }, SocketAddr::new(host, port), None).await
+    serve(App { store, password, host: None }, SocketAddr::new(host, port), None).await
 }

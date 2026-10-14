@@ -7,17 +7,27 @@ pub mod media;
 pub mod wav;
 
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
 use sori_core::Store;
 use tower_http::compression::CompressionLayer;
 
+/// 서버를 품은 쪽(앱)이 해 줄 수 있는 일. 브라우저용 서버에는 없다.
+pub trait Host: Send + Sync {
+    /// 폴더 고르기 창을 띄운다. 고르지 않으면 None.
+    fn pick_folder(&self, start: Option<PathBuf>) -> Option<PathBuf>;
+    /// "windows", "android" …
+    fn name(&self) -> &'static str;
+}
+
 #[derive(Clone)]
 pub struct App {
     pub store: Arc<Store>,
     /// 비어 있으면 잠그지 않는다.
     pub password: Arc<String>,
+    pub host: Option<Arc<dyn Host>>,
 }
 
 pub fn router(app: App) -> Router {

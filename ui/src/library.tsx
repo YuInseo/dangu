@@ -15,6 +15,8 @@ export interface LibraryInfo {
   version: string;
   auth: boolean;
   platform: string;
+  /** 앱 안에서 돌고 있으면 "windows", "android" … 브라우저용 서버면 null. */
+  host: string | null;
 }
 
 const Ctx = createContext<LibraryInfo | null>(null);

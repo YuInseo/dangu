@@ -24,7 +24,7 @@ use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Pr
 use crate::App;
 use crate::wav::{Quantizer, header as wav_header};
 
-pub fn compressible() -> impl Predicate + Clone {
+pub fn compressible() -> impl Predicate {
     DefaultPredicate::new().and(NotForContentType::const_new("audio/"))
 }
 
