@@ -7,7 +7,9 @@ pub fn samples() -> Option<PathBuf> {
     if p.is_dir() {
         Some(p.canonicalize().unwrap())
     } else {
-        eprintln!("시험용 라이브러리가 없어 건너뜁니다 (cargo run -p sori-server -- sample)");
+        // CI에서는 건너뛰지 않는다. 라이브러리를 못 만들었으면 시험이 실패해야 한다.
+        assert!(std::env::var_os("SORI_REQUIRE_SAMPLES").is_none(), "시험용 라이브러리가 없습니다: {}", p.display());
+        eprintln!("시험용 라이브러리가 없어 건너뜁니다 (node ui/scripts/make-sample-library.mjs)");
         None
     }
 }
@@ -25,7 +27,7 @@ pub fn ffmpeg_s32(path: &std::path::Path) -> Vec<i32> {
         .output()
         .expect("ffmpeg");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    out.stdout.chunks_exact(4).map(|b| i32::from_le_bytes(b.try_into().unwrap())).collect()
+    out.stdout.as_chunks::<4>().0.iter().map(|b| i32::from_le_bytes(*b)).collect()
 }
 
 pub fn ffmpeg_f64(path: &std::path::Path) -> Vec<f64> {
@@ -36,5 +38,5 @@ pub fn ffmpeg_f64(path: &std::path::Path) -> Vec<f64> {
         .output()
         .expect("ffmpeg");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-    out.stdout.chunks_exact(8).map(|b| f64::from_le_bytes(b.try_into().unwrap())).collect()
+    out.stdout.as_chunks::<8>().0.iter().map(|b| f64::from_le_bytes(*b)).collect()
 }

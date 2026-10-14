@@ -95,8 +95,8 @@ fn dsd64_and_dsd128_become_clean_pcm() {
         assert!(frames.abs_diff(want) <= 200, "프레임 {frames} vs {want}");
 
         // 가운데 0.5초: 25% 변조 → +6dB → 진폭 0.5, 위상은 원래 신호와 맞아야 한다(지연 보정).
-        let l: Vec<f64> = pcm.chunks_exact(2).map(|f| f[0]).skip(44_100).take(88_200).collect();
-        let r: Vec<f64> = pcm.chunks_exact(2).map(|f| f[1]).skip(44_100).take(88_200).collect();
+        let l: Vec<f64> = pcm.as_chunks::<2>().0.iter().map(|f| f[0]).skip(44_100).take(88_200).collect();
+        let r: Vec<f64> = pcm.as_chunks::<2>().0.iter().map(|f| f[1]).skip(44_100).take(88_200).collect();
         let (amp, phase) = component(&l, DSD_PCM_RATE as f64, 1000.0);
         assert!((amp - 0.5).abs() < 0.01, "{rate}: 진폭 {amp}");
         // 0.25초 지점(44_100 프레임)에서 시작했으니 사인의 위상은 2π·1000·0.25 = 0(mod 2π)

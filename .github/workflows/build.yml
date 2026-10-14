@@ -28,7 +28,7 @@ jobs:
           cache-dependency-path: ui/package-lock.json
       - name: ffmpeg (시험용 음악을 만들고 결과를 맞춰 본다)
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.0
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
@@ -44,6 +44,8 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy -p sori-core -p sori-server --all-targets -- -D warnings
       - run: cargo test -p sori-core -p sori-server
+        env:
+          SORI_REQUIRE_SAMPLES: '1'
       - name: 리눅스 서버 실행 파일
         run: cargo build --release -p sori-server
       - uses: actions/upload-artifact@v4
@@ -67,7 +69,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: ui/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.0
       - uses: Swatinem/rust-cache@v2
         with:
           key: windows
@@ -131,7 +133,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: ui/package-lock.json
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.97.0
         with:
           targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
       - uses: Swatinem/rust-cache@v2
