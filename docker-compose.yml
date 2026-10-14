@@ -1,0 +1,17 @@
+services:
+  sori:
+    build: .
+    image: sori
+    ports:
+      - '3000:3000'
+    volumes:
+      # 왼쪽을 내 음악 폴더로 바꾸세요. 읽기 전용으로 붙입니다.
+      - ./music:/music:ro
+      - sori-data:/data
+    environment:
+      # 집 밖에서 열 거라면 비밀번호를 넣으세요. 비워 두면 잠그지 않습니다.
+      SORI_PASSWORD: ''
+    restart: unless-stopped
+
+volumes:
+  sori-data:
