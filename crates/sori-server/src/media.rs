@@ -22,7 +22,8 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
 
 use crate::App;
-use crate::wav::{Quantizer, header as wav_header};
+use crate::wav::header as wav_header;
+use sori_core::dsp::quantize::Quantizer;
 
 pub fn compressible() -> impl Predicate {
     DefaultPredicate::new().and(NotForContentType::const_new("audio/"))
@@ -35,6 +36,10 @@ fn text(status: StatusCode, msg: &str) -> Response {
 #[derive(Deserialize, Default)]
 struct StreamQuery {
     transcode: Option<String>,
+    /// DSP 요청(base64url JSON). 있으면 64비트 체인을 거쳐 WAV로 보낸다.
+    dsp: Option<String>,
+    /// 클리핑 표시기 세션
+    sid: Option<String>,
     /// 이 초부터(변환 스트림만)
     t: Option<f64>,
 }
@@ -70,8 +75,15 @@ async fn file_body(path: PathBuf, start: u64, len: u64) -> std::io::Result<Body>
 
 async fn stream_track(State(app): State<App>, Path(id): Path<String>, Query(q): Query<StreamQuery>, headers: HeaderMap) -> Response {
     let Some((abs, track)) = app.store.track_file(&id) else { return text(StatusCode::NOT_FOUND, "없는 곡입니다") };
+    let at = q.t.unwrap_or(0.0).max(0.0);
+    // 요청이 이상하면 무시하고 원본(또는 변환)으로 간다.
+    if let Some(req) = q.dsp.as_deref().and_then(sori_core::dsp::request::parse_request) {
+        let loudness = app.store.library().views.get(&id).and_then(|t| t.loudness.clone());
+        let sid = q.sid.filter(|s| sori_core::dsp::chain::valid_sid(s));
+        return pcm_stream(abs, at, Some(Dsp { req, loudness, sid, app: app.clone() })).await;
+    }
     if q.transcode.is_some() {
-        return transcode(abs, q.t.unwrap_or(0.0).max(0.0)).await;
+        return pcm_stream(abs, at, None).await;
     }
     let meta = match tokio::fs::metadata(&abs).await {
         Ok(m) => m,
@@ -117,8 +129,15 @@ async fn stream_track(State(app): State<App>, Path(id): Path<String>, Query(q): 
     }
 }
 
-/// 풀어서 WAV로. 원본이 정수 PCM이면 샘플이 그대로 간다.
-async fn transcode(abs: PathBuf, at: f64) -> Response {
+struct Dsp {
+    req: sori_core::dsp::request::DspRequest,
+    loudness: Option<sori_core::model::Loudness>,
+    sid: Option<String>,
+    app: App,
+}
+
+/// 풀어서 WAV로. DSP가 없으면 원본이 정수 PCM일 때 샘플이 그대로 간다.
+async fn pcm_stream(abs: PathBuf, at: f64, dsp: Option<Dsp>) -> Response {
     let opened = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
         let mut src = decode::open(&abs)?;
         let spec = src.spec().clone();
@@ -134,49 +153,85 @@ async fn transcode(abs: PathBuf, at: f64) -> Response {
         Ok(Err(e)) => return text(StatusCode::UNSUPPORTED_MEDIA_TYPE, &format!("이 파일을 풀 수 없습니다: {e}")),
         Err(_) => return text(StatusCode::INTERNAL_SERVER_ERROR, "변환 작업이 멈췄습니다"),
     };
-    // 16비트 이하 원본은 16비트로, 나머지는 24비트로. 디더는 샘플이 정수 격자 밖에 있을 때만
-    // 들어간다(DSD를 푼 것, 32비트·부동소수점 원본). 16/24비트 원본은 그대로 간다.
-    let bits = match spec.bits {
-        Some(b) if b <= 16 && spec.dsd_rate.is_none() => 16u16,
-        _ => 24u16,
+    let remaining_in = spec.frames.map(|f| f.saturating_sub(start));
+    let (bits, channels, rate, dither, mut proc, sid, clips) = match &dsp {
+        Some(d) => {
+            let p = sori_core::dsp::stream::Processor::new(&d.req, &spec, d.loudness.as_ref(), at, Some(&d.app.irs));
+            for w in p.warnings() {
+                tracing::warn!("{w}");
+            }
+            if let Some(sid) = &d.sid {
+                d.app.clips.reset_after(sid, at);
+            }
+            let dither = d.req.out.d == sori_core::dsp::request::Dither::Tpdf;
+            (d.req.out.b as u16, 2u16, p.out_rate, dither, Some(p), d.sid.clone(), Some(d.app.clips.clone()))
+        }
+        // 16비트 이하 원본은 16비트로, 나머지는 24비트로. 디더는 샘플이 정수 격자 밖에 있을 때만
+        // 들어간다(DSD를 푼 것, 32비트·부동소수점 원본). 16/24비트 원본은 그대로 간다.
+        None => {
+            let bits = match spec.bits {
+                Some(b) if b <= 16 && spec.dsd_rate.is_none() => 16u16,
+                _ => 24u16,
+            };
+            (bits, spec.channels as u16, spec.rate, true, None, None, None)
+        }
     };
-    let dither = true;
-    let channels = spec.channels as u16;
     let block = channels as u64 * bits as u64 / 8;
-    let remaining = spec.frames.map(|f| f.saturating_sub(start)).unwrap_or(u32::MAX as u64 / block);
-    let data_len = remaining * block;
+    let remaining = remaining_in.map(|f| (f as u128 * rate as u128 / spec.rate as u128) as u64);
+    let data_len = remaining.map(|f| f * block).unwrap_or(u32::MAX as u64 / block * block);
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Bytes>(8);
+    let known = spec.frames.is_some();
     tokio::task::spawn_blocking(move || {
-        if tx.blocking_send(Bytes::from(wav_header(spec.rate, channels, bits, data_len))).is_err() {
+        if tx.blocking_send(Bytes::from(wav_header(rate, channels, bits, data_len))).is_err() {
             return;
         }
-        let mut q = Quantizer::new(bits, dither);
+        let mut q = Quantizer::new(bits as u32, dither);
         let mut pcm = Vec::with_capacity(1 << 16);
-        let mut out = Vec::with_capacity(1 << 17);
+        let mut processed = Vec::with_capacity(1 << 17);
+        let mut out = Vec::with_capacity(1 << 18);
         let mut sent = 0u64;
-        loop {
+        let mut done = false;
+        while !done {
             pcm.clear();
-            let n = match src.read(&mut pcm) {
-                Ok(n) => n,
-                Err(_) => break,
+            processed.clear();
+            let n = src.read(&mut pcm).unwrap_or(0);
+            let samples: &[f64] = match &mut proc {
+                Some(p) => {
+                    if n == 0 {
+                        p.finish(&mut processed);
+                        done = true;
+                    } else {
+                        p.push(&pcm, &mut processed);
+                    }
+                    if let (Some((times, peak)), Some(sid), Some(clips)) = (p.take_clips(), &sid, &clips) {
+                        clips.record(sid, &times, peak);
+                    }
+                    &processed
+                }
+                None => {
+                    if n == 0 {
+                        done = true;
+                    }
+                    &pcm
+                }
             };
-            if n == 0 {
-                break;
-            }
             out.clear();
-            q.push(&pcm, &mut out);
+            q.push_le(samples, &mut out);
             // 머리에 적은 길이를 넘기지 않는다(길이를 몰랐던 파일).
             let take = (out.len() as u64).min(data_len - sent) as usize;
             sent += take as u64;
-            if tx.blocking_send(Bytes::copy_from_slice(&out[..take])).is_err() || sent >= data_len {
+            if take > 0 && tx.blocking_send(Bytes::copy_from_slice(&out[..take])).is_err() {
+                return;
+            }
+            if sent >= data_len {
                 return;
             }
         }
         // 실제가 머리보다 짧으면 무음으로 채워 길이를 맞춘다(브라우저가 끝을 기다리지 않게).
         let mut left = data_len - sent;
         let zeros = vec![0u8; 1 << 16];
-        while left > 0 && spec.frames.is_some() {
+        while left > 0 && known {
             let n = left.min(zeros.len() as u64) as usize;
             if tx.blocking_send(Bytes::copy_from_slice(&zeros[..n])).is_err() {
                 return;
@@ -189,7 +244,10 @@ async fn transcode(abs: PathBuf, at: f64) -> Response {
     h.insert(header::CONTENT_TYPE, HeaderValue::from_static("audio/wav"));
     h.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
     h.insert("x-sori-transcoded", HeaderValue::from_static("wav"));
-    if spec.frames.is_some() {
+    if dsp.is_some() {
+        h.insert("x-sori-dsp", HeaderValue::from_static("1"));
+    }
+    if known {
         h.insert(header::CONTENT_LENGTH, HeaderValue::from(data_len + 44 + if channels > 2 { 24 } else { 0 }));
     }
     (StatusCode::OK, h, body).into_response()

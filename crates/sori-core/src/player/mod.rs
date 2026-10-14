@@ -20,7 +20,13 @@ use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::decode::{PcmSource, Spec};
-use crate::dsp::resample::{Quality, Resampler};
+use crate::dsp::chain::{Chain, ClipMeter, Clips};
+use crate::dsp::ir::IrStore;
+use crate::dsp::leveling::leveling_gain;
+use crate::dsp::request::{DspRequest, parse_request};
+use crate::dsp::resample::Resampler;
+use crate::dsp::stream::{quality_of, to_stereo};
+use crate::model::Loudness;
 use output::{OutSpec, Output, Shared};
 
 /// 무엇을 틀지. 화면이 보낸다.
@@ -38,12 +44,15 @@ pub struct PlayItem {
     /// 대기열 칸의 ID. 같은 곡을 두 번 넣어도 칸은 다르다.
     pub uid: String,
     pub source: PlaySource,
+    /// 이 곡에 걸 DSP 요청(화면의 `encodeRequest`). 없으면 원본 그대로.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dsp: Option<String>,
 }
 
-/// 곡을 연 결과. 게인은 볼륨 레벨링이 정한 값(dB)이다.
+/// 곡을 연 결과. 라우드니스는 볼륨 레벨링이 쓴다.
 pub struct Opened {
     pub source: Box<dyn PcmSource>,
-    pub gain_db: f64,
+    pub loudness: Option<Loudness>,
 }
 
 pub type Resolver = Arc<dyn Fn(&PlayItem) -> anyhow::Result<Opened> + Send + Sync>;
@@ -53,7 +62,8 @@ pub fn library_resolver(store: Arc<crate::Store>) -> Resolver {
     Arc::new(move |item: &PlayItem| match &item.source {
         PlaySource::Library { id } => {
             let (path, _) = store.track_file(id).ok_or_else(|| anyhow::anyhow!("라이브러리에 없는 곡입니다"))?;
-            Ok(Opened { source: crate::decode::open(&path)?, gain_db: 0.0 })
+            let loudness = store.library().views.get(id).and_then(|t| t.loudness.clone());
+            Ok(Opened { source: crate::decode::open(&path)?, loudness })
         }
         PlaySource::Url { .. } => anyhow::bail!("라이브 아카이브는 아직 이 기기에서 직접 틀 수 없습니다"),
     })
@@ -120,13 +130,23 @@ pub struct PlayerState {
 }
 
 enum Cmd {
-    Load { item: PlayItem, autoplay: bool, at: f64, force: bool },
+    Load {
+        item: PlayItem,
+        autoplay: bool,
+        at: f64,
+        force: bool,
+    },
+    /// 곡마다의 DSP 요청이 바뀌었다(설정을 고쳤다).
+    Dsp(Vec<(String, Option<String>)>),
     Preload(Option<PlayItem>),
     Play,
     Pause,
     Stop,
     Seek(f64),
-    Volume { volume: f64, muted: bool },
+    Volume {
+        volume: f64,
+        muted: bool,
+    },
     Shutdown,
 }
 
@@ -145,6 +165,8 @@ struct Deck {
     item: PlayItem,
     source: Box<dyn PcmSource>,
     spec: Spec,
+    req: Option<DspRequest>,
+    loudness: Option<Loudness>,
     gain: f64,
     gain_db: f64,
     /// 이 곡에서 읽은 프레임(원본 샘플레이트)
@@ -153,6 +175,22 @@ struct Deck {
 }
 
 impl Deck {
+    /// 요청과 라우드니스로 볼륨 레벨링 게인을 다시 정한다.
+    fn apply_request(&mut self, dsp: Option<String>) {
+        self.item.dsp = dsp;
+        self.req = self.item.dsp.as_deref().and_then(parse_request);
+        let db = self.req.as_ref().and_then(|r| r.lv).map(|lv| leveling_gain(self.loudness.as_ref(), lv.m, lv.t, lv.u).gain).unwrap_or(0.0);
+        self.gain_db = db;
+        self.gain = 10f64.powf(db / 20.0);
+    }
+
+    /// 체인(헤드룸·필터)을 정하는 부분만. 레벨링은 곡마다 게인으로 따로 건다.
+    fn chain_key(&self) -> Option<String> {
+        let r = self.req.as_ref()?;
+        (r.hr.is_some() || !r.f.is_empty() || r.ci.is_some())
+            .then(|| serde_json::to_string(&(r.hr, &r.f, r.ci, r.src.map(|s| (s.f, s.p)))).unwrap_or_default())
+    }
+
     fn info(&self) -> SourceInfo {
         SourceInfo {
             rate: self.spec.rate,
@@ -166,12 +204,18 @@ impl Deck {
 
 pub struct Player {
     tx: Sender<Cmd>,
+    pub clips: Arc<Clips>,
     state: Arc<Mutex<PlayerState>>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Player {
     pub fn new(factory: OutputFactory, resolver: Resolver) -> Player {
+        Player::with_dsp(factory, resolver, None, Arc::new(Clips::default()))
+    }
+
+    pub fn with_dsp(factory: OutputFactory, resolver: Resolver, irs: impl Into<Option<Arc<IrStore>>>, clips: Arc<Clips>) -> Player {
+        let irs = irs.into();
         let (tx, rx) = channel();
         let state = Arc::new(Mutex::new(PlayerState {
             status: Status::Idle,
@@ -189,11 +233,22 @@ impl Player {
             events: Vec::new(),
         }));
         let st = state.clone();
+        let cl = clips.clone();
         let thread = std::thread::Builder::new()
             .name("sori-render".into())
-            .spawn(move || Render::new(factory(), resolver, rx, st).run())
+            .spawn(move || {
+                let mut r = Render::new(factory(), resolver, rx, st);
+                r.irs = irs;
+                r.clips = cl;
+                r.run()
+            })
             .expect("렌더 스레드를 만들 수 없습니다");
-        Player { tx, state, thread: Some(thread) }
+        Player { tx, clips, state, thread: Some(thread) }
+    }
+
+    /// 곡(대기열 칸)마다 DSP 요청을 바꾼다. 지금 곡이면 지금 위치에서 바로 다시 건다.
+    pub fn set_dsp(&self, items: Vec<(String, Option<String>)>) {
+        let _ = self.tx.send(Cmd::Dsp(items));
     }
 
     pub fn state(&self) -> PlayerState {
@@ -265,6 +320,12 @@ struct Render {
     event_seq: u64,
     scratch: Vec<f64>,
     mapped: Vec<f64>,
+    stereo: Vec<f64>,
+    irs: Option<Arc<IrStore>>,
+    clips: Arc<Clips>,
+    /// 장치 샘플레이트에서 도는 체인과 그 열쇠(요청의 헤드룸·필터 부분)
+    chain: Option<(String, Chain)>,
+    clip: Option<ClipMeter>,
 }
 
 impl Render {
@@ -292,6 +353,11 @@ impl Render {
             event_seq: 0,
             scratch: Vec::new(),
             mapped: Vec::new(),
+            stereo: Vec::new(),
+            irs: None,
+            clips: Arc::new(Clips::default()),
+            chain: None,
+            clip: None,
         }
     }
 
@@ -353,15 +419,42 @@ impl Render {
         let opened = (self.resolver)(item)?;
         let spec = opened.source.spec().clone();
         let duration = spec.duration().unwrap_or(0.0);
-        Ok(Deck {
+        let mut d = Deck {
             item: item.clone(),
             source: opened.source,
-            gain: 10f64.powf(opened.gain_db / 20.0),
-            gain_db: opened.gain_db,
+            req: None,
+            loudness: opened.loudness,
+            gain: 1.0,
+            gain_db: 0.0,
             spec,
             frames_read: 0,
             duration,
-        })
+        };
+        d.apply_request(item.dsp.clone());
+        Ok(d)
+    }
+
+    /// 지금 곡의 요청에 맞는 체인을 준비한다. 열쇠가 같으면 이어 쓴다(곡 사이에도 필터 상태가 이어진다).
+    fn sync_chain(&mut self, offset: f64) {
+        let rate = self.out_rate();
+        let Some(d) = &self.current else { return };
+        let key = d.chain_key();
+        let ci = d.req.as_ref().is_some_and(|r| r.clip_indicator());
+        match (key, &self.chain) {
+            (None, _) => self.chain = None,
+            (Some(k), Some((old, c))) if *old == k && c.rate == rate => {}
+            (Some(k), _) => {
+                let chain = Chain::new(d.req.as_ref().unwrap(), rate, self.irs.as_deref());
+                for w in &chain.warnings {
+                    tracing::warn!("{w}");
+                }
+                self.chain = Some((k, chain));
+            }
+        }
+        self.clip = ci.then(|| ClipMeter::new(rate, offset));
+        if ci {
+            self.clips.reset_after(&format!("native.{}", d.item.uid), offset);
+        }
     }
 
     /// 장치를 연다(이미 열려 있으면 그대로). 장치가 고른 샘플레이트로 연다.
@@ -456,11 +549,13 @@ impl Render {
                 self.resampler = None;
                 self.current = Some(deck);
                 self.draining = false;
+                self.chain = None;
                 if at > 0.0 {
                     self.seek_current(at);
                 } else {
                     self.start_segment(0.0);
                 }
+                self.sync_chain(at);
                 self.reported_uid = Some(item.uid.clone());
                 {
                     let mut s = self.state.lock();
@@ -547,7 +642,11 @@ impl Render {
                 let playing = self.segment_at_read().map(|s| s.uid.clone());
                 let cur = self.current.as_ref().map(|d| d.item.uid.clone());
                 if playing.is_some() && playing != cur {
-                    let item = PlayItem { uid: playing.clone().unwrap(), source: self.find_source(playing.as_deref()) };
+                    let item = self.find_item(playing.as_deref()).unwrap_or(PlayItem {
+                        uid: playing.clone().unwrap(),
+                        source: PlaySource::Library { id: String::new() },
+                        dsp: None,
+                    });
                     if let Some(c) = self.current.take() {
                         self.next_item = Some(c.item.clone());
                         self.next = Some(c);
@@ -560,10 +659,44 @@ impl Render {
                     self.flush_ring();
                     self.resampler = None;
                     self.draining = false;
+                    if let Some((_, c)) = &mut self.chain {
+                        c.reset();
+                    }
                     self.seek_current(t.max(0.0));
+                    self.sync_chain(t.max(0.0));
                     if self.want_play {
                         self.set_status(Status::Loading, None);
                     }
+                }
+            }
+            Cmd::Dsp(items) => {
+                let mut redo = false;
+                for (uid, dsp) in items {
+                    if let Some(n) = self.next.as_mut().filter(|n| n.item.uid == uid) {
+                        n.apply_request(dsp.clone());
+                    }
+                    if let Some(n) = self.next_item.as_mut().filter(|n| n.uid == uid) {
+                        n.dsp = dsp.clone();
+                    }
+                    if let Some(c) = self.current.as_mut().filter(|c| c.item.uid == uid)
+                        && c.item.dsp != dsp
+                    {
+                        c.apply_request(dsp);
+                        redo = true;
+                    }
+                }
+                // 지금 곡: 장치가 틀고 있는 위치에서 새 설정으로 다시 건다(링을 비우니 바로 들린다).
+                if redo && self.current.is_some() {
+                    let pos = self.playing_position().unwrap_or(0.0);
+                    self.flush_ring();
+                    self.resampler = None;
+                    self.draining = false;
+                    self.chain = None;
+                    self.seek_current(pos);
+                    self.sync_chain(pos);
+                    let mut s = self.state.lock();
+                    s.source = self.current.as_ref().map(|d| d.info());
+                    s.seq += 1;
                 }
             }
             Cmd::Volume { volume, muted } => {
@@ -582,14 +715,13 @@ impl Render {
         }
     }
 
-    fn find_source(&self, uid: Option<&str>) -> PlaySource {
+    fn find_item(&self, uid: Option<&str>) -> Option<PlayItem> {
         [self.current.as_ref(), self.next.as_ref()]
             .into_iter()
             .flatten()
             .find(|d| Some(d.item.uid.as_str()) == uid)
-            .map(|d| d.item.source.clone())
-            .or_else(|| self.next_item.as_ref().filter(|n| Some(n.uid.as_str()) == uid).map(|n| n.source.clone()))
-            .unwrap_or(PlaySource::Library { id: String::new() })
+            .map(|d| d.item.clone())
+            .or_else(|| self.next_item.clone().filter(|n| Some(n.uid.as_str()) == uid))
     }
 
     fn seek_current(&mut self, t: f64) {
@@ -614,6 +746,13 @@ impl Render {
     fn segment_at_read(&self) -> Option<&Segment> {
         let read = self.shared.as_ref()?.read.load(Ordering::Acquire);
         self.segments.iter().rev().find(|s| s.start <= read).or(self.segments.front())
+    }
+
+    /// 장치가 지금 틀고 있는 곡의 위치(초).
+    fn playing_position(&self) -> Option<f64> {
+        let read = self.shared.as_ref()?.read.load(Ordering::Acquire);
+        let seg = self.segment_at_read()?;
+        Some(seg.offset + read.saturating_sub(seg.start) as f64 / self.out_rate() as f64)
     }
 
     /// 링에 빈자리가 있는 만큼 채운다.
@@ -649,6 +788,7 @@ impl Render {
     }
 
     /// 지금 곡에서 패킷 몇 개를 풀어 출력 형식으로 바꿔 `pending`에 붙인다.
+    ///   원본 → (DSP면 스테레오로) → 볼륨 레벨링 → 장치 샘플레이트로 → 체인 → 클리핑 측정 → 장치 채널
     fn render_some(&mut self) -> anyhow::Result<()> {
         let ch_out = self.out_channels();
         let out_rate = self.out_rate();
@@ -659,25 +799,55 @@ impl Render {
             return self.end_of_track();
         }
         d.frames_read += n as u64;
-        // 채널 맞추기 → 레벨링 게인
         let ch_in = d.spec.channels.max(1);
+        let in_rate = d.spec.rate;
+        let quality = d.req.as_ref().map(quality_of).unwrap_or_default();
+        let dsp = self.chain.is_some() || self.clip.is_some();
+        // 1. 채널: DSP는 스테레오에서 돈다. 아니면 바로 장치 채널로.
+        let work_ch = if dsp { 2 } else { ch_out };
         self.mapped.clear();
-        self.mapped.reserve(n * ch_out);
-        map_channels(&self.scratch, ch_in, &mut self.mapped, ch_out);
+        if dsp {
+            to_stereo(&self.scratch, ch_in, &mut self.mapped);
+        } else {
+            self.mapped.reserve(n * ch_out);
+            map_channels(&self.scratch, ch_in, &mut self.mapped, ch_out);
+        }
+        // 2. 볼륨 레벨링(곡마다)
         if d.gain != 1.0 {
             for s in &mut self.mapped {
                 *s *= d.gain;
             }
         }
-        let in_rate = d.spec.rate;
+        // 3. 장치 샘플레이트로
+        self.stereo.clear();
         if in_rate == out_rate {
-            self.pending.extend_from_slice(&self.mapped);
+            std::mem::swap(&mut self.stereo, &mut self.mapped);
         } else {
-            let rs = self.resampler.get_or_insert_with(|| Resampler::new(in_rate, out_rate, ch_out, Quality::default()));
+            let rs = self.resampler.get_or_insert_with(|| Resampler::new(in_rate, out_rate, work_ch, quality));
             if rs.in_rate != in_rate {
-                *rs = Resampler::new(in_rate, out_rate, ch_out, Quality::default());
+                *rs = Resampler::new(in_rate, out_rate, work_ch, quality);
             }
-            rs.process(&self.mapped, &mut self.pending);
+            rs.process(&self.mapped, &mut self.stereo);
+        }
+        // 4. 체인(헤드룸·필터)과 클리핑 측정
+        if let Some((_, c)) = &mut self.chain {
+            c.process(&mut self.stereo);
+        }
+        if let Some(m) = &mut self.clip {
+            m.scan(&self.stereo, 2);
+            if !m.times.is_empty() {
+                let uid = self.current.as_ref().map(|d| d.item.uid.clone()).unwrap_or_default();
+                self.clips.record(&format!("native.{uid}"), &m.times, m.peak);
+                m.times.clear();
+            }
+        }
+        // 5. 장치 채널로
+        if dsp && ch_out != 2 {
+            let mut v = Vec::with_capacity(self.stereo.len() / 2 * ch_out);
+            map_channels(&self.stereo, 2, &mut v, ch_out);
+            self.pending.extend_from_slice(&v);
+        } else {
+            self.pending.extend_from_slice(&self.stereo);
         }
         Ok(())
     }
@@ -695,8 +865,18 @@ impl Render {
         match self.next.take() {
             Some(next) => {
                 let uid = next.item.uid.clone();
+                // DSP를 켜고 끄는 경계에서는 채널 배치가 바뀌므로 리샘플러를 새로 만든다.
+                let was = self.chain.is_some() || self.clip.is_some();
                 self.current = Some(next);
                 self.next_item = None;
+                self.sync_chain(0.0);
+                let now = self.chain.is_some() || self.clip.is_some();
+                if was != now
+                    && let Some(rs) = &mut self.resampler
+                {
+                    rs.flush(&mut self.pending);
+                    self.resampler = None;
+                }
                 self.start_segment(0.0);
                 tracing::debug!(uid, out_rate, "다음 곡을 이어 붙였습니다");
             }

@@ -327,9 +327,11 @@ export function PlayerProvider({
       const albumId = item.track.albumId;
       const same = (j: number) => !!albumId && s.items[j]?.track.albumId === albumId;
       const sourceRate = probesRef.current[item.track.key]?.sampleRate ?? item.track.format.sampleRate;
+      // 이 기기의 장치로 틀 때는 그 장치의 샘플레이트가 기준이다.
+      const deviceRate = engine instanceof NativeEngine ? (engine.output?.rate ?? null) : outputRateRef.current;
       const req = buildRequest(dspRef.current, {
         sourceRate,
-        deviceRate: outputRateRef.current,
+        deviceRate,
         sameAlbumNeighbors: i >= 0 && (same(i - 1) || same(i + 1)),
       });
       return req ? { q: encodeRequest(req), req } : null;

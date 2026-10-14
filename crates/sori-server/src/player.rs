@@ -90,6 +90,24 @@ async fn control(State(app): State<App>, Json(c): Json<Cmd>) -> Response {
     Json(json!({ "ok": true })).into_response()
 }
 
+#[derive(Deserialize)]
+struct DspItem {
+    uid: String,
+    dsp: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct DspBody {
+    items: Vec<DspItem>,
+}
+
+/// 곡마다의 DSP 요청을 바꾼다(설정을 고쳤을 때). 지금 곡은 지금 위치에서 바로 다시 건다.
+async fn dsp(State(app): State<App>, Json(b): Json<DspBody>) -> Response {
+    let Some(p) = &app.player else { return unavailable() };
+    p.set_dsp(b.items.into_iter().map(|i| (i.uid, i.dsp)).collect());
+    Json(json!({ "ok": true })).into_response()
+}
+
 /// 상태가 바뀌거나, 재생 중이면 0.25초마다 보낸다.
 async fn events(State(app): State<App>) -> Response {
     let Some(p) = app.player.clone() else { return unavailable() };
@@ -113,5 +131,6 @@ pub fn routes() -> Router<App> {
         .route("/api/player/load", post(load))
         .route("/api/player/preload", post(preload))
         .route("/api/player/control", post(control))
+        .route("/api/player/dsp", post(dsp))
         .route("/api/player/events", get(events))
 }

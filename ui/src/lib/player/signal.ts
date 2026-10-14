@@ -71,16 +71,26 @@ function nativePath(i: SignalInput, n: NonNullable<SignalInput['native']>): Stag
     });
   }
   steps.push({ title: '소리 엔진 · 64비트', detail: '64비트 부동소수점으로 풀기 · 손실 없음', quality: 'lossless' });
-  if (src && Math.abs(src.gainDb) >= 0.05) {
+  // DSP 요청이 있으면 그 단계들(다운믹스, 볼륨 레벨링, 헤드룸, 필터들)을 엔진이 하는 순서대로.
+  const plan = i.dsp ? planDsp(i.dsp, f, i.loudness, { caps: i.caps }) : null;
+  const pick = (titles: string[]) => (plan ? plan.stages.filter((st) => titles.includes(st.title)) : []);
+  steps.push(...pick(['다운믹스', '볼륨 레벨링']));
+  if (!plan?.stages.some((st) => st.title === '볼륨 레벨링') && src && Math.abs(src.gainDb) >= 0.05) {
     steps.push({ title: '볼륨 레벨링', detail: `${fmtDb(src.gainDb)} · 64비트`, quality: 'enhanced' });
   }
   if (n.resampling) {
     const [a, b] = n.resampling;
+    const precise = (i.dsp?.src?.f ?? 'precise') === 'precise';
+    const bits = i.dsp?.src?.p ?? 28;
     steps.push({
       title: '샘플레이트 변환 · 64비트',
-      detail: `${khz(a)}kHz → ${khz(b)}kHz · 다상 FIR, 저지대역 168dB`,
+      detail: `${khz(a)}kHz → ${khz(b)}kHz · 다상 FIR ${bits}비트(${Math.round(bits * 6.02)}dB), ${precise ? '정밀' : '부드럽게'} · 선형 위상`,
       quality: 'high',
     });
+  }
+  if (plan) {
+    const skip = new Set(['비트 깊이 변환', '다운믹스', '볼륨 레벨링', '샘플레이트 변환']);
+    steps.push(...plan.stages.filter((st) => !skip.has(st.title)));
   }
   if (i.muted || i.volume < 1) {
     steps.push({

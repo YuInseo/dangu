@@ -43,11 +43,12 @@ interface ServerState {
   events: [number, { type: 'advanced' | 'ended' | 'error'; uid?: string | null; message?: string }][];
 }
 
-function toPlayItem(item: QueueItem) {
+function toPlayItem(item: QueueItem, dsp: DspPlan | null) {
   const t = item.track;
   return {
     uid: item.uid,
     source: t.source === 'library' ? { kind: 'library', id: t.key.replace(/^lib:/, '') } : { kind: 'url', url: t.src },
+    dsp: dsp?.q,
   };
 }
 
@@ -79,6 +80,10 @@ export class NativeEngine implements PlaybackEngine {
   private pos = 0;
   private posAt = 0;
   private lastEvent = -1;
+  /** 지금 곡과 다음 곡, 그리고 각각에 보낸 DSP 요청 */
+  private current: QueueItem | null = null;
+  private next: QueueItem | null = null;
+  private sent = new Map<string, string | undefined>();
   private listeners = new Set<Listener>();
   private timeListeners = new Set<Listener>();
   private es: EventSource | null = null;
@@ -133,7 +138,15 @@ export class NativeEngine implements PlaybackEngine {
     for (const [seq, ev] of st.events) {
       if (seq <= this.lastEvent) continue;
       this.lastEvent = seq;
-      if (ev.type === 'advanced' && ev.uid) this.onAdvanced?.(ev.uid);
+      if (ev.type === 'advanced' && ev.uid) {
+        if (this.next?.uid === ev.uid) {
+          this.current = this.next;
+          this.next = null;
+          const plan = this.plan(this.current);
+          this.update({ dsp: plan?.req ?? null, sid: plan ? this.sidOf(this.current) : null });
+        }
+        this.onAdvanced?.(ev.uid);
+      }
       else if (ev.type === 'ended') this.onEnded?.();
       else if (ev.type === 'error') this.onError?.(ev.message ?? '재생하지 못했습니다');
     }
@@ -154,9 +167,17 @@ export class NativeEngine implements PlaybackEngine {
     return `native.${item.uid}`;
   }
 
+  private plan(item: QueueItem): DspPlan | null {
+    return this.dspFor?.(item) ?? null;
+  }
+
   load(item: QueueItem, opts: { autoplay: boolean; at?: number }) {
     const at = opts.at ?? 0;
-    void post('/api/player/load', { item: toPlayItem(item), autoplay: opts.autoplay, at, force: at > 0 });
+    const plan = this.plan(item);
+    this.current = item;
+    this.sent.set(item.uid, plan?.q);
+    void post('/api/player/load', { item: toPlayItem(item, plan), autoplay: opts.autoplay, at, force: at > 0 });
+    this.update({ dsp: plan?.req ?? null, sid: plan ? this.sidOf(item) : null });
     if (this.snap.uid !== item.uid) {
       this.time = at;
       this.pos = at;
@@ -168,11 +189,27 @@ export class NativeEngine implements PlaybackEngine {
   }
 
   preload(item: QueueItem | null) {
-    void post('/api/player/preload', { item: item ? toPlayItem(item) : null });
+    this.next = item;
+    const plan = item ? this.plan(item) : null;
+    if (item) this.sent.set(item.uid, plan?.q);
+    void post('/api/player/preload', { item: item ? toPlayItem(item, plan) : null });
   }
 
+  /** DSP 설정이 바뀌었다. 지금 곡과 다음 곡의 요청을 다시 만들어 바뀐 것만 보낸다. */
   refreshDsp() {
-    // DSP는 서버의 설정을 따른다(다음 단계에서 이 기기의 설정을 서버로 보낸다).
+    const items: { uid: string; dsp: string | null }[] = [];
+    for (const it of [this.current, this.next]) {
+      if (!it) continue;
+      const q = this.plan(it)?.q;
+      if (this.sent.get(it.uid) === q) continue;
+      this.sent.set(it.uid, q);
+      items.push({ uid: it.uid, dsp: q ?? null });
+    }
+    if (this.current) {
+      const plan = this.plan(this.current);
+      this.update({ dsp: plan?.req ?? null, sid: plan ? this.sidOf(this.current) : null });
+    }
+    if (items.length) void post('/api/player/dsp', { items });
   }
 
   play() {
