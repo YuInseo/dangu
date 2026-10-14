@@ -1,0 +1,16 @@
+[package]
+name = "sori-server"
+description = "소리 서버: 라이브러리 API, 원본 그대로 스트리밍, 플레이어 원격 조종, 화면"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+sori-core.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+tokio.workspace = true

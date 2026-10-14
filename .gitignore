@@ -13,3 +13,6 @@ music/
 .env
 .env*.local
 .DS_Store
+
+# 러스트 빌드
+/target

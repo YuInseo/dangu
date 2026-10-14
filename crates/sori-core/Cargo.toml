@@ -1,0 +1,37 @@
+[package]
+name = "sori-core"
+description = "소리의 심장: 라이브러리, 디코딩, 64비트 DSP, 재생 엔진"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = []
+# 실제 오디오 장치로 내보낸다(윈도우 WASAPI, 안드로이드 AAudio, 리눅스 ALSA).
+device = ["dep:cpal"]
+
+[dependencies]
+anyhow.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+parking_lot.workspace = true
+tracing.workspace = true
+symphonia = { version = "0.6.1", default-features = false, features = ["aac", "adpcm", "alac", "flac", "mp3", "pcm", "vorbis", "caf", "isomp4", "mkv", "ogg", "aiff", "wav"] }
+lofty = "0.25.4"
+image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "webp", "gif", "bmp", "tiff", "rayon"] }
+walkdir = "2.5"
+rayon = "1.12"
+sha1 = "0.10"
+base64 = "0.22"
+unicode-normalization = "0.1"
+ebur128 = "0.1.10"
+rubato = "5.0.1"
+realfft = "3.5"
+rand = "0.9"
+cpal = { version = "0.18", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+hound = "3.5"
