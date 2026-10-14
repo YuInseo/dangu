@@ -9,6 +9,7 @@
  * 모르고 탐색도 안 되므로, 탐색할 때는 그 위치부터 다시 요청하고 시작점을 `offset`으로
  * 기억해 둔다.
  */
+import type { DspRequest } from '../dsp/types';
 import type { QueueItem } from './types';
 
 export type EngineStatus = 'idle' | 'loading' | 'playing' | 'paused' | 'error';
@@ -21,6 +22,16 @@ export interface EngineSnapshot {
   muted: boolean;
   /** 지금 곡이 서버에서 변환되어 오고 있는지. 신호 경로에 그대로 적는다. */
   transcoded: boolean;
+  /** 지금 곡에 걸린 DSP 요청. 없으면 원본 그대로 */
+  dsp: DspRequest | null;
+  /** 클리핑 표시기 세션 */
+  sid: string | null;
+}
+
+export interface DspPlan {
+  /** 주소에 넣을 값 */
+  q: string;
+  req: DspRequest;
 }
 
 interface Deck {
@@ -28,6 +39,7 @@ interface Deck {
   item: QueueItem | null;
   offset: number;
   transcoded: boolean;
+  dsp: DspPlan | null;
   failed: boolean;
   /** 늦게 도착한 이벤트가 새 곡에 작용하지 않게. */
   token: number;
@@ -51,13 +63,26 @@ export class AudioEngine {
   canTranscode = false;
   onEnded: (() => void) | null = null;
   onError: ((message: string) => void) | null = null;
+  /** 곡마다 DSP를 어떻게 걸지. 프로바이더가 설정을 보고 정한다. null이면 원본 그대로. */
+  dspFor: ((item: QueueItem) => DspPlan | null) | null = null;
+  /** 이 페이지(존)의 이름. 클리핑 세션 ID의 앞부분. */
+  readonly zone = Math.random().toString(36).slice(2, 10);
 
   private _decks: [Deck, Deck] | null = null;
   private a = 0;
   private wantPlay = false;
   private listeners = new Set<Listener>();
   private timeListeners = new Set<Listener>();
-  private snap: EngineSnapshot = { status: 'idle', error: null, uid: null, volume: 1, muted: false, transcoded: false };
+  private snap: EngineSnapshot = {
+    status: 'idle',
+    error: null,
+    uid: null,
+    volume: 1,
+    muted: false,
+    transcoded: false,
+    dsp: null,
+    sid: null,
+  };
   private time = 0;
   private dur = 0;
 
@@ -99,7 +124,7 @@ export class AudioEngine {
       const make = (): Deck => {
         const el = new Audio();
         el.preload = 'auto';
-        return { el, item: null, offset: 0, transcoded: false, failed: false, token: 0 };
+        return { el, item: null, offset: 0, transcoded: false, dsp: null, failed: false, token: 0 };
       };
       this._decks = [make(), make()];
       for (const d of this._decks) this.bind(d);
@@ -160,12 +185,20 @@ export class AudioEngine {
   }
 
   /** 원본으로 갈지, 변환을 거칠지. */
-  private plan(item: QueueItem, at: number) {
+  sidOf(item: QueueItem) {
+    return `${this.zone}.${item.uid}`;
+  }
+
+  private plan(item: QueueItem, at: number): { url: string; transcoded: boolean; dsp: DspPlan | null } {
     const t = item.track;
-    if (!canPlayNatively(t.format.mime) && t.transcodeSrc && this.canTranscode) {
-      return { url: `${t.transcodeSrc}${at > 0 ? `&t=${at.toFixed(2)}` : ''}`, transcoded: true };
+    const dsp = t.dspSrc && this.canTranscode ? (this.dspFor?.(item) ?? null) : null;
+    if (dsp) {
+      return { url: `${t.dspSrc}dsp=${dsp.q}&sid=${this.sidOf(item)}${at > 0 ? `&t=${at.toFixed(2)}` : ''}`, transcoded: true, dsp };
     }
-    return { url: t.src, transcoded: false };
+    if (!canPlayNatively(t.format.mime) && t.transcodeSrc && this.canTranscode) {
+      return { url: `${t.transcodeSrc}${at > 0 ? `&t=${at.toFixed(2)}` : ''}`, transcoded: true, dsp: null };
+    }
+    return { url: t.src, transcoded: false, dsp: null };
   }
 
   private setDeck(d: Deck, item: QueueItem, at: number) {
@@ -174,6 +207,7 @@ export class AudioEngine {
     d.item = item;
     d.failed = false;
     d.transcoded = p.transcoded;
+    d.dsp = p.dsp;
     d.offset = p.transcoded ? at : 0;
     d.el.src = p.url;
     if (!p.transcoded && at > 0) {
@@ -195,6 +229,7 @@ export class AudioEngine {
   private clearDeck(d: Deck) {
     d.token++;
     d.item = null;
+    d.dsp = null;
     d.failed = false;
     d.el.pause();
     d.el.removeAttribute('src');
@@ -232,6 +267,8 @@ export class AudioEngine {
     this.update({
       uid: item.uid,
       transcoded: this.active.transcoded,
+      dsp: this.active.dsp?.req ?? null,
+      sid: this.active.dsp ? this.sidOf(item) : null,
       status: opts.autoplay ? 'loading' : 'paused',
       error: null,
     });
@@ -252,13 +289,43 @@ export class AudioEngine {
     this.setDeck(sb, item, 0);
   }
 
+  /**
+   * DSP 설정이 바뀌었다. 지금 곡의 요청이 달라졌으면 지금 위치에서 다시 걸고,
+   * 미리 받아 둔 다음 곡도 새 설정으로 다시 받는다.
+   */
+  refreshDsp() {
+    if (!this._decks) return;
+    const d = this.active;
+    if (d.item) {
+      const next = d.item.track.dspSrc && this.canTranscode ? (this.dspFor?.(d.item) ?? null) : null;
+      if ((next?.q ?? null) !== (d.dsp?.q ?? null)) {
+        const at = this.currentTime;
+        this.setDeck(d, d.item, at);
+        this.update({ transcoded: d.transcoded, dsp: d.dsp?.req ?? null, sid: d.dsp ? this.sidOf(d.item) : null });
+        this.time = at;
+        if (this.wantPlay) this.playActive();
+      }
+    }
+    const sb = this.standby;
+    if (sb.item) {
+      const next = sb.item.track.dspSrc && this.canTranscode ? (this.dspFor?.(sb.item) ?? null) : null;
+      if ((next?.q ?? null) !== (sb.dsp?.q ?? null)) this.setDeck(sb, sb.item, 0);
+    }
+  }
+
   play() {
     const d = this.active;
     if (!d.item) return;
     this.wantPlay = true;
     if (d.failed) {
       this.setDeck(d, d.item, this.currentTime);
-      this.update({ status: 'loading', error: null, transcoded: d.transcoded });
+      this.update({
+        status: 'loading',
+        error: null,
+        transcoded: d.transcoded,
+        dsp: d.dsp?.req ?? null,
+        sid: d.dsp ? this.sidOf(d.item) : null,
+      });
     } else if (d.el.paused) {
       this.update({ status: 'loading' });
     }
@@ -301,7 +368,7 @@ export class AudioEngine {
     if (this._decks) for (const d of this._decks) if (d.item) this.clearDeck(d);
     this.time = 0;
     this.dur = 0;
-    this.update({ status: 'idle', uid: null, error: null, transcoded: false });
+    this.update({ status: 'idle', uid: null, error: null, transcoded: false, dsp: null, sid: null });
     for (const l of this.timeListeners) l();
   }
 

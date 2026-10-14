@@ -1,3 +1,4 @@
+import type { Loudness } from '../dsp/types';
 import type { AudioFormat } from '../library/types';
 
 /** 재생할 수 있는 것 하나. 내 라이브러리의 곡이든 라이브 아카이브의 곡이든 같은 모양이다. */
@@ -20,6 +21,10 @@ export interface PlayableTrack {
   src: string;
   /** 브라우저가 못 여는 형식일 때 서버가 FLAC으로 바꿔 보내는 주소. */
   transcodeSrc?: string;
+  /** DSP 체인을 거쳐 받는 주소의 앞부분. 뒤에 `dsp=…&t=…`가 붙는다. */
+  dspSrc?: string;
+  /** 볼륨 레벨링이 쓰는 라우드니스(신호 경로 표시용. 실제 게인은 서버가 정한다). */
+  loudness?: Loudness;
   cover?: { sm: string; lg: string; color?: string };
   /** 표지가 없을 때 대신 그릴 그림의 재료. */
   art: { seed: string; title: string; subtitle?: string };

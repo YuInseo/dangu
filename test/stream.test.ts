@@ -81,3 +81,86 @@ test('ALAC을 FLAC으로 바꿔도 샘플은 그대로', { skip }, async () => {
     }).stdout;
   assert.ok(pcm(flac).equals(pcm(path.join(music, rel))));
 });
+
+test('DSP: 64비트 체인을 지나 24비트/48kHz FLAC으로 나오고, 클리핑이 난 곳을 기록한다', { skip }, async () => {
+  const { encodeRequest } = await import('../lib/dsp/request');
+  const { getClips } = await import('../lib/dsp/clips');
+  const { spawnSync } = await import('node:child_process');
+  const rel = FILES[0]!; // 24/96
+  // 헤드룸 없이 +9dB를 올리면 반드시 넘친다
+  const dsp = encodeRequest({
+    v: 1,
+    ci: 1,
+    src: { r: 48000, f: 'precise', p: 28 },
+    out: { b: 24, d: 'tpdf' },
+    f: [{ t: 'peq', pre: 9, b: [{ type: 'peak', freq: 1000, gain: 3, q: 1, on: true }] }],
+  });
+  const sid = 'test-session-1';
+  const res = await call(ids.get(rel)!, {}, `?dsp=${dsp}&sid=${sid}&t=10`);
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get('x-sori-rate'), '48000');
+  const flac = Buffer.from(await res.arrayBuffer());
+  const probe = spawnSync(
+    'ffprobe',
+    ['-v', 'error', '-show_entries', 'stream=sample_rate,bits_per_raw_sample:format=duration', '-of', 'json', '-i', 'pipe:0'],
+    { input: flac },
+  );
+  const info = JSON.parse(probe.stdout.toString());
+  assert.equal(info.streams[0].sample_rate, '48000');
+  assert.equal(info.streams[0].bits_per_raw_sample, '24');
+  const clips = getClips(sid);
+  assert.ok(clips.times.length > 0, '클리핑 시각이 기록된다');
+  assert.ok(
+    clips.times.every((t) => t >= 10),
+    '시각은 곡 기준(시작 위치 10초 이후)',
+  );
+  assert.ok(clips.peak! > 0);
+});
+
+test('DSP: 임펄스 응답을 올려 컨볼루션을 건다', { skip }, async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { saveIr, listIrs, deleteIr } = await import('../lib/dsp/ir');
+  const { encodeRequest } = await import('../lib/dsp/request');
+  // 단순한 임펄스 응답: 첫 샘플 1, 잠깐 뒤 작은 메아리
+  const wav = spawnSync(
+    'ffmpeg',
+    [
+      '-v',
+      'error',
+      '-f',
+      'lavfi',
+      '-i',
+      'aevalsrc=if(eq(n\\,0)\\,1\\,if(eq(n\\,2400)\\,0.3\\,0)):s=48000:d=0.1',
+      '-c:a',
+      'pcm_f32le',
+      '-f',
+      'wav',
+      '-',
+    ],
+    { maxBuffer: 1 << 24 },
+  ).stdout;
+  const ir = await saveIr('room.wav', new Uint8Array(wav));
+  assert.equal(ir.channels, 1);
+  assert.equal((await listIrs())[0]!.id, ir.id);
+  const dsp = encodeRequest({
+    v: 1,
+    hr: -3,
+    out: { b: 24, d: 'tpdf' },
+    f: [{ t: 'convolution', ir: ir.id, g: 0, n: true, name: 'room.wav' }],
+  });
+  const res = await call(ids.get(FILES[3]!)!, {}, `?dsp=${dsp}`);
+  assert.equal(res.status, 200);
+  const flac = Buffer.from(await res.arrayBuffer());
+  const decoded = spawnSync('ffmpeg', ['-v', 'error', '-i', 'pipe:0', '-f', 'null', '-'], { input: flac });
+  assert.equal(decoded.status, 0);
+  assert.ok(flac.length > 100_000);
+  assert.equal(await deleteIr(ir.id), true);
+});
+
+test('DSP: 망가진 요청은 무시하고 원본을 보낸다', { skip }, async () => {
+  const res = await call(ids.get(FILES[0]!)!, {}, '?dsp=garbage');
+  assert.equal(res.headers.get('content-type'), 'audio/flac');
+  assert.equal(res.headers.get('x-sori-dsp'), null);
+  const body = Buffer.from(await res.arrayBuffer());
+  assert.ok(body.equals(readFileSync(path.join(music, FILES[0]!))));
+});

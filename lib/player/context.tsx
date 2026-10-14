@@ -21,6 +21,9 @@ import {
   type ReactNode,
 } from 'react';
 import { useToast } from '@/components/toast';
+import type { Caps } from '../dsp/plan';
+import { buildRequest, encodeRequest } from '../dsp/request';
+import { useDsp } from '../dsp/store';
 import type { AudioFormat } from '../library/types';
 import { AudioEngine, type EngineSnapshot } from './engine';
 import { pushRecent, readJSON, writeJSON } from './storage';
@@ -58,6 +61,8 @@ export interface QueueView {
   /** 기기의 출력 샘플레이트. 첫 재생 때 잰다. */
   outputRate: number | null;
   canTranscode: boolean;
+  /** 서버 ffmpeg가 할 수 있는 것(SoX, bs2b). 신호 경로 표시가 쓴다. */
+  caps: Caps;
   /** 라이브 FLAC처럼 나중에 알게 된 값까지 합친 포맷. */
   formatOf(track: PlayableTrack): AudioFormat;
 }
@@ -91,7 +96,16 @@ export function useUi(): Ui {
   return v;
 }
 
-const SERVER_SNAPSHOT: EngineSnapshot = { status: 'idle', error: null, uid: null, volume: 1, muted: false, transcoded: false };
+const SERVER_SNAPSHOT: EngineSnapshot = {
+  status: 'idle',
+  error: null,
+  uid: null,
+  volume: 1,
+  muted: false,
+  transcoded: false,
+  dsp: null,
+  sid: null,
+};
 
 export function useEngineState(): EngineSnapshot {
   const { engine } = usePlayer();
@@ -128,7 +142,7 @@ interface Saved {
 
 const MAX_SAVED = 1500;
 
-export function PlayerProvider({ children, canTranscode }: { children: ReactNode; canTranscode: boolean }) {
+export function PlayerProvider({ children, canTranscode, caps }: { children: ReactNode; canTranscode: boolean; caps: Caps }) {
   const toast = useToast();
   const [engine] = useState(() => new AudioEngine());
   engine.canTranscode = canTranscode;
@@ -149,17 +163,19 @@ export function PlayerProvider({ children, canTranscode }: { children: ReactNode
 
   const current = state.items[state.index] ?? null;
 
+  const outputRateRef = useRef<number | null>(null);
   const measureOutput = useCallback(() => {
-    if (outputRate) return;
+    if (outputRateRef.current) return;
     try {
       const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       const ctx = new Ctx();
+      outputRateRef.current = ctx.sampleRate;
       setOutputRate(ctx.sampleRate);
       void ctx.close();
     } catch {
       // 모르는 채로 둔다
     }
-  }, [outputRate]);
+  }, []);
   const measureRef = useRef(measureOutput);
   useLayoutEffect(() => {
     measureRef.current = measureOutput;
@@ -231,6 +247,42 @@ export function PlayerProvider({ children, canTranscode }: { children: ReactNode
     const next = n == null ? null : state.items[n]!;
     engine.preload(next && next.uid !== current?.uid ? next : null);
   }, [engine, state, current?.uid]);
+
+  // DSP: 곡마다 요청을 만든다. 설정은 기기에 저장된 것, 레벨링 "자동"은 앞뒤 곡을 본다.
+  const { config: dsp } = useDsp();
+  const dspRef = useRef(dsp);
+  const probesRef = useRef<Record<string, Partial<AudioFormat>>>({});
+  useLayoutEffect(() => {
+    dspRef.current = dsp;
+  });
+  useEffect(() => {
+    engine.dspFor = (item) => {
+      const s = stateRef.current;
+      const i = s.items.findIndex((x) => x.uid === item.uid);
+      const albumId = item.track.albumId;
+      const same = (j: number) => !!albumId && s.items[j]?.track.albumId === albumId;
+      const sourceRate = probesRef.current[item.track.key]?.sampleRate ?? item.track.format.sampleRate;
+      const req = buildRequest(dspRef.current, {
+        sourceRate,
+        deviceRate: outputRateRef.current,
+        sameAlbumNeighbors: i >= 0 && (same(i - 1) || same(i + 1)),
+      });
+      return req ? { q: encodeRequest(req), req } : null;
+    };
+    return () => {
+      engine.dspFor = null;
+    };
+  }, [engine]);
+  // 설정을 바꾸면 지금 위치에서 다시 건다. 슬라이더를 끄는 동안 매번 다시 걸지 않게 잠깐 기다린다.
+  const firstDsp = useRef(true);
+  useEffect(() => {
+    if (firstDsp.current) {
+      firstDsp.current = false;
+      return;
+    }
+    const t = setTimeout(() => engine.refreshDsp(), 350);
+    return () => clearTimeout(t);
+  }, [engine, dsp, outputRate]);
 
   // 대기열 저장
   useEffect(() => {
@@ -315,7 +367,9 @@ export function PlayerProvider({ children, canTranscode }: { children: ReactNode
       .then((r) => (r.ok ? r.json() : null))
       .then((info: { sampleRate: number; bitDepth: number; channels: number } | null) => {
         if (cancelled || !info) return;
-        setProbes((ps) => ({ ...ps, [probeKey]: { sampleRate: info.sampleRate, bitDepth: info.bitDepth, channels: info.channels } }));
+        const patch = { sampleRate: info.sampleRate, bitDepth: info.bitDepth, channels: info.channels };
+        probesRef.current = { ...probesRef.current, [probeKey]: patch };
+        setProbes((ps) => ({ ...ps, [probeKey]: patch }));
       })
       .catch(() => {});
     return () => {
@@ -481,9 +535,10 @@ export function PlayerProvider({ children, canTranscode }: { children: ReactNode
       repeat: state.repeat,
       outputRate,
       canTranscode,
+      caps,
       formatOf: (track) => (probes[track.key] ? { ...track.format, ...probes[track.key] } : track.format),
     }),
-    [state, current, outputRate, canTranscode, probes],
+    [state, current, outputRate, canTranscode, caps, probes],
   );
 
   const ui = useMemo<Ui>(() => ({ nowPlaying, setNowPlaying, queue: queueOpen, setQueue }), [nowPlaying, queueOpen]);

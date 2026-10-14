@@ -5,6 +5,9 @@
  * 색인을 지우고 다시 스캔할 필요가 없다.
  */
 import { UNKNOWN_ARTIST, type IndexFile } from './scanner';
+import type { AnalysisFile } from './analysis';
+import { albumLoudness } from '../dsp/leveling';
+import type { Loudness, LoudnessValue } from '../dsp/types';
 import { artistId, genreId, norm } from './ids';
 import { betterFormat, tierOf } from '../quality';
 import type { Album, AlbumCard, Artist, Genre, LibrarySummary, StoredTrack, Track } from './types';
@@ -73,7 +76,14 @@ export function toCard(a: Album): AlbumCard {
   };
 }
 
-export function buildLibrary(index: IndexFile): Library {
+/** ReplayGain 기준은 -18 LUFS(89dB SPL). 게인 g면 곡의 라우드니스는 -18 - g. */
+function fromReplayGain(gain?: number, peakRatio?: number): LoudnessValue | undefined {
+  if (gain == null || !Number.isFinite(gain)) return undefined;
+  const peak = peakRatio && peakRatio > 0 ? 20 * Math.log10(peakRatio) : 0;
+  return { lufs: Math.round((-18 - gain) * 10) / 10, peak: Math.round(peak * 10) / 10 };
+}
+
+export function buildLibrary(index: IndexFile, analysis?: AnalysisFile): Library {
   const tracks = new Map(index.tracks.map((t) => [t.id, t]));
 
   const groups = new Map<string, StoredTrack[]>();
@@ -126,17 +136,40 @@ export function buildLibrary(index: IndexFile): Library {
     getArtist(artist).albumIds.push(id);
   }
 
+  // 라우드니스: 분석이 있으면 분석, 없으면 ReplayGain 태그. 앨범 값은 앨범의 분석된 곡들로.
+  const trackLoud = new Map<string, LoudnessValue>();
+  const albumLoud = new Map<string, LoudnessValue>();
+  for (const [albumId, list] of groups) {
+    const analyzed: { lufs: number; peak: number; duration: number }[] = [];
+    for (const t of list) {
+      const a = analysis?.tracks[t.id];
+      if (a && a.m === t.mtime) {
+        trackLoud.set(t.id, { lufs: a.i, peak: a.p });
+        analyzed.push({ lufs: a.i, peak: a.p, duration: t.duration });
+      }
+    }
+    const fromAnalysis = analyzed.length ? albumLoudness(analyzed) : undefined;
+    const tagged = list.map((t) => fromReplayGain(t.rg?.ag, t.rg?.ap)).find(Boolean);
+    const al = fromAnalysis ?? tagged;
+    if (al) albumLoud.set(albumId, al);
+  }
+
   const views = new Map<string, Track>();
   for (const t of index.tracks) {
     const album = albums.get(t.albumId)!;
     const primary = t.artists[0] ?? t.artist;
-    const { path: _p, mtime: _m, size: _s, albumArtistTag: _a, ...rest } = t;
+    const { path: _p, mtime: _m, size: _s, albumArtistTag: _a, rg: _rg, ...rest } = t;
+    const analyzed = trackLoud.get(t.id);
+    const tl = analyzed ?? fromReplayGain(t.rg?.tg, t.rg?.tp);
+    const al = albumLoud.get(t.albumId);
+    const loudness: Loudness | undefined = tl || al ? { track: tl, album: al, source: analyzed ? 'analysis' : 'replaygain' } : undefined;
     views.set(t.id, {
       ...rest,
       artistId: artistId(primary),
       albumArtist: album.artist,
       albumArtistId: album.artistId,
       cover: album.cover,
+      loudness,
     });
     for (const name of t.artists) {
       if (norm(name) === norm(album.artist)) continue;

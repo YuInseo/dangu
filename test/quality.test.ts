@@ -55,37 +55,58 @@ test('더 좋은 포맷', () => {
   assert.equal(betterFormat(mp3, flacCd), flacCd);
 });
 
-test('신호 경로: 원본 그대로, 볼륨 100%, 샘플레이트 일치면 무손실', () => {
-  const p = signalPath({ format: flacCd, source: 'library', transcoded: false, volume: 1, muted: false, outputRate: 44100 });
-  assert.equal(p.quality, 'lossless');
-});
+const base = { source: 'library' as const, transcoded: false, dsp: null, volume: 1, muted: false };
 
-test('신호 경로: 출력 장치가 다른 샘플레이트면 고품질로 내려간다', () => {
-  const p = signalPath({ format: flac2496, source: 'library', transcoded: false, volume: 1, muted: false, outputRate: 48000 });
+test('신호 경로: 원본 그대로면 OS 믹서 앞까지 전부 무손실, 전체는 룬처럼 고품질', () => {
+  const p = signalPath({ ...base, format: flacCd, outputRate: 44100 });
   assert.equal(p.quality, 'high');
-  assert.match(p.steps.at(-1)!.detail, /리샘플링/);
+  assert.ok(p.steps.slice(0, -1).every((s) => s.quality === 'lossless'));
+  assert.equal(p.steps.at(-1)!.title, '시스템 출력');
 });
 
-test('신호 경로: 볼륨을 줄이면 DSP', () => {
-  const p = signalPath({ format: flacCd, source: 'library', transcoded: false, volume: 0.5, muted: false, outputRate: 44100 });
-  assert.equal(p.quality, 'enhanced');
+test('신호 경로: 출력 장치가 다른 샘플레이트면 브라우저 리샘플링 단계가 생긴다', () => {
+  const p = signalPath({ ...base, format: flac2496, outputRate: 48000 });
+  const s = p.steps.find((x) => x.title.startsWith('샘플레이트 변환'));
+  assert.ok(s);
+  assert.equal(s.quality, 'high');
+});
+
+test('신호 경로: 볼륨을 줄이면 향상(DSP) 단계', () => {
+  const p = signalPath({ ...base, format: flacCd, volume: 0.5, outputRate: 44100 });
+  const v = p.steps.find((x) => x.title === '볼륨')!;
+  assert.equal(v.quality, 'enhanced');
+  assert.match(v.detail, /−6\.0dB/);
 });
 
 test('신호 경로: ALAC→FLAC 변환은 샘플이 같아 무손실, DSD→PCM은 고품질', () => {
   const alac = { ...flacCd, codec: 'ALAC', container: 'm4a', mime: 'audio/mp4; codecs="alac"' };
-  assert.equal(
-    signalPath({ format: alac, source: 'library', transcoded: true, volume: 1, muted: false, outputRate: 44100 }).quality,
-    'lossless',
-  );
-  assert.equal(
-    signalPath({ format: dsd, source: 'library', transcoded: true, volume: 1, muted: false, outputRate: 176400 }).quality,
-    'high',
-  );
+  assert.equal(signalPath({ ...base, format: alac, transcoded: true, outputRate: 44100 }).steps[1]!.quality, 'lossless');
+  assert.equal(signalPath({ ...base, format: dsd, transcoded: true, outputRate: 176400 }).steps[1]!.quality, 'high');
 });
 
-test('신호 경로: 손실 압축은 끝까지 손실', () => {
-  assert.equal(
-    signalPath({ format: mp3, source: 'library', transcoded: false, volume: 1, muted: false, outputRate: 44100 }).quality,
-    'low',
-  );
+test('신호 경로: 손실 압축 원본이면 전체가 저품질', () => {
+  const p = signalPath({ ...base, format: mp3, outputRate: 44100 });
+  assert.equal(p.quality, 'low');
+  assert.equal(p.steps[1]!.quality, 'lossless', '전송 자체는 무손실');
+});
+
+test('신호 경로: DSP를 켜면 64비트 단계와 FLAC 전송이 끼어든다', () => {
+  const p = signalPath({
+    ...base,
+    format: flac2496,
+    outputRate: 48000,
+    dsp: { v: 1, hr: -3, src: { r: 48000, f: 'precise', p: 28 }, out: { b: 24, d: 'tpdf' }, f: [] },
+  });
+  const titles = p.steps.map((s) => s.title);
+  assert.deepEqual(titles.slice(0, 7), [
+    '원본 · FLAC',
+    '비트 깊이 변환',
+    '헤드룸 조정',
+    '샘플레이트 변환',
+    '비트 깊이 변환',
+    'Sori 서버',
+    'Chrome 디코더'.replace('Chrome', titles[6]!.split(' ')[0]!),
+  ]);
+  assert.ok(!titles.includes('샘플레이트 변환 · 브라우저'), '서버가 장치에 맞췄으니 브라우저는 리샘플링하지 않는다');
+  assert.equal(p.quality, 'high');
 });

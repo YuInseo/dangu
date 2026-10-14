@@ -13,6 +13,9 @@ import { spawn } from 'node:child_process';
 import { Readable } from 'node:stream';
 import type { NextRequest } from 'next/server';
 import { config, hasFfmpeg } from '@/lib/config';
+import { validSid } from '@/lib/dsp/clips';
+import { parseRequest } from '@/lib/dsp/request';
+import { dspStream, pipeProcess } from '@/lib/dsp/stream';
 import { getLibrary } from '@/lib/library/store';
 import { baseMime } from '@/lib/quality';
 import type { StoredTrack } from '@/lib/library/types';
@@ -35,7 +38,23 @@ export async function GET(req: NextRequest, ctx: { params: Promise<{ id: string 
   if (!abs) return new Response('잘못된 경로', { status: 400 });
 
   const sp = req.nextUrl.searchParams;
-  if (sp.get('transcode')) return transcode(abs, track, Number(sp.get('t')) || 0, req.signal);
+  const at = Math.max(0, Number(sp.get('t')) || 0);
+
+  // DSP: 64비트 체인을 거쳐 FLAC으로. 요청이 이상하면 무시하고 원본으로 간다.
+  const dsp = parseRequest(sp.get('dsp'));
+  if (dsp) {
+    const sid = sp.get('sid');
+    return dspStream({
+      input: abs,
+      req: dsp,
+      source: track.format,
+      loudness: lib.views.get(id)?.loudness,
+      at,
+      sid: validSid(sid) ? sid : undefined,
+      signal: req.signal,
+    });
+  }
+  if (sp.get('transcode')) return transcode(abs, track, at, req.signal);
 
   let stat: fs.Stats;
   try {
@@ -94,44 +113,5 @@ async function transcode(abs: string, track: StoredTrack, at: number, signal: Ab
   args.push('-f', 'flac', 'pipe:1');
 
   const proc = spawn(/* turbopackIgnore: true */ config.ffmpeg, args, { stdio: ['ignore', 'pipe', 'ignore'] });
-  const kill = () => proc.kill('SIGKILL');
-  signal.addEventListener('abort', kill, { once: true });
-  proc.on('exit', () => signal.removeEventListener('abort', kill));
-
-  let done = false;
-  const body = new ReadableStream<Uint8Array>(
-    {
-      start(controller) {
-        proc.stdout.on('data', (chunk: Buffer) => {
-          if (done) return;
-          controller.enqueue(new Uint8Array(chunk));
-          // 브라우저가 충분히 받아 두었으면 ffmpeg를 잠깐 세운다.
-          if ((controller.desiredSize ?? 1) <= 0) proc.stdout.pause();
-        });
-        proc.stdout.on('end', () => {
-          if (done) return;
-          done = true;
-          controller.close();
-        });
-        proc.on('error', (e) => {
-          if (done) return;
-          done = true;
-          controller.error(e);
-        });
-      },
-      pull() {
-        proc.stdout.resume();
-      },
-      cancel() {
-        done = true;
-        kill();
-      },
-    },
-    { highWaterMark: 8 },
-  );
-
-  return new Response(body, {
-    status: 200,
-    headers: { 'Content-Type': 'audio/flac', 'Cache-Control': 'no-store', 'X-Sori-Transcoded': 'flac' },
-  });
+  return pipeProcess(proc, signal, { 'X-Sori-Transcoded': 'flac' });
 }

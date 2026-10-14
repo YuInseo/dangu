@@ -8,9 +8,12 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { connection } from 'next/server';
 import { config } from '../config';
+import { hasFfmpeg } from '../config';
+import { readAnalysis, runAnalysis, type AnalysisFile, type AnalysisRun, pendingTracks } from './analysis';
 import { buildLibrary, emptyIndex, type Library } from './build';
 import { scanLibrary, type IndexFile } from './scanner';
-import type { ScanStatus } from './types';
+import { getSettings, updateSettings, type ServerSettings } from './settings';
+import type { AnalysisStatus, ScanStatus } from './types';
 
 interface State {
   lib: Library;
@@ -18,6 +21,9 @@ interface State {
   status: ScanStatus;
   loaded: Promise<void> | null;
   scan: Promise<void> | null;
+  analysis: AnalysisFile;
+  run: AnalysisRun | null;
+  analysisStatus: AnalysisStatus;
 }
 
 const g = globalThis as typeof globalThis & { __sori?: State };
@@ -29,6 +35,9 @@ function state(): State {
     status: { state: 'idle', processed: 0, total: 0 },
     loaded: null,
     scan: null,
+    analysis: { v: 1, tracks: {} },
+    run: null,
+    analysisStatus: { speed: 'throttled', state: 'idle', done: 0, total: 0 },
   });
 }
 
@@ -57,10 +66,11 @@ async function writeIndex(index: IndexFile) {
 export async function getLibrary(): Promise<Library> {
   const s = state();
   s.loaded ??= (async () => {
-    const idx = await readIndex();
+    const [idx, analysis] = await Promise.all([readIndex(), readAnalysis()]);
+    s.analysis = analysis;
     if (idx) {
       s.index = idx;
-      s.lib = buildLibrary(idx);
+      s.lib = buildLibrary(idx, analysis);
     }
     startScan();
   })();
@@ -91,7 +101,7 @@ export function startScan(): ScanStatus {
       s.status = { ...s.status, phase: 'saving' };
       await writeIndex(result.index);
       s.index = result.index;
-      s.lib = buildLibrary(result.index);
+      s.lib = buildLibrary(result.index, s.analysis);
       const n = result.index.tracks.length;
       s.status = {
         state: 'idle',
@@ -113,9 +123,76 @@ export function startScan(): ScanStatus {
       };
     } finally {
       s.scan = null;
+      void startAnalysis();
     }
   })();
   return s.status;
+}
+
+// ---------------------------------------------------------------- 오디오 분석
+
+/** 분석을 (다시) 시작한다. 이미 돌고 있으면 멈추고 새로 — 속도를 바꿨을 때. */
+export async function startAnalysis() {
+  const s = state();
+  const settings = await getSettings();
+  s.run?.stop();
+  s.run = null;
+  const tracks = s.index?.tracks ?? [];
+  const pending = pendingTracks(tracks, s.analysis).length;
+  const analyzed = tracks.length - pending;
+  if (settings.analysisSpeed === 'off' || !(await hasFfmpeg()) || !s.index) {
+    s.analysisStatus = { speed: settings.analysisSpeed, state: 'off', done: analyzed, total: tracks.length };
+    return;
+  }
+  if (!pending) {
+    s.analysisStatus = { speed: settings.analysisSpeed, state: 'idle', done: tracks.length, total: tracks.length };
+    return;
+  }
+  s.analysisStatus = { speed: settings.analysisSpeed, state: 'running', done: analyzed, total: tracks.length };
+  const index = s.index;
+  const run = runAnalysis({
+    root: index.root,
+    tracks: index.tracks,
+    analysis: s.analysis,
+    speed: settings.analysisSpeed,
+    onProgress: (n) => {
+      if (s.run === run) s.analysisStatus = { ...s.analysisStatus, done: analyzed + n };
+    },
+    onBatch: () => {
+      // 레벨링 값과 파형을 바로 쓰도록 라이브러리를 다시 엮는다
+      if (s.index) s.lib = buildLibrary(s.index, s.analysis);
+    },
+  });
+  s.run = run;
+  run.done.then(() => {
+    if (s.run !== run) return;
+    s.run = null;
+    const left = pendingTracks(index.tracks, s.analysis).length;
+    s.analysisStatus = { ...s.analysisStatus, state: 'idle', done: index.tracks.length - left };
+  });
+}
+
+export function getAnalysisStatus(): AnalysisStatus {
+  return state().analysisStatus;
+}
+
+export function getWaveform(trackId: string): string | null {
+  const s = state();
+  const t = s.lib.tracks.get(trackId);
+  const a = s.analysis.tracks[trackId];
+  return t && a && a.m === t.mtime ? a.w : null;
+}
+
+export async function setAnalysisSpeed(speed: ServerSettings['analysisSpeed']) {
+  await updateSettings({ analysisSpeed: speed });
+  await getLibrary();
+  await startAnalysis();
+  return getAnalysisStatus();
+}
+
+/** 분석이 끝날 때까지 기다린다. 테스트에서 쓴다. */
+export async function waitForAnalysis() {
+  await state().run?.done;
 }
 
 /** 스캔이 끝날 때까지 기다린다. 테스트와 CLI에서 쓴다. */

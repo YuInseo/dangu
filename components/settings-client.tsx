@@ -1,10 +1,12 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import type { ScanStatus } from '@/lib/library/types';
+import type { AnalysisStatus, ScanStatus } from '@/lib/library/types';
+import { usePlayer } from '@/lib/player/context';
 import { canPlayNatively } from '@/lib/player/engine';
 import { khz } from '@/lib/quality';
-import { Check, CircleAlert, LoaderCircle, RefreshCw, X } from './icons';
+import { Check, CircleAlert, LoaderCircle, Monitor, RefreshCw, X } from './icons';
 import { scanText, useScanStatus } from './scan-status';
 
 export function RescanCard({ initial, scannedAt }: { initial: ScanStatus; scannedAt?: number }) {
@@ -32,35 +34,6 @@ export function RescanCard({ initial, scannedAt }: { initial: ScanStatus; scanne
         <RefreshCw size={15} /> 다시 스캔
       </button>
     </div>
-  );
-}
-
-export function OutputInfo() {
-  const [rate, setRate] = useState<number | null>(null);
-  useEffect(() => {
-    try {
-      const ctx = new AudioContext();
-      setRate(ctx.sampleRate);
-      void ctx.close();
-    } catch {
-      // 모름
-    }
-  }, []);
-  return (
-    <dl className="kv">
-      <dt>출력 장치</dt>
-      <dd>
-        {rate ? (
-          <>
-            기본 출력 장치가 <strong>{khz(rate)}kHz</strong>로 열려 있습니다. 이와 다른 샘플레이트의 곡은 브라우저가 리샘플링하고, 신호
-            경로에 고품질로 표시됩니다. 비트퍼펙트로 들으려면 운영체제의 출력 샘플레이트를 곡에 맞추세요(macOS: 오디오 MIDI 설정, Windows:
-            소리 → 장치 속성 → 고급).
-          </>
-        ) : (
-          '알 수 없음'
-        )}
-      </dd>
-    </dl>
   );
 }
 
@@ -97,6 +70,126 @@ export function FormatSupport({ ffmpeg }: { ffmpeg: boolean }) {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/** 백그라운드 오디오 분석 속도와 진행. 룬의 "Background audio analysis speed". */
+export function AnalysisCard({ initial }: { initial: AnalysisStatus }) {
+  const [s, setS] = useState(initial);
+  useEffect(() => {
+    let alive = true;
+    const t = setInterval(async () => {
+      try {
+        const r = await fetch('/api/analysis', { cache: 'no-store' });
+        if (r.ok && alive) setS((await r.json()) as AnalysisStatus);
+      } catch {
+        // 다음에
+      }
+    }, 3000);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+  const set = async (speed: AnalysisStatus['speed']) => {
+    setS((x) => ({ ...x, speed }));
+    const r = await fetch('/api/analysis', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ speed }),
+    });
+    if (r.ok) setS((await r.json()) as AnalysisStatus);
+  };
+  const pct = s.total ? Math.round((s.done / s.total) * 100) : 0;
+  return (
+    <div className="analysis">
+      <div className="pref-row">
+        <div>
+          <div className="pref-label">백그라운드 오디오 분석 속도</div>
+          <div className="pref-hint">
+            곡마다 EBU R128 라우드니스·트루 피크·파형을 구합니다. 볼륨 레벨링과 파형 진행 막대가 이 값을 씁니다. 느리게는 한 곡씩 낮은
+            우선순위로, 빠르게는 CPU 코어 절반까지 씁니다.
+          </div>
+        </div>
+        <div className="pref-control">
+          <div className="seg seg-sm" role="radiogroup" aria-label="분석 속도">
+            {(
+              [
+                ['off', '끔'],
+                ['throttled', '느리게'],
+                ['fast', '빠르게'],
+              ] as const
+            ).map(([v, label]) => (
+              <button
+                key={v}
+                type="button"
+                role="radio"
+                aria-checked={s.speed === v}
+                className={`seg-item${s.speed === v ? ' is-active' : ''}`}
+                onClick={() => set(v)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+      <div className="analysis-progress">
+        <div className="bar">
+          <span style={{ width: `${pct}%` }} />
+        </div>
+        <span className="muted">
+          {s.done.toLocaleString('ko-KR')} / {s.total.toLocaleString('ko-KR')}곡 분석됨
+          {s.state === 'running' ? ' · 분석 중' : s.state === 'off' ? ' · 꺼짐' : s.done >= s.total ? ' · 모두 끝남' : ''}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** 이 브라우저 = 하나의 존. 룬의 "Audio → 장치" 화면에 해당한다. */
+export function ZoneCard() {
+  const { engine } = usePlayer();
+  const [zone, setZone] = useState<string | null>(null);
+  const [rate, setRate] = useState<number | null>(null);
+  const [browser, setBrowser] = useState('브라우저');
+  useEffect(() => {
+    setZone(engine.zone);
+    const ua = navigator.userAgent;
+    setBrowser(
+      /Edg\//.test(ua)
+        ? 'Edge'
+        : /Firefox\//.test(ua)
+          ? 'Firefox'
+          : /Chrome\//.test(ua)
+            ? 'Chrome'
+            : /Safari\//.test(ua)
+              ? 'Safari'
+              : '브라우저',
+    );
+    try {
+      const ctx = new AudioContext();
+      setRate(ctx.sampleRate);
+      void ctx.close();
+    } catch {
+      // 모름
+    }
+  }, [engine]);
+  return (
+    <div className="zone-card">
+      <div className="zone-card-icon">
+        <Monitor size={26} />
+      </div>
+      <div className="zone-card-text">
+        <div className="zone-card-name">이 브라우저</div>
+        <div className="muted">
+          {zone ? `${browser} · 존 ${zone}` : browser} · 기본 출력 장치 {rate ? `${khz(rate)}kHz` : ''} · OS 믹서(공유 모드)
+        </div>
+      </div>
+      <Link href="/dsp" className="btn btn-sm">
+        DSP 설정
+      </Link>
     </div>
   );
 }

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import type { LibrarySummary, ScanStatus } from '@/lib/library/types';
-import { Disc3, House, Library, MicVocal, Radio, Search, Settings, Tags } from './icons';
+import { Disc3, House, Library, MicVocal, Radio, Search, Settings, SlidersHorizontal, Tags } from './icons';
 import { Logo } from './logo';
 import { SidebarScan } from './scan-status';
 
@@ -35,6 +35,15 @@ export function Sidebar({ status, summary }: { status: ScanStatus; summary: Libr
             {label}
           </Link>
         ))}
+      </div>
+
+      <div className="side-group">
+        <div className="side-label">오디오</div>
+        <Link href="/dsp" className={`side-link${active(pathname, '/dsp') ? ' is-active' : ''}`}>
+          <SlidersHorizontal size={18} />
+          소리결 DSP
+          <span className="side-tag side-tag-blue">64bit</span>
+        </Link>
       </div>
 
       <div className="side-group">

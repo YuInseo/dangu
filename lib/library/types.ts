@@ -5,6 +5,8 @@
  * 수정 시각처럼 서버만 알아야 하는 것은 `StoredTrack`에만 있다.
  */
 
+import type { Loudness } from '../dsp/types';
+
 /** 음질 등급. Hi-Res는 16비트/48kHz를 넘는 무손실. */
 export type QualityTier = 'hires' | 'lossless' | 'lossy';
 
@@ -49,16 +51,20 @@ export interface Track {
   format: AudioFormat;
   addedAt: number;
   cover?: CoverRef;
+  /** 볼륨 레벨링에 쓰는 라우드니스. 오디오 분석이나 ReplayGain 태그에서 온다. */
+  loudness?: Loudness;
 }
 
 /** 디스크에 저장되는 트랙. 다시 스캔할 때 바뀌지 않은 파일을 건너뛰는 근거가 같이 있다. */
-export interface StoredTrack extends Omit<Track, 'albumArtist' | 'albumArtistId' | 'artistId' | 'cover'> {
+export interface StoredTrack extends Omit<Track, 'albumArtist' | 'albumArtistId' | 'artistId' | 'cover' | 'loudness'> {
   /** 음악 폴더 기준 상대 경로. 항상 `/`로 구분한다. */
   path: string;
   mtime: number;
   size: number;
   /** 태그에 적힌 앨범 아티스트. 비어 있으면 앨범을 묶을 때 폴더를 본다. */
   albumArtistTag?: string;
+  /** ReplayGain 태그(있으면). 분석 전까지 볼륨 레벨링이 이걸 쓴다. */
+  rg?: { tg?: number; tp?: number; ag?: number; ap?: number };
 }
 
 export interface Album {
@@ -128,4 +134,11 @@ export interface ServerInfo {
   ffmpeg: boolean;
   auth: boolean;
   version: string;
+}
+
+export interface AnalysisStatus {
+  speed: 'off' | 'throttled' | 'fast';
+  state: 'idle' | 'running' | 'off';
+  done: number;
+  total: number;
 }

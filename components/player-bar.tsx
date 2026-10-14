@@ -1,12 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { useQueue, useUi } from '@/lib/player/context';
+import { useEngineState, usePlayer, useQueue, useUi } from '@/lib/player/context';
 import { Progress, ProgressLine, PlayPause, Transport, Volume } from './controls';
 import { Cover } from './cover';
-import { ListMusic, Maximize2, SkipForward } from './icons';
+import { ListMusic, Maximize2, Monitor, SkipForward } from './icons';
+import { useDsp } from '@/lib/dsp/store';
 import { SignalBadge } from './signal-path';
-import { usePlayer } from '@/lib/player/context';
 
 export function PlayerBar() {
   const { current } = useQueue();
@@ -75,6 +75,7 @@ export function PlayerBar() {
           <ListMusic size={19} />
         </button>
         <Volume />
+        <ZoneButton />
         <button
           type="button"
           className="icon-btn"
@@ -94,5 +95,24 @@ export function PlayerBar() {
         </button>
       </div>
     </footer>
+  );
+}
+
+/** 룬의 존 표시. 이 브라우저가 곧 하나의 존이고, 누르면 이 존의 DSP 설정으로 간다. */
+function ZoneButton() {
+  const { dsp } = useEngineState();
+  const { config } = useDsp();
+  const on = config.enabled || config.leveling.mode !== 'off';
+  return (
+    <Link
+      href="/dsp"
+      className={`zone-btn${dsp ? ' is-dsp' : ''}`}
+      title={on ? '이 브라우저 · DSP 켜짐' : '이 브라우저 · DSP 꺼짐'}
+      prefetch={false}
+    >
+      <Monitor size={18} />
+      <span className="zone-name">이 브라우저</span>
+      {on && <span className="zone-dsp">DSP</span>}
+    </Link>
   );
 }

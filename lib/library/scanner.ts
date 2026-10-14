@@ -14,7 +14,7 @@ import { AUDIO_EXTENSIONS, toAudioFormat } from './formats';
 import { makeId, norm } from './ids';
 import type { ScanStatus, StoredTrack } from './types';
 
-export const INDEX_VERSION = 3;
+export const INDEX_VERSION = 4;
 
 export interface IndexFile {
   version: number;
@@ -175,6 +175,14 @@ async function readTrack(f: FileEntry, addedAt: number): Promise<StoredTrack | n
   // 컴필레이션이 곡마다 다른 아티스트 때문에 열 조각으로 흩어지지 않는다.
   const key = albumArtistTag ? `aa:${norm(albumArtistTag)}|${norm(album)}` : `dir:${dir}|${norm(album)}`;
 
+  const rg = {
+    tg: c.replaygain_track_gain?.dB,
+    tp: c.replaygain_track_peak?.ratio,
+    ag: c.replaygain_album_gain?.dB,
+    ap: c.replaygain_album_peak?.ratio,
+  };
+  const hasRg = Object.values(rg).some((v) => typeof v === 'number' && Number.isFinite(v));
+
   return {
     id: makeId(`track:${f.rel}`),
     path: f.rel,
@@ -193,6 +201,7 @@ async function readTrack(f: FileEntry, addedAt: number): Promise<StoredTrack | n
     duration: meta.format.duration ?? 0,
     format: toAudioFormat(meta.format, ext),
     addedAt,
+    rg: hasRg ? rg : undefined,
   };
 }
 

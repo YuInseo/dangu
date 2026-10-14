@@ -2,6 +2,7 @@ import Link from 'next/link';
 import { AlbumGrid, AlbumRow } from '@/components/album-card';
 import { EmptyLibrary } from '@/components/empty-library';
 import { Radio, Star } from '@/components/icons';
+import { PrefGate } from '@/components/prefs-client';
 import { RecentlyPlayed } from '@/components/recently-played';
 import { Section } from '@/components/section';
 import { config } from '@/lib/config';
@@ -75,9 +76,11 @@ export default async function Home() {
         </Section>
       )}
 
-      <Section title="오늘의 발견" sub="하루에 한 번 바뀝니다">
-        <AlbumGrid albums={picks} />
-      </Section>
+      <PrefGate pref="homeDiscover">
+        <Section title="오늘의 발견" sub="하루에 한 번 바뀝니다">
+          <AlbumGrid albums={picks} />
+        </Section>
+      </PrefGate>
 
       <Link href="/live" className="live-teaser">
         <div className="live-teaser-icon">

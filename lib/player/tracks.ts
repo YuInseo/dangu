@@ -31,6 +31,8 @@ export function fromLibrary(t: Track): PlayableTrack {
     format: t.format,
     src: `/api/stream/${t.id}`,
     transcodeSrc: `/api/stream/${t.id}?transcode=1`,
+    dspSrc: `/api/stream/${t.id}?`,
+    loudness: t.loudness,
     cover: coverUrls(t.albumId, t.cover),
     art: { seed: t.albumId, title: t.album, subtitle: t.albumArtist },
   };
@@ -51,6 +53,7 @@ export function fromLive(show: Pick<LiveShow, 'id' | 'band' | 'title' | 'date' |
     duration: t.duration,
     format: t.format,
     src: t.url,
+    dspSrc: `/api/live/stream?id=${encodeURIComponent(show.id)}&file=${encodeURIComponent(t.file)}&`,
     art: { seed: show.id, title: show.band, subtitle: when || undefined },
     probe: t.format.codec === 'FLAC' ? { id: show.id, file: t.file } : undefined,
   };

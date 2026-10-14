@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { Fragment } from 'react';
 import { useIsCurrent, usePlayer } from '@/lib/player/context';
+import { usePrefs } from '@/lib/prefs';
 import type { PlayableTrack } from '@/lib/player/types';
 import { formatLabel, tierOf } from '@/lib/quality';
 import { clock } from '@/lib/time';
@@ -48,9 +49,11 @@ function Row({
   onPlay: (i: number) => void;
 }) {
   const state = useIsCurrent(track.key);
+  const prefs = usePrefs();
   const showArtist = variant === 'list' || (albumArtist && track.artist !== albumArtist);
   const fmt = formatLabel(track.format);
-  const showFmt = variant === 'list' || (albumFormat && fmt !== albumFormat);
+  const showFmt =
+    prefs.formatColumn === 'never' ? false : prefs.formatColumn === 'always' || variant === 'list' || (albumFormat && fmt !== albumFormat);
   const stop = (e: React.MouseEvent) => e.stopPropagation();
 
   return (
@@ -117,8 +120,15 @@ function Row({
 }
 
 export function TrackTable({ tracks, variant, albumArtist, discs, albumFormat }: Props) {
-  const { playTracks } = usePlayer();
-  const onPlay = (i: number) => playTracks(tracks, i);
+  const { playTracks, playNext, enqueue } = usePlayer();
+  const { trackClick } = usePrefs();
+  const onPlay = (i: number) => {
+    const t = tracks[i]!;
+    if (trackClick === 'playNow') playTracks([t]);
+    else if (trackClick === 'next') playNext([t]);
+    else if (trackClick === 'queue') enqueue([t]);
+    else playTracks(tracks, i);
+  };
   let lastDisc: number | undefined;
 
   return (
