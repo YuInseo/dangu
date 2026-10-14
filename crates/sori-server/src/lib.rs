@@ -4,6 +4,7 @@ pub mod api;
 pub mod auth;
 pub mod embed;
 pub mod media;
+pub mod player;
 pub mod wav;
 
 use std::net::SocketAddr;
@@ -28,12 +29,36 @@ pub struct App {
     /// 비어 있으면 잠그지 않는다.
     pub password: Arc<String>,
     pub host: Option<Arc<dyn Host>>,
+    /// 이 기기의 오디오 장치로 트는 존. 없으면 브라우저 존만 있다.
+    pub player: Option<Arc<sori_core::player::Player>>,
+}
+
+impl App {
+    pub fn new(store: Arc<Store>, password: String) -> App {
+        App { store, password: Arc::new(password), host: None, player: None }
+    }
+
+    /// 이 기기의 기본 오디오 장치로 트는 존을 붙인다.
+    #[cfg(feature = "device")]
+    pub fn with_device(self) -> App {
+        use sori_core::player::device::DeviceOutput;
+        self.with_output(Box::new(|| Box::new(DeviceOutput::new(None))))
+    }
+
+    /// 출력을 골라 네이티브 존을 붙인다(시험할 때는 소리 없는 가짜 출력).
+    pub fn with_output(mut self, factory: sori_core::player::OutputFactory) -> App {
+        use sori_core::player::{Player, library_resolver};
+        let player = Player::new(factory, library_resolver(self.store.clone()));
+        self.player = Some(Arc::new(player));
+        self
+    }
 }
 
 pub fn router(app: App) -> Router {
     Router::new()
         .merge(api::routes())
         .merge(media::routes())
+        .merge(player::routes())
         .merge(auth::routes())
         .fallback(embed::serve)
         // 오디오는 이미 압축돼 있거나(FLAC, MP3) 받는 쪽이 길이를 알아야 하므로(Range) 압축하지 않는다.

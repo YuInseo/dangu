@@ -25,15 +25,20 @@ import type { Caps } from '../dsp/plan';
 import { buildRequest, encodeRequest } from '../dsp/request';
 import { useDsp } from '../dsp/store';
 import type { AudioFormat } from '../library/types';
-import { AudioEngine, type EngineSnapshot } from './engine';
+import { AudioEngine, type EngineSnapshot, type PlaybackEngine } from './engine';
+import { NativeEngine } from './native';
 import { pushRecent, readJSON, writeJSON } from './storage';
 import { initialQueue as initial, nextIndex, queueReducer as reducer, wrap, type QueueState } from './queue';
 import type { PlayableTrack, QueueItem, RepeatMode } from './types';
 
 // -- 컨텍스트 ---------------------------------------------------------------
 
+export type ZoneKind = 'browser' | 'native';
+
 export interface PlayerActions {
-  engine: AudioEngine;
+  engine: PlaybackEngine;
+  /** 소리를 낼 곳을 바꾼다. 지금 위치에서 이어 튼다. */
+  setZone(zone: ZoneKind): void;
   playTracks(tracks: PlayableTrack[], start?: number, opts?: { shuffle?: boolean }): void;
   playNext(tracks: PlayableTrack[]): void;
   enqueue(tracks: PlayableTrack[]): void;
@@ -67,6 +72,12 @@ export interface QueueView {
   formatOf(track: PlayableTrack): AudioFormat;
 }
 
+export interface ZoneView {
+  zone: ZoneKind;
+  /** 소리 서버가 이 기기의 오디오 장치로 직접 틀 수 있는지 */
+  nativeAvailable: boolean;
+}
+
 interface Ui {
   nowPlaying: boolean;
   setNowPlaying(open: boolean): void;
@@ -77,6 +88,13 @@ interface Ui {
 const ActionsCtx = createContext<PlayerActions | null>(null);
 const QueueCtx = createContext<QueueView | null>(null);
 const UiCtx = createContext<Ui | null>(null);
+const ZoneCtx = createContext<ZoneView | null>(null);
+
+export function useZone(): ZoneView {
+  const v = useContext(ZoneCtx);
+  if (!v) throw new Error('PlayerProvider 밖');
+  return v;
+}
 
 export function usePlayer(): PlayerActions {
   const v = useContext(ActionsCtx);
@@ -142,10 +160,53 @@ interface Saved {
 
 const MAX_SAVED = 1500;
 
-export function PlayerProvider({ children, canTranscode, caps }: { children: ReactNode; canTranscode: boolean; caps: Caps }) {
+export function PlayerProvider({
+  children,
+  canTranscode,
+  caps,
+  preferNative = false,
+}: {
+  children: ReactNode;
+  canTranscode: boolean;
+  caps: Caps;
+  /** 앱 안에서는 처음부터 이 기기의 장치로 튼다. */
+  preferNative?: boolean;
+}) {
   const toast = useToast();
-  const [engine] = useState(() => new AudioEngine());
-  engine.canTranscode = canTranscode;
+  const [browser] = useState(() => new AudioEngine());
+  browser.canTranscode = canTranscode;
+  const nativeRef = useRef<NativeEngine | null>(null);
+  const [zone, setZoneState] = useState<ZoneKind>('browser');
+  const [nativeAvailable, setNativeAvailable] = useState(false);
+
+  // 소리 서버가 이 기기의 오디오 장치를 갖고 있는지 묻는다.
+  useEffect(() => {
+    let alive = true;
+    fetch('/api/player', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j: { available?: boolean } | null) => {
+        if (!alive || !j?.available) return;
+        setNativeAvailable(true);
+        const saved = readJSON<ZoneKind>('sori.zone');
+        if (saved === 'native' || (saved == null && preferNative)) setZoneState('native');
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [preferNative]);
+
+  const engine: PlaybackEngine = useMemo(() => {
+    if (zone === 'native' && nativeAvailable) {
+      nativeRef.current ??= new NativeEngine();
+      return nativeRef.current;
+    }
+    return browser;
+  }, [zone, nativeAvailable, browser]);
+  const engineRef = useRef(engine);
+  useLayoutEffect(() => {
+    engineRef.current = engine;
+  });
 
   const [state, dispatch] = useReducer(reducer, initial);
   const stateRef = useRef(state);
@@ -193,13 +254,17 @@ export function PlayerProvider({ children, canTranscode, caps }: { children: Rea
     };
   }, []);
 
-  // 이어 듣기: 지난번 대기열과 위치, 볼륨.
+  // 볼륨은 존을 바꿔도 따라간다.
   useEffect(() => {
     const vol = readJSON<{ volume: number; muted: boolean }>('sori.volume');
     if (vol) {
       engine.setVolume(vol.volume);
       engine.setMuted(vol.muted);
     }
+  }, [engine]);
+
+  // 이어 듣기: 지난번 대기열과 위치. 처음 한 번만.
+  useEffect(() => {
     const saved = readJSON<Saved>('sori.queue');
     if (saved?.items?.length) {
       const index = Math.min(Math.max(0, saved.index), saved.items.length - 1);
@@ -218,7 +283,7 @@ export function PlayerProvider({ children, canTranscode, caps }: { children: Rea
       });
     }
     restored.current = true;
-  }, [engine]);
+  }, []);
 
   // 지금 곡을 건다.
   useEffect(() => {
@@ -356,6 +421,20 @@ export function PlayerProvider({ children, canTranscode, caps }: { children: Rea
     };
   }, [engine, toast]);
 
+  // 엔진이 스스로 다음 곡으로 넘어갔다(네이티브 존의 갭리스). 대기열 위치만 맞춘다.
+  useEffect(() => {
+    engine.onAdvanced = (uid) => {
+      const s = stateRef.current;
+      const i = s.items.findIndex((x) => x.uid === uid);
+      if (i < 0 || i === s.index) return;
+      loadReq.current = { autoplay: true, at: 0 };
+      dispatch({ type: 'jump', index: i });
+    };
+    return () => {
+      engine.onAdvanced = null;
+    };
+  }, [engine]);
+
   // 라이브 FLAC의 실제 샘플레이트
   const probeKey = current?.track.probe && !current.track.format.sampleRate ? current.track.key : null;
   useEffect(() => {
@@ -384,6 +463,16 @@ export function PlayerProvider({ children, canTranscode, caps }: { children: Rea
     };
     return {
       engine,
+      setZone(next) {
+        const old = engineRef.current;
+        if (old.kind === next) return;
+        const at = old.currentTime;
+        const was = old.playing;
+        old.pause();
+        if (stateRef.current.items.length) loadReq.current = { autoplay: was, at };
+        writeJSON('sori.zone', next);
+        setZoneState(next);
+      },
       playTracks(tracks, start = 0, opts) {
         if (!tracks.length) return;
         begin();
@@ -542,11 +631,14 @@ export function PlayerProvider({ children, canTranscode, caps }: { children: Rea
   );
 
   const ui = useMemo<Ui>(() => ({ nowPlaying, setNowPlaying, queue: queueOpen, setQueue }), [nowPlaying, queueOpen]);
+  const zoneView = useMemo<ZoneView>(() => ({ zone: engine.kind, nativeAvailable }), [engine, nativeAvailable]);
 
   return (
     <ActionsCtx.Provider value={actions}>
       <QueueCtx.Provider value={queue}>
-        <UiCtx.Provider value={ui}>{children}</UiCtx.Provider>
+        <ZoneCtx.Provider value={zoneView}>
+          <UiCtx.Provider value={ui}>{children}</UiCtx.Provider>
+        </ZoneCtx.Provider>
       </QueueCtx.Provider>
     </ActionsCtx.Provider>
   );

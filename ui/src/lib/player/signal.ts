@@ -15,6 +15,7 @@ import type { AudioFormat } from '../library/types';
 import { planDsp, fmtDb, type Caps, type Stage, type StageQuality } from '../dsp/plan';
 import type { DspRequest, Loudness } from '../dsp/types';
 import { formatDetail, khz } from '../quality';
+import type { OutputInfo, SourceInfo } from './native';
 
 export type SignalQuality = StageQuality;
 export type SignalStep = Stage;
@@ -40,6 +41,78 @@ export interface SignalInput {
   volume: number;
   muted: boolean;
   outputRate: number | null;
+  /** 이 기기의 장치로 직접 틀고 있으면 소리 서버가 알려 준 것 */
+  native?: { output: OutputInfo | null; source: SourceInfo | null; resampling: [number, number] | null } | null;
+}
+
+const FORMAT_LABEL: Record<OutputInfo['format'], string> = {
+  f64: '64비트 부동소수점',
+  f32: '32비트 부동소수점',
+  i32: '32비트 정수',
+  i24: '24비트 정수',
+  i16: '16비트 정수',
+};
+
+/** 소리 엔진(러스트)이 이 기기의 장치로 직접 틀 때. */
+function nativePath(i: SignalInput, n: NonNullable<SignalInput['native']>): Stage[] {
+  const f = i.format;
+  const steps: Stage[] = [];
+  steps.push({
+    title: `원본 · ${f.codec}`,
+    detail: formatDetail(f) || (f.lossless ? '무손실' : '손실 압축'),
+    quality: f.lossless ? 'lossless' : 'low',
+  });
+  const src = n.source;
+  if (src?.dsdRate) {
+    steps.push({
+      title: 'DSD → PCM · 소리 엔진',
+      detail: `DSD${Math.round(src.dsdRate / 44100)} → ${khz(src.rate)}kHz PCM · 120dB 데시메이션 필터`,
+      quality: 'high',
+    });
+  }
+  steps.push({ title: '소리 엔진 · 64비트', detail: '64비트 부동소수점으로 풀기 · 손실 없음', quality: 'lossless' });
+  if (src && Math.abs(src.gainDb) >= 0.05) {
+    steps.push({ title: '볼륨 레벨링', detail: `${fmtDb(src.gainDb)} · 64비트`, quality: 'enhanced' });
+  }
+  if (n.resampling) {
+    const [a, b] = n.resampling;
+    steps.push({
+      title: '샘플레이트 변환 · 64비트',
+      detail: `${khz(a)}kHz → ${khz(b)}kHz · 다상 FIR, 저지대역 168dB`,
+      quality: 'high',
+    });
+  }
+  if (i.muted || i.volume < 1) {
+    steps.push({
+      title: '볼륨',
+      detail: i.muted ? '음소거' : `${fmtDb(20 * Math.log10(Math.max(i.volume, 1e-4)))} · 64비트 디지털 볼륨`,
+      quality: 'enhanced',
+    });
+  }
+  const out = n.output;
+  if (out) {
+    const bits = src?.bits ?? (f.lossless ? f.bitDepth : undefined);
+    // 16/24비트 원본을 손대지 않고 f32·i24·i32로 내보내면 값이 그대로 간다.
+    const exact =
+      (out.format === 'f64' || out.format === 'f32' || out.format === 'i32' || (out.format === 'i24' && (bits ?? 32) <= 24) || (out.format === 'i16' && (bits ?? 32) <= 16)) &&
+      !n.resampling &&
+      !src?.dsdRate &&
+      !i.muted &&
+      i.volume >= 1;
+    if (out.format !== 'f64') {
+      steps.push({
+        title: '비트 깊이 변환',
+        detail: `64비트 → ${FORMAT_LABEL[out.format]}${out.format.startsWith('i') && !exact ? ' · TPDF 디더' : exact ? ' · 값이 그대로 갑니다' : ''}`,
+        quality: exact ? 'lossless' : 'high',
+      });
+    }
+    steps.push({
+      title: `${out.device}`,
+      detail: `${out.api} · ${khz(out.rate)}kHz · ${out.channels}채널${out.mixer ? ' · OS 믹서를 지나므로 비트퍼펙트를 보장할 수 없습니다' : ' · 장치를 혼자 씁니다'}`,
+      quality: out.mixer ? 'high' : 'lossless',
+    });
+  }
+  return steps;
 }
 
 function browserName(): string {
@@ -57,6 +130,10 @@ export function worst(steps: Stage[]): SignalQuality {
 }
 
 export function signalPath(i: SignalInput): { quality: SignalQuality; steps: SignalStep[] } {
+  if (i.native) {
+    const steps = nativePath(i, i.native);
+    return { quality: worst(steps), steps };
+  }
   const f = i.format;
   const steps: Stage[] = [];
 

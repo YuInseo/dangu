@@ -13,6 +13,11 @@ path = "src/lib.rs"
 name = "sori"
 path = "src/main.rs"
 
+[features]
+default = []
+# 이 기기의 오디오 장치로 직접 트는 존(네이티브 존)
+device = ["sori-core/device"]
+
 [dependencies]
 sori-core.workspace = true
 anyhow.workspace = true

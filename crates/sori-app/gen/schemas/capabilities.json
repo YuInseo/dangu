@@ -1,0 +1,1 @@
+{"default":{"identifier":"default","description":"창에는 아무 권한도 주지 않는다. 화면은 앱이 띄운 소리 서버하고만 이야기한다.","local":true,"windows":["main"],"permissions":["core:default"]}}

@@ -3,6 +3,7 @@
 import Link from '@/compat/link';
 import { useEffect, useRef, useState } from 'react';
 import { useEngineState, usePlaybackTime, usePlayer, useQueue } from '@/lib/player/context';
+import { NativeEngine } from '@/lib/player/native';
 import { SIGNAL_LABEL, signalPath, type SignalQuality } from '@/lib/player/signal';
 import { formatLabel } from '@/lib/quality';
 import { Star } from './icons';
@@ -17,10 +18,13 @@ export function QualityGlyph({ quality, size = 12 }: { quality: SignalQuality; s
 
 function useSignal() {
   const { current, outputRate, formatOf, caps } = useQueue();
+  const { engine } = usePlayer();
   const s = useEngineState();
   if (!current) return null;
   const format = formatOf(current.track);
+  const native = engine instanceof NativeEngine ? { output: engine.output, source: engine.source, resampling: engine.resampling } : null;
   const path = signalPath({
+    native,
     format,
     source: current.track.source,
     transcoded: s.transcoded,
@@ -131,7 +135,8 @@ export function SignalBadge({ large }: { large?: boolean }) {
             </Link>
           </div>
           <div className="signal-zone">
-            <span className={`glyph-dot q-${sig.quality}`} /> 이 브라우저 · {engine.zone}
+            <span className={`glyph-dot q-${sig.quality}`} />{' '}
+            {engine instanceof NativeEngine ? `이 기기 · ${engine.output?.device ?? '오디오 장치'}` : `이 브라우저 · 존 ${engine.zone}`}
           </div>
           <ol className="signal-steps">
             {sig.steps.map((s, i) => (

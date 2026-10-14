@@ -3,10 +3,11 @@
 import Link from '@/compat/link';
 import { useEffect, useState } from 'react';
 import type { AnalysisStatus, ScanStatus } from '@/lib/library/types';
-import { usePlayer } from '@/lib/player/context';
+import { usePlayer, useZone, type ZoneKind } from '@/lib/player/context';
+import { NativeEngine, type OutputInfo } from '@/lib/player/native';
 import { canPlayNatively } from '@/lib/player/engine';
 import { khz } from '@/lib/quality';
-import { Check, CircleAlert, LoaderCircle, Monitor, RefreshCw, X } from './icons';
+import { Check, CircleAlert, LoaderCircle, Monitor, RefreshCw, Speaker, X } from './icons';
 import { scanText, useScanStatus } from './scan-status';
 
 export function RescanCard({ initial, scannedAt }: { initial: ScanStatus; scannedAt?: number }) {
@@ -150,23 +151,15 @@ export function AnalysisCard({ initial }: { initial: AnalysisStatus }) {
 
 /** 이 브라우저 = 하나의 존. 룬의 "Audio → 장치" 화면에 해당한다. */
 export function ZoneCard() {
-  const { engine } = usePlayer();
-  const [zone, setZone] = useState<string | null>(null);
+  const { engine, setZone } = usePlayer();
+  const { zone, nativeAvailable } = useZone();
   const [rate, setRate] = useState<number | null>(null);
   const [browser, setBrowser] = useState('브라우저');
+  const [native, setNative] = useState<OutputInfo | null>(null);
   useEffect(() => {
-    setZone(engine.zone);
     const ua = navigator.userAgent;
     setBrowser(
-      /Edg\//.test(ua)
-        ? 'Edge'
-        : /Firefox\//.test(ua)
-          ? 'Firefox'
-          : /Chrome\//.test(ua)
-            ? 'Chrome'
-            : /Safari\//.test(ua)
-              ? 'Safari'
-              : '브라우저',
+      /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '브라우저',
     );
     try {
       const ctx = new AudioContext();
@@ -175,21 +168,61 @@ export function ZoneCard() {
     } catch {
       // 모름
     }
+  }, []);
+  useEffect(() => {
+    if (engine instanceof NativeEngine) {
+      const read = () => setNative(engine.output);
+      read();
+      const off = engine.subscribe(read);
+      return () => {
+        off();
+      };
+    }
   }, [engine]);
+
+  const rows: { key: ZoneKind; name: string; detail: string; Icon: typeof Monitor }[] = [];
+  if (nativeAvailable) {
+    rows.push({
+      key: 'native',
+      name: '이 기기',
+      detail: native
+        ? `${native.device} · ${native.api} · ${khz(native.rate)}kHz · 소리 엔진이 64비트로 직접`
+        : '소리 엔진이 이 기기의 오디오 장치로 직접 냅니다 · 64비트',
+      Icon: Speaker,
+    });
+  }
+  rows.push({
+    key: 'browser',
+    name: '이 브라우저',
+    detail: `${browser} · 기본 출력 장치${rate ? ` ${khz(rate)}kHz` : ''} · OS 믹서(공유 모드)`,
+    Icon: Monitor,
+  });
+
   return (
-    <div className="zone-card">
-      <div className="zone-card-icon">
-        <Monitor size={26} />
-      </div>
-      <div className="zone-card-text">
-        <div className="zone-card-name">이 브라우저</div>
-        <div className="muted">
-          {zone ? `${browser} · 존 ${zone}` : browser} · 기본 출력 장치 {rate ? `${khz(rate)}kHz` : ''} · OS 믹서(공유 모드)
+    <div className="zone-list">
+      {rows.map(({ key, name, detail, Icon }) => (
+        <div key={key} className={`zone-card${zone === key ? ' is-active' : ''}`}>
+          <div className="zone-card-icon">
+            <Icon size={26} />
+          </div>
+          <div className="zone-card-text">
+            <div className="zone-card-name">
+              {name}
+              {zone === key && <span className="zone-card-now">지금 여기서</span>}
+            </div>
+            <div className="muted">{detail}</div>
+          </div>
+          {zone === key ? (
+            <Link href="/dsp" className="btn btn-sm">
+              DSP 설정
+            </Link>
+          ) : (
+            <button type="button" className="btn btn-sm" onClick={() => setZone(key)}>
+              여기서 틀기
+            </button>
+          )}
         </div>
-      </div>
-      <Link href="/dsp" className="btn btn-sm">
-        DSP 설정
-      </Link>
+      ))}
     </div>
   );
 }

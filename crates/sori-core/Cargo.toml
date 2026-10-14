@@ -30,6 +30,7 @@ ebur128 = "0.1.10"
 rubato = "5.0.1"
 realfft = "3.5"
 rand = "0.9"
+rtrb = "0.4"
 cpal = { version = "0.18", optional = true }
 
 [dev-dependencies]

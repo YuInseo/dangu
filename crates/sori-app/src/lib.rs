@@ -106,7 +106,8 @@ pub fn run() {
                             let _ = tx.send(a);
                         }
                     });
-                    let app = App { store: server_store, password: Arc::new(String::new()), host: Some(host) };
+                    let mut app = App::new(server_store, String::new()).with_device();
+                    app.host = Some(host);
                     if let Err(e) = sori_server::serve(app, SocketAddr::from(([127, 0, 0, 1], port)), Some(ready_tx)).await {
                         tracing::error!("서버가 멈췄습니다: {e}");
                     }

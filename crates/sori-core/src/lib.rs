@@ -15,6 +15,7 @@ pub mod formats;
 pub mod ids;
 pub mod library;
 pub mod model;
+pub mod player;
 pub mod quality;
 pub mod scan;
 pub mod store;

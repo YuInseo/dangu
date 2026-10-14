@@ -13,7 +13,7 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  TAURI: node ../../ui/node_modules/@tauri-apps/cli/tauri.js
+  TAURI: node ${{ github.workspace }}/ui/node_modules/@tauri-apps/cli/tauri.js
 
 jobs:
   test:

@@ -5,7 +5,6 @@
 //! 환경변수로도 줄 수 있다: SORI_MUSIC_DIR, SORI_DATA_DIR, SORI_HOST, SORI_PORT, SORI_PASSWORD.
 
 use std::net::{IpAddr, SocketAddr};
-use std::sync::Arc;
 
 use sori_core::{Config, Store};
 use sori_server::{App, serve};
@@ -36,9 +35,19 @@ async fn main() -> anyhow::Result<()> {
     }
     let host: IpAddr = arg(&args, "--host").or_else(|| std::env::var("SORI_HOST").ok()).unwrap_or_else(|| "0.0.0.0".into()).parse()?;
     let port: u16 = arg(&args, "--port").or_else(|| std::env::var("SORI_PORT").ok()).unwrap_or_else(|| "4380".into()).parse()?;
-    let password = Arc::new(config.password.clone());
+    let password = config.password.clone();
     tracing::info!(music = %config.music_dir.display(), data = %config.data_dir.display(), "라이브러리를 엽니다");
     let store = Store::open(config);
     store.start_scan();
-    serve(App { store, password, host: None }, SocketAddr::new(host, port), None).await
+    let mut app = App::new(store, password);
+    // --device: 서버가 도는 기기의 오디오 장치로도 틀 수 있게(네이티브 존).
+    #[cfg(feature = "device")]
+    if args.iter().any(|a| a == "--device") {
+        app = app.with_device();
+    }
+    // --null-device: 소리 없이 실시간으로 흘려보내는 가짜 장치(장치가 없는 곳에서 화면을 시험할 때).
+    if args.iter().any(|a| a == "--null-device") {
+        app = app.with_output(Box::new(|| Box::new(sori_core::player::output::NullOutput::new(48_000, true))));
+    }
+    serve(app, SocketAddr::new(host, port), None).await
 }

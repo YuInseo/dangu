@@ -20,7 +20,7 @@ tauri-build = { version = "2.7", features = [] }
 
 [dependencies]
 sori-core = { workspace = true }
-sori-server = { workspace = true }
+sori-server = { workspace = true, features = ["device"] }
 anyhow.workspace = true
 tracing.workspace = true
 tokio.workspace = true

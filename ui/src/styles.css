@@ -4430,3 +4430,109 @@ kbd {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 13px;
 }
+
+/* 소리 낼 곳 고르기 */
+.zone-wrap {
+  position: relative;
+}
+
+button.zone-btn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.zone-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 12px);
+  width: 300px;
+  padding: 8px;
+  border-radius: 14px;
+  background: var(--bg-pop);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 18px 50px rgb(0 0 0 / 55%);
+  z-index: 60;
+  animation: pop 0.14s ease-out;
+}
+
+.zone-menu-title {
+  padding: 6px 10px 8px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-3);
+}
+
+.zone-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.zone-item:hover {
+  background: var(--bg-hover);
+}
+
+.zone-item.is-active {
+  color: var(--accent-strong);
+}
+
+.zone-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.zone-item-name {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.zone-item-hint {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.zone-menu-link {
+  display: block;
+  margin-top: 4px;
+  padding: 10px;
+  border-top: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.zone-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.zone-card.is-active {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.zone-card-now {
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-ink);
+  background: var(--accent-strong);
+  vertical-align: 2px;
+}

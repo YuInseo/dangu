@@ -59,10 +59,46 @@ export function canPlayNatively(mime: string): boolean {
 
 type Listener = () => void;
 
-export class AudioEngine {
+/**
+ * 소리를 내는 쪽의 공통 모양. 이 브라우저의 `<audio>`(AudioEngine)든, 소리 서버가 이 기기의
+ * 오디오 장치로 직접 트는 것(NativeEngine)이든 플레이어는 같은 방식으로 다룬다.
+ */
+export interface PlaybackEngine {
+  readonly kind: 'browser' | 'native';
+  readonly zone: string;
+  canTranscode: boolean;
+  onEnded: (() => void) | null;
+  onError: ((message: string) => void) | null;
+  /** 엔진이 스스로 다음 곡으로 넘어갔다(갭리스). 화면은 대기열 위치만 맞춘다. */
+  onAdvanced: ((uid: string) => void) | null;
+  dspFor: ((item: QueueItem) => DspPlan | null) | null;
+  subscribe(l: Listener): () => void;
+  getSnapshot(): EngineSnapshot;
+  subscribeTime(l: Listener): () => void;
+  getTime(): number;
+  getDuration(): number;
+  sidOf(item: QueueItem): string;
+  load(item: QueueItem, opts: { autoplay: boolean; at?: number }): void;
+  preload(item: QueueItem | null): void;
+  refreshDsp(): void;
+  play(): void;
+  pause(): void;
+  toggle(): void;
+  seek(t: number): void;
+  stop(): void;
+  setVolume(v: number): void;
+  setMuted(m: boolean): void;
+  readonly playing: boolean;
+  readonly currentTime: number;
+  readonly duration: number;
+}
+
+export class AudioEngine implements PlaybackEngine {
+  readonly kind = 'browser' as const;
   canTranscode = false;
   onEnded: (() => void) | null = null;
   onError: ((message: string) => void) | null = null;
+  onAdvanced: ((uid: string) => void) | null = null;
   /** 곡마다 DSP를 어떻게 걸지. 프로바이더가 설정을 보고 정한다. null이면 원본 그대로. */
   dspFor: ((item: QueueItem) => DspPlan | null) | null = null;
   /** 이 페이지(존)의 이름. 클리핑 세션 ID의 앞부분. */
