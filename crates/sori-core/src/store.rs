@@ -298,7 +298,7 @@ impl Store {
         if let Some(prev) = self.run.lock().take() {
             prev.store(true, Ordering::SeqCst);
         }
-        let (speed, pending) = {
+        let (speed, pending, all) = {
             let s = self.state.read();
             let pending: VecDeque<(String, PathBuf, i64)> = s
                 .index
@@ -311,9 +311,12 @@ impl Store {
                         .collect()
                 })
                 .unwrap_or_default();
-            (s.settings.analysis_speed, pending)
+            let all = s.index.as_ref().map(|i| i.tracks.len()).unwrap_or(0);
+            (s.settings.analysis_speed, pending, all)
         };
+        // 화면에는 "분석한 곡 / 전체 곡"으로 보인다.
         let total = pending.len();
+        let done_before = all - total;
         {
             let mut s = self.state.write();
             s.analysis_status = AnalysisStatus {
@@ -325,8 +328,8 @@ impl Store {
                 } else {
                     AnalysisState::Running
                 },
-                done: 0,
-                total,
+                done: done_before,
+                total: all,
             };
         }
         if speed == AnalysisSpeed::Off || total == 0 {

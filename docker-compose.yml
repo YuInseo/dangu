@@ -3,7 +3,7 @@ services:
     build: .
     image: sori
     ports:
-      - '3000:3000'
+      - '4380:4380'
     volumes:
       # 왼쪽을 내 음악 폴더로 바꾸세요. 읽기 전용으로 붙입니다.
       - ./music:/music:ro

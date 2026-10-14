@@ -6,6 +6,13 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "sori"
+path = "src/main.rs"
+
 [dependencies]
 sori-core.workspace = true
 anyhow.workspace = true
@@ -14,3 +21,17 @@ serde_json.workspace = true
 parking_lot.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+axum = "0.8.9"
+tower-http = { version = "0.7.1", features = ["compression-gzip", "compression-br"] }
+tokio-util = { version = "0.7", features = ["io"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+rust-embed = { version = "8.13", features = ["mime-guess"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.9"
+httpdate = "1"
+
+[dev-dependencies]
+tempfile = "3"

@@ -1,8 +1,7 @@
-node_modules
-.next
+**/node_modules
+ui/dist
+target
 .sori
 music
 .git
-*.tsbuildinfo
-next-env.d.ts
 .env*
