@@ -13,7 +13,6 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
-  TAURI: node ${{ github.workspace }}/ui/node_modules/@tauri-apps/cli/tauri.js
 
 jobs:
   test:
@@ -81,7 +80,7 @@ jobs:
       - name: 앱 (설치 파일)
         working-directory: crates/sori-app
         shell: bash
-        run: $TAURI build --ci
+        run: npm run tauri -- build --ci
       - name: 서버 실행 파일
         run: cargo build --release -p sori-server
       - uses: actions/upload-artifact@v4
@@ -111,12 +110,21 @@ jobs:
           $g.CopyFromScreen($b.Location, [System.Drawing.Point]::Empty, $b.Size)
           New-Item -ItemType Directory -Force shots | Out-Null
           $bmp.Save("shots\windows-1.png")
+          $small = New-Object System.Drawing.Bitmap $bmp, ([int]($b.Width * 0.75)), ([int]($b.Height * 0.75))
+          $small.Save("shots\windows-1.jpg", [System.Drawing.Imaging.ImageFormat]::Jpeg)
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: windows-shots
           path: shots
           if-no-files-found: ignore
+      - name: 화면을 로그로
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p logshots
+          cp shots/*.jpg logshots/ 2>/dev/null || true
+          python ci/print-shots.py logshots
 
   android:
     name: 안드로이드 앱
@@ -148,11 +156,11 @@ jobs:
         run: echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
       - name: 안드로이드 프로젝트
         working-directory: crates/sori-app
-        run: $TAURI android init --ci
+        run: npm run tauri -- android init --ci
       - run: python3 ci/android-patch.py crates/sori-app/gen/android
       - name: APK
         working-directory: crates/sori-app
-        run: $TAURI android build --apk --target aarch64 --target x86_64 --ci
+        run: npm run tauri -- android build --apk --target aarch64 --target x86_64 --ci
       - name: 서명
         run: |
           APK=$(find crates/sori-app/gen/android/app/build/outputs/apk -name '*release*.apk' | head -1)
@@ -203,3 +211,10 @@ jobs:
           name: android-shots
           path: shots
           if-no-files-found: ignore
+      - name: 화면을 로그로
+        if: always()
+        run: |
+          mkdir -p logshots
+          for f in shots/*.png; do [ -f "$f" ] && convert "$f" -resize 540x -quality 78 "logshots/$(basename "${f%.png}").jpg"; done
+          cp shots/logcat.txt logshots/ 2>/dev/null || true
+          python3 ci/print-shots.py logshots

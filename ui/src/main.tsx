@@ -30,7 +30,7 @@ function Main() {
   return (
     <ToastProvider>
       <DspProvider>
-        <PlayerProvider canTranscode caps={{ soxr: true, bs2b: true }}>
+        <PlayerProvider canTranscode caps={{ soxr: true, bs2b: true }} preferNative={!!info.host}>
           <Shell status={info.status} summary={info.summary}>
             <Outlet />
           </Shell>

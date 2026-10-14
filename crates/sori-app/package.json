@@ -1,0 +1,8 @@
+{
+  "name": "sori-app",
+  "private": true,
+  "description": "Tauri CLI를 부르는 자리. 안드로이드 빌드(gradle)가 이 스크립트로 CLI를 다시 부른다.",
+  "scripts": {
+    "tauri": "node ../../ui/node_modules/@tauri-apps/cli/tauri.js"
+  }
+}
