@@ -314,6 +314,11 @@ pre {
   display: flex;
   gap: 8px;
 }
+.topbar-settings {
+  display: none;
+  flex: none;
+  margin-left: auto;
+}
 
 .search {
   position: relative;
@@ -2884,6 +2889,9 @@ kbd {
 }
 
 @media (max-width: 760px) {
+  .topbar-settings {
+    display: inline-flex;
+  }
   :root {
     --sidebar-w: 0px;
     --player-h: 64px;

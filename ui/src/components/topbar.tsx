@@ -1,8 +1,9 @@
 'use client';
 
+import Link from '@/compat/link';
 import { usePathname, useRouter, useSearchParams } from '@/compat/navigation';
 import { useEffect, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Search, X } from './icons';
+import { ChevronLeft, ChevronRight, Search, Settings, X } from './icons';
 
 /** 위쪽 띠. 뒤로·앞으로, 그리고 치는 대로 찾는 검색창. */
 export function Topbar() {
@@ -90,6 +91,14 @@ export function Topbar() {
         )}
         <kbd className="search-kbd">/</kbd>
       </form>
+      {/* 휴대폰: 옆 막대가 없으니 설정(음악 폴더, DSP, 연결)으로 가는 길을 여기에 둔다. */}
+      <Link
+        href="/settings"
+        className={`icon-btn round topbar-settings${pathname.startsWith('/settings') ? ' is-on' : ''}`}
+        aria-label="설정"
+      >
+        <Settings size={20} />
+      </Link>
     </div>
   );
 }
