@@ -7,6 +7,8 @@
   주소를 열 수 있게 한다(밖으로 나가는 주소가 아니다).
 - 안드로이드 15부터는 화면이 상태 표시줄·제스처 막대 밑까지 그려진다(edge-to-edge). 화면이
   그 밑에 깔리지 않게 시스템 막대와 키보드 자리만큼 띄우고, 막대 자리는 앱의 어두운 바탕으로 둔다.
+- 자동 업데이트: 소리 서버가 받아 둔 새 APK를 시스템 설치 창으로 연다(UpdatePlugin, FileProvider,
+  REQUEST_INSTALL_PACKAGES).
 """
 import pathlib
 import re
@@ -15,6 +17,63 @@ import sys
 SERVICE = 'package __PKG__\n\nimport android.app.Notification\nimport android.app.NotificationChannel\nimport android.app.NotificationManager\nimport android.app.PendingIntent\nimport android.app.Service\nimport android.content.BroadcastReceiver\nimport android.content.Context\nimport android.content.Intent\nimport android.content.IntentFilter\nimport android.content.pm.ServiceInfo\nimport android.graphics.Bitmap\nimport android.graphics.BitmapFactory\nimport android.graphics.drawable.Icon\nimport android.media.AudioAttributes\nimport android.media.AudioFocusRequest\nimport android.media.AudioManager\nimport android.media.MediaMetadata\nimport android.media.session.MediaSession\nimport android.media.session.PlaybackState\nimport android.os.Build\nimport android.os.Handler\nimport android.os.IBinder\nimport android.os.Looper\nimport org.json.JSONObject\nimport java.io.File\nimport java.net.HttpURLConnection\nimport java.net.URL\n\n/**\n * 잠금 화면·알림의 재생 조종과, 화면이 꺼져도 계속 트는 전경 서비스.\n *\n * 소리는 앱 안의 러스트 엔진이 낸다. 이 서비스는 엔진의 상태(SSE)를 보고 미디어 세션과 알림을\n * 맞추고, 단추(알림, 잠금 화면, 헤드셋, 블루투스)를 누르면 엔진에 명령을 보낸다. 전화가 오면\n * 멈췄다가 끝나면 다시 틀고, 이어폰이 빠지면 멈춘다.\n */\nclass SoriPlaybackService : Service() {\n  companion object {\n    const val CHANNEL = "sori.playback"\n    const val NOTE_ID = 4380\n    const val ACTION_TOGGLE = "sori.toggle"\n    const val ACTION_NEXT = "sori.next"\n    const val ACTION_PREV = "sori.prev"\n  }\n\n  private val main = Handler(Looper.getMainLooper())\n  @Volatile private var alive = true\n  private lateinit var session: MediaSession\n  private lateinit var audio: AudioManager\n  private var focus: AudioFocusRequest? = null\n  private var hasFocus = false\n  private var pausedByFocus = false\n  private var foreground = false\n  private var playing = false\n  private var status = "idle"\n  private var title = ""\n  private var artist = ""\n  private var album = ""\n  private var coverPath: String? = null\n  private var art: Bitmap? = null\n  private var durationMs = 0L\n\n  private val noisy = object : BroadcastReceiver() {\n    override fun onReceive(context: Context?, intent: Intent?) {\n      // 이어폰이 빠지면 멈춘다(스피커로 갑자기 나오지 않게).\n      if (playing) control("pause")\n    }\n  }\n\n  override fun onBind(intent: Intent?): IBinder? = null\n\n  override fun onCreate() {\n    super.onCreate()\n    audio = getSystemService(AudioManager::class.java)\n    val channel = NotificationChannel(CHANNEL, "재생", NotificationManager.IMPORTANCE_LOW)\n    channel.description = "지금 재생 중인 곡과 재생 단추"\n    channel.setShowBadge(false)\n    getSystemService(NotificationManager::class.java).createNotificationChannel(channel)\n    session = MediaSession(this, "Sori")\n    session.setCallback(object : MediaSession.Callback() {\n      override fun onPlay() {\n        control("play")\n      }\n      override fun onPause() {\n        control("pause")\n      }\n      override fun onSkipToNext() {\n        control("next")\n      }\n      override fun onSkipToPrevious() {\n        control("prev")\n      }\n      override fun onStop() {\n        control("pause")\n      }\n      override fun onSeekTo(pos: Long) {\n        control("seek", pos / 1000.0)\n      }\n    })\n    session.isActive = true\n    if (Build.VERSION.SDK_INT >= 33) {\n      registerReceiver(noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY), Context.RECEIVER_NOT_EXPORTED)\n    } else {\n      registerReceiver(noisy, IntentFilter(AudioManager.ACTION_AUDIO_BECOMING_NOISY))\n    }\n    Thread({ listen() }, "sori-session").start()\n  }\n\n  override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {\n    when (intent?.action) {\n      ACTION_TOGGLE -> control(if (playing) "pause" else "play")\n      ACTION_NEXT -> control("next")\n      ACTION_PREV -> control("prev")\n    }\n    // 앱이 죽은 뒤 서비스만 되살아나면 엔진이 없다. 앱이 다시 띄운다.\n    return START_NOT_STICKY\n  }\n\n  override fun onTaskRemoved(rootIntent: Intent?) {\n    // 앱을 목록에서 밀어 닫았을 때: 틀고 있지 않으면 같이 끝낸다.\n    if (!playing) stopSelf()\n    super.onTaskRemoved(rootIntent)\n  }\n\n  override fun onDestroy() {\n    alive = false\n    try {\n      unregisterReceiver(noisy)\n    } catch (e: Exception) {\n    }\n    focus?.let { audio.abandonAudioFocusRequest(it) }\n    session.release()\n    super.onDestroy()\n  }\n\n  private fun port(): Int? =\n    try {\n      File(applicationInfo.dataDir, "server.port").readText().trim().toIntOrNull()\n    } catch (e: Exception) {\n      null\n    }\n\n  /** 엔진의 상태를 SSE로 받는다. 끊기면 다시 붙는다. */\n  private fun listen() {\n    var misses = 0\n    while (alive) {\n      // 엔진에 오래 닿지 못하고 틀고 있지도 않으면(앱이 없다) 그만둔다.\n      if (misses > 40 && !playing) {\n        main.post { stopSelf() }\n        return\n      }\n      val port = port()\n      if (port == null) {\n        misses++\n        Thread.sleep(1000)\n        continue\n      }\n      try {\n        val c = URL("http://127.0.0.1:$port/api/player/events").openConnection() as HttpURLConnection\n        c.connectTimeout = 3000\n        c.readTimeout = 40000\n        c.inputStream.bufferedReader().use { r ->\n          misses = 0\n          while (alive) {\n            val line = r.readLine() ?: break\n            if (line.startsWith("data:")) {\n              val j = JSONObject(line.substring(5).trim())\n              main.post { onState(j, port) }\n            }\n          }\n        }\n        c.disconnect()\n      } catch (e: Exception) {\n        misses++\n        try {\n          Thread.sleep(1500)\n        } catch (ie: InterruptedException) {\n        }\n      }\n    }\n  }\n\n  private fun onState(j: JSONObject, port: Int) {\n    status = j.optString("status", "idle")\n    playing = status == "playing" || status == "loading"\n    val pos = (j.optDouble("position", 0.0) * 1000).toLong()\n    durationMs = (j.optDouble("duration", 0.0) * 1000).toLong()\n    val meta = j.optJSONObject("meta")\n    val t = meta?.optString("title", "") ?: ""\n    val a = meta?.optString("artist", "") ?: ""\n    val al = meta?.optString("album", "") ?: ""\n    val cover = meta?.optString("cover", "")?.takeIf { it.isNotEmpty() }\n    val changed = t != title || a != artist || al != album\n    title = t\n    artist = a\n    album = al\n    if (cover != coverPath) {\n      coverPath = cover\n      art = null\n      if (cover != null) loadArt(port, cover)\n    }\n    if (changed) publishMeta()\n    val actions = PlaybackState.ACTION_PLAY or PlaybackState.ACTION_PAUSE or PlaybackState.ACTION_PLAY_PAUSE or\n      PlaybackState.ACTION_SKIP_TO_NEXT or PlaybackState.ACTION_SKIP_TO_PREVIOUS or PlaybackState.ACTION_SEEK_TO or\n      PlaybackState.ACTION_STOP\n    session.setPlaybackState(\n      PlaybackState.Builder()\n        .setActions(actions)\n        .setState(if (playing) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED, pos, if (status == "playing") 1f else 0f)\n        .build()\n    )\n    if (playing) requestFocus()\n    updateNotification(j.isNull("uid") || status == "idle")\n  }\n\n  private fun publishMeta() {\n    val b = MediaMetadata.Builder()\n      .putString(MediaMetadata.METADATA_KEY_TITLE, title)\n      .putString(MediaMetadata.METADATA_KEY_ARTIST, artist)\n      .putString(MediaMetadata.METADATA_KEY_ALBUM, album)\n      .putLong(MediaMetadata.METADATA_KEY_DURATION, durationMs)\n    val bmp = art\n    if (bmp != null) b.putBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART, bmp)\n    session.setMetadata(b.build())\n  }\n\n  private fun loadArt(port: Int, path: String) {\n    Thread {\n      val bmp: Bitmap? =\n        try {\n          val c = URL("http://127.0.0.1:$port$path").openConnection() as HttpURLConnection\n          c.connectTimeout = 3000\n          c.readTimeout = 8000\n          c.inputStream.use { BitmapFactory.decodeStream(it) }\n        } catch (e: Exception) {\n          null\n        }\n      main.post {\n        if (coverPath == path) {\n          art = bmp\n          publishMeta()\n          updateNotification(status == "idle")\n        }\n      }\n    }.start()\n  }\n\n  private fun action(icon: Int, label: String, act: String): Notification.Action {\n    val intent = Intent(this, SoriPlaybackService::class.java).setAction(act)\n    val pi = PendingIntent.getService(this, act.hashCode(), intent, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)\n    return Notification.Action.Builder(Icon.createWithResource(this, icon), label, pi).build()\n  }\n\n  private fun updateNotification(idle: Boolean) {\n    val nm = getSystemService(NotificationManager::class.java)\n    if (idle || title.isEmpty()) {\n      if (foreground) {\n        stopForeground(STOP_FOREGROUND_REMOVE)\n        foreground = false\n      }\n      nm.cancel(NOTE_ID)\n      return\n    }\n    val launch = packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, MainActivity::class.java)\n    val open = PendingIntent.getActivity(this, 0, launch, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)\n    val toggle =\n      if (playing) action(android.R.drawable.ic_media_pause, "일시정지", ACTION_TOGGLE)\n      else action(android.R.drawable.ic_media_play, "재생", ACTION_TOGGLE)\n    val builder = Notification.Builder(this, CHANNEL)\n      .setSmallIcon(R.drawable.ic_stat_sori)\n      .setContentTitle(title)\n      .setContentText(artist)\n      .setSubText(album)\n      .setContentIntent(open)\n      .setOngoing(playing)\n      .setShowWhen(false)\n      .setVisibility(Notification.VISIBILITY_PUBLIC)\n      .setCategory(Notification.CATEGORY_TRANSPORT)\n      .addAction(action(android.R.drawable.ic_media_previous, "이전", ACTION_PREV))\n      .addAction(toggle)\n      .addAction(action(android.R.drawable.ic_media_next, "다음", ACTION_NEXT))\n      .setStyle(Notification.MediaStyle().setMediaSession(session.sessionToken).setShowActionsInCompactView(0, 1, 2))\n    val bmp = art\n    if (bmp != null) builder.setLargeIcon(bmp)\n    val n = builder.build()\n    if (playing) {\n      try {\n        if (Build.VERSION.SDK_INT >= 29) {\n          startForeground(NOTE_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK)\n        } else {\n          startForeground(NOTE_ID, n)\n        }\n        foreground = true\n      } catch (e: Exception) {\n        nm.notify(NOTE_ID, n)\n      }\n    } else {\n      // 멈춰 있으면 밀어서 지울 수 있게 둔다(다시 틀면 앞으로 나온다).\n      if (foreground) {\n        stopForeground(STOP_FOREGROUND_DETACH)\n        foreground = false\n      }\n      nm.notify(NOTE_ID, n)\n    }\n  }\n\n  private fun requestFocus() {\n    if (hasFocus) return\n    var req = focus\n    if (req == null) {\n      val attrs = AudioAttributes.Builder()\n        .setUsage(AudioAttributes.USAGE_MEDIA)\n        .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)\n        .build()\n      req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)\n        .setAudioAttributes(attrs)\n        .setWillPauseWhenDucked(false)\n        .setOnAudioFocusChangeListener(AudioManager.OnAudioFocusChangeListener { change -> onFocus(change) }, main)\n        .build()\n      focus = req\n    }\n    hasFocus = audio.requestAudioFocus(req!!) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED\n  }\n\n  private fun onFocus(change: Int) {\n    when (change) {\n      AudioManager.AUDIOFOCUS_LOSS -> {\n        // 다른 앱이 틀기 시작했다.\n        hasFocus = false\n        pausedByFocus = false\n        control("pause")\n      }\n      AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {\n        // 전화, 길 안내: 잠깐 멈췄다가 돌려받으면 다시 튼다.\n        hasFocus = false\n        if (playing) {\n          pausedByFocus = true\n          control("pause")\n        }\n      }\n      AudioManager.AUDIOFOCUS_GAIN -> {\n        hasFocus = true\n        if (pausedByFocus) {\n          pausedByFocus = false\n          control("play")\n        }\n      }\n    }\n  }\n\n  private fun control(cmd: String, t: Double = 0.0) {\n    val port = port() ?: return\n    Thread {\n      try {\n        val c = URL("http://127.0.0.1:$port/api/player/control").openConnection() as HttpURLConnection\n        c.requestMethod = "POST"\n        c.doOutput = true\n        c.connectTimeout = 2000\n        c.readTimeout = 4000\n        c.setRequestProperty("Content-Type", "application/json")\n        c.outputStream.use { it.write("{\\"cmd\\":\\"$cmd\\",\\"t\\":$t}".toByteArray()) }\n        c.inputStream.close()\n        c.disconnect()\n      } catch (e: Exception) {\n      }\n    }.start()\n  }\n}\n'
 
 root = pathlib.Path(sys.argv[1] if len(sys.argv) > 1 else 'crates/sori-app/gen/android')
+
+UPDATE_PLUGIN = '''package __PKG__
+
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.core.content.FileProvider
+import app.tauri.annotation.Command
+import app.tauri.annotation.InvokeArg
+import app.tauri.annotation.TauriPlugin
+import app.tauri.plugin.Invoke
+import app.tauri.plugin.Plugin
+import java.io.File
+
+@InvokeArg
+class InstallArgs {
+  lateinit var path: String
+}
+
+/**
+ * 자동 업데이트의 마지막 단계. 소리 서버(러스트)가 받아 둔 새 APK를 시스템 설치 창으로 연다.
+ * 안드로이드는 앱이 스스로 설치할 수 없으므로 사용자가 설치를 누른다(같은 서명이라 덮어 설치된다).
+ */
+@TauriPlugin
+class UpdatePlugin(private val activity: Activity) : Plugin(activity) {
+  @Command
+  fun install(invoke: Invoke) {
+    try {
+      val args = invoke.parseArgs(InstallArgs::class.java)
+      val file = File(args.path)
+      if (!file.isFile) {
+        invoke.reject("받아 둔 파일이 없습니다")
+        return
+      }
+      if (Build.VERSION.SDK_INT >= 26 && !activity.packageManager.canRequestPackageInstalls()) {
+        // 처음 한 번: 이 앱이 설치 창을 띄워도 된다고 허락하는 화면으로 보낸다.
+        activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + activity.packageName)))
+        invoke.reject("설정에서 소리의 앱 설치를 허용한 뒤 다시 눌러 주세요")
+        return
+      }
+      val uri = FileProvider.getUriForFile(activity, activity.packageName + ".update", file)
+      val intent = Intent(Intent.ACTION_VIEW)
+        .setDataAndType(uri, "application/vnd.android.package-archive")
+        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+      activity.startActivity(intent)
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject(e.message ?: "설치 창을 열지 못했습니다")
+    }
+  }
+}
+
+/** 설치 창이 받아 둔 APK를 읽게 해 주는 곳. 다른 FileProvider와 겹치지 않게 따로 둔다. */
+class UpdateFileProvider : FileProvider()
+'''
 
 manifest = root / 'app/src/main/AndroidManifest.xml'
 m = manifest.read_text()
@@ -27,6 +86,8 @@ perms = [
     '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
     '<uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />',
     '<uses-permission android:name="android.permission.POST_NOTIFICATIONS" />',
+    # 자동 업데이트: 받아 둔 새 버전의 설치 창을 띄운다(설치는 사용자가 누른다).
+    '<uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />',
 ]
 missing = [p for p in perms if p.split('"')[1] not in m]
 if missing:
@@ -36,6 +97,17 @@ if 'SoriPlaybackService' not in m:
             android:name=".SoriPlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+    </application>''', 1)
+if 'UpdateFileProvider' not in m:
+    m = m.replace('</application>', '''    <provider
+            android:name=".UpdateFileProvider"
+            android:authorities="${applicationId}.update"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/sori_update_paths" />
+        </provider>
     </application>''', 1)
 # 평문 주소(127.0.0.1)를 릴리스에서도 열 수 있게
 m = re.sub(r'android:usesCleartextTraffic="[^"]*"', 'android:usesCleartextTraffic="true"', m)
@@ -109,6 +181,11 @@ class MainActivity : TauriActivity() {{
 
 service = act.parent / 'SoriPlaybackService.kt'
 service.write_text(SERVICE.replace('__PKG__', pkg))
+(act.parent / 'UpdatePlugin.kt').write_text(UPDATE_PLUGIN.replace('__PKG__', pkg))
+paths = root / 'app/src/main/res/xml/sori_update_paths.xml'
+paths.parent.mkdir(parents=True, exist_ok=True)
+# 소리 서버는 새 APK를 앱의 cache/update 아래에 받아 둔다.
+paths.write_text('<?xml version="1.0" encoding="utf-8"?>\n<paths>\n    <cache-path name="update" path="update/" />\n</paths>\n')
 icon = root / 'app/src/main/res/drawable/ic_stat_sori.xml'
 icon.parent.mkdir(parents=True, exist_ok=True)
 icon.write_text('''<vector xmlns:android="http://schemas.android.com/apk/res/android"

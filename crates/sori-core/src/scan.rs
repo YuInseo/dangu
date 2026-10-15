@@ -24,7 +24,7 @@ use crate::ids::{make_id, norm};
 use crate::model::{ReplayGain, ScanPhase, StoredTrack, now_ms};
 
 /// 색인 형식이 바뀌면 올린다. 올리면 처음부터 다시 스캔한다.
-pub const INDEX_VERSION: u32 = 101;
+pub const INDEX_VERSION: u32 = 102;
 
 pub const UNKNOWN_ARTIST: &str = "알 수 없는 아티스트";
 pub const UNKNOWN_ALBUM: &str = "알 수 없는 앨범";
@@ -315,7 +315,9 @@ fn codec_of(ft: FileType, path: &Path) -> &'static str {
                 Some(lofty::mp4::Mp4Codec::ALAC) => "ALAC",
                 Some(lofty::mp4::Mp4Codec::FLAC) => "FLAC",
                 Some(lofty::mp4::Mp4Codec::MP3) => "MP3",
-                _ => "AAC",
+                Some(lofty::mp4::Mp4Codec::AAC) => "AAC",
+                // 태그 읽는 쪽이 모르는 코덱(돌비 E-AC-3·AC-4, Opus …): 디코더 쪽에 진짜 이름을 묻는다.
+                _ => crate::decode::probe_container(path).map(|i| i.codec).unwrap_or("AAC"),
             }
         }
         _ => "PCM",

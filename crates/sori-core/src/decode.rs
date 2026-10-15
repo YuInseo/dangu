@@ -57,6 +57,40 @@ pub trait PcmSource: Send {
     }
 }
 
+/// 엔진이 풀지 못하는 코덱(돌비 E-AC-3 같은 것). 화면은 이때 기기의 디코더로 트는 기본 재생으로 넘긴다.
+#[derive(Debug)]
+pub struct UnsupportedCodec(pub &'static str);
+
+impl std::fmt::Display for UnsupportedCodec {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} 형식은 소리 엔진이 풀 수 없습니다", self.0)
+    }
+}
+
+impl std::error::Error for UnsupportedCodec {}
+
+/// symphonia의 코덱 번호 → 화면에 적을 이름
+pub fn codec_name(id: symphonia::core::codecs::audio::AudioCodecId) -> &'static str {
+    use symphonia::core::codecs::audio::well_known::*;
+    match id {
+        CODEC_ID_OPUS => "Opus",
+        CODEC_ID_VORBIS => "Vorbis",
+        CODEC_ID_AAC => "AAC",
+        CODEC_ID_FLAC => "FLAC",
+        CODEC_ID_ALAC => "ALAC",
+        CODEC_ID_MP3 | CODEC_ID_MP2 | CODEC_ID_MP1 => "MP3",
+        CODEC_ID_AC3 => "AC-3",
+        CODEC_ID_EAC3 => "E-AC-3",
+        CODEC_ID_AC4 => "AC-4",
+        CODEC_ID_WMA => "WMA",
+        CODEC_ID_WAVPACK => "WavPack",
+        CODEC_ID_MONKEYS_AUDIO => "APE",
+        CODEC_ID_SPEEX => "Speex",
+        _ if id < CODEC_ID_VORBIS => "PCM",
+        _ => "알 수 없는 코덱",
+    }
+}
+
 /// 태그를 읽지 못하는 파일(WebM 등)의 형식과 길이. 디코더는 만들지 않는다.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContainerInfo {
@@ -69,7 +103,6 @@ pub struct ContainerInfo {
 }
 
 pub fn probe_container(path: &Path) -> anyhow::Result<ContainerInfo> {
-    use symphonia::core::codecs::audio::well_known::{CODEC_ID_AAC, CODEC_ID_ALAC, CODEC_ID_FLAC, CODEC_ID_MP3, CODEC_ID_VORBIS};
     let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
     let file = File::open(path).with_context(|| format!("열 수 없습니다: {}", path.display()))?;
     let mss = MediaSourceStream::new(Box::new(file), Default::default());
@@ -80,15 +113,7 @@ pub fn probe_container(path: &Path) -> anyhow::Result<ContainerInfo> {
         .map_err(|e| anyhow!("형식을 알 수 없습니다: {e}"))?;
     let track = format.default_track(TrackType::Audio).ok_or_else(|| anyhow!("오디오 트랙이 없습니다"))?.clone();
     let params = track.codec_params.as_ref().and_then(|p| p.audio()).ok_or_else(|| anyhow!("오디오 코덱 정보가 없습니다"))?;
-    let codec = match params.codec {
-        c if c == CODEC_ID_OPUS => "Opus",
-        c if c == CODEC_ID_VORBIS => "Vorbis",
-        c if c == CODEC_ID_AAC => "AAC",
-        c if c == CODEC_ID_FLAC => "FLAC",
-        c if c == CODEC_ID_ALAC => "ALAC",
-        c if c == CODEC_ID_MP3 => "MP3",
-        _ => "PCM",
-    };
+    let codec = codec_name(params.codec);
     let sample_rate = if codec == "Opus" { Some(48_000) } else { params.sample_rate };
     let duration = match (track.num_frames, sample_rate, track.duration, track.time_base) {
         (Some(n), Some(r), _, _) if r > 0 => n.saturating_sub(u64::from(track.delay.unwrap_or(0))) as f64 / f64::from(r),
@@ -147,9 +172,10 @@ impl Dec {
             let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(2);
             return Ok(Dec::Opus(Box::new(OpusDec::new(channels, params.extra_data.as_deref())?)));
         }
-        let d = symphonia::default::get_codecs()
-            .make_audio_decoder(params, &AudioDecoderOptions::default())
-            .map_err(|e| anyhow!("이 코덱은 풀 수 없습니다: {e}"))?;
+        let d = symphonia::default::get_codecs().make_audio_decoder(params, &AudioDecoderOptions::default()).map_err(|e| match e {
+            SymError::Unsupported(_) => anyhow::Error::new(UnsupportedCodec(codec_name(params.codec))),
+            e => anyhow!("이 코덱을 풀 준비를 하지 못했습니다: {e}"),
+        })?;
         Ok(Dec::Sym(d))
     }
 

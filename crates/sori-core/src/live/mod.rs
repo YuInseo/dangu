@@ -507,7 +507,7 @@ pub struct Archive {
     cache: Mutex<HashMap<String, CacheEntry>>,
 }
 
-fn user_agent() -> String {
+pub fn user_agent() -> String {
     format!("Sori/{} (self-hosted music player)", crate::VERSION)
 }
 

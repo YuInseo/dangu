@@ -7,7 +7,7 @@
 //! 주소마다 따로 저장되므로, 포트가 바뀌면 켤 때마다 설정이 사라진 것처럼 보인다.
 
 use std::net::{SocketAddr, TcpListener};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -63,6 +63,41 @@ impl Host for AppHost {
         }
     }
 
+    /// 받아 둔 새 버전을 설치한다.
+    fn install_update(&self, file: &Path) -> anyhow::Result<()> {
+        #[cfg(target_os = "windows")]
+        {
+            // 설치 파일을 진행 막대만 보이는 모드(/P)로 돌리고, 끝나면 앱을 다시 켜게 한다(/R).
+            // 설치 파일이 앱을 바꿔 끼울 수 있게 앱은 곧 닫는다.
+            let args = ["/P", "/UPDATE", "/R"];
+            std::process::Command::new(file)
+                .args(args)
+                .spawn()
+                .or_else(|_| std::process::Command::new("cmd").args(["/C", "start", ""]).arg(file).args(args).spawn())?;
+            let handle = self.handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(800));
+                handle.exit(0);
+            });
+            Ok(())
+        }
+        #[cfg(target_os = "android")]
+        {
+            // 시스템 설치 창을 띄운다(UpdatePlugin.kt). 설치는 사용자가 누른다.
+            let plugin = self.handle.try_state::<UpdatePlugin>().ok_or_else(|| anyhow::anyhow!("설치 창을 띄울 곳이 없습니다"))?;
+            plugin
+                .0
+                .run_mobile_plugin::<serde_json::Value>("install", serde_json::json!({ "path": file.to_string_lossy() }))
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(())
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "android")))]
+        {
+            let _ = file;
+            anyhow::bail!("이 기기에서는 업데이트를 설치할 수 없습니다")
+        }
+    }
+
     fn name(&self) -> &'static str {
         if cfg!(target_os = "android") {
             "android"
@@ -72,6 +107,21 @@ impl Host for AppHost {
             "desktop"
         }
     }
+}
+
+/// 안드로이드: 받아 둔 APK의 설치 창을 띄우는 플러그인(UpdatePlugin.kt)
+#[cfg(target_os = "android")]
+struct UpdatePlugin(tauri::plugin::PluginHandle<tauri::Wry>);
+
+#[cfg(target_os = "android")]
+fn update_plugin() -> tauri::plugin::TauriPlugin<tauri::Wry> {
+    tauri::plugin::Builder::new("sori-update")
+        .setup(|app, api| {
+            let handle = api.register_android_plugin("app.sori.player", "UpdatePlugin")?;
+            app.manage(UpdatePlugin(handle));
+            Ok(())
+        })
+        .build()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -87,8 +137,10 @@ pub fn run() {
         .with(sori_server::logs::layer())
         .try_init();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
+    let builder = tauri::Builder::default().plugin(tauri_plugin_dialog::init());
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(update_plugin());
+    builder
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             let music_dir = default_music_dir(app);

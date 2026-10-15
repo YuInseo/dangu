@@ -40,7 +40,7 @@ interface ServerState {
   resampling: [number, number] | null;
   underruns: number;
   seq: number;
-  events: [number, { type: 'advanced' | 'ended' | 'error'; uid?: string | null; message?: string; output?: boolean }][];
+  events: [number, { type: 'advanced' | 'ended' | 'error'; uid?: string | null; message?: string; output?: boolean; codec?: string | null }][];
 }
 
 /** 라이브 곡: 공연 ID에는 `/`가 없으니 키(`live:<공연>/<파일>`)의 첫 `/`에서 나눈다(예전에 저장한 대기열). */
@@ -84,7 +84,7 @@ export class NativeEngine implements PlaybackEngine {
   readonly zone = 'native';
   canTranscode = true;
   onEnded: (() => void) | null = null;
-  onError: ((message: string, output?: boolean) => void) | null = null;
+  onError: ((message: string, output?: boolean, codec?: string | null) => void) | null = null;
   onAdvanced: ((uid: string) => void) | null = null;
   dspFor: ((item: QueueItem) => DspPlan | null) | null = null;
 
@@ -171,7 +171,7 @@ export class NativeEngine implements PlaybackEngine {
         this.onAdvanced?.(ev.uid);
       }
       else if (ev.type === 'ended') this.onEnded?.();
-      else if (ev.type === 'error') this.onError?.(ev.message ?? '재생하지 못했습니다', ev.output === true);
+      else if (ev.type === 'error') this.onError?.(ev.message ?? '재생하지 못했습니다', ev.output === true, ev.codec ?? null);
     }
     this.output = st.output;
     this.source = st.source;

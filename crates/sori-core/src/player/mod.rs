@@ -126,6 +126,8 @@ pub enum Event {
         message: String,
         /// 오디오 장치가 문제다(곡이 아니라). 화면은 다른 재생 방법으로 바꿀 수 있다.
         output: bool,
+        /// 엔진이 풀지 못하는 코덱이면 그 이름. 화면은 이 곡만 기기의 디코더로 틀 수 있다.
+        codec: Option<String>,
     },
 }
 
@@ -556,7 +558,7 @@ impl Render {
                     s.paused.store(true, Ordering::Relaxed);
                 }
                 self.set_status(Status::Error, Some(e.to_string()));
-                self.emit(Event::Error { uid, message: e.to_string(), output: false });
+                self.emit(Event::Error { uid, message: e.to_string(), output: false, codec: None });
             }
             self.update_state();
             self.watchdog();
@@ -604,8 +606,9 @@ impl Render {
         if let Some(s) = &self.shared {
             s.paused.store(true, Ordering::Relaxed);
         }
+        let codec = e.downcast_ref::<crate::decode::UnsupportedCodec>().map(|c| c.0.to_string());
         self.set_status(Status::Error, Some(e.to_string()));
-        self.emit(Event::Error { uid, message: e.to_string(), output: false });
+        self.emit(Event::Error { uid, message: e.to_string(), output: false, codec });
     }
 
     /// 오디오 장치를 쓸 수 없다. 멈추고 화면에 알린다.
@@ -615,7 +618,7 @@ impl Render {
         self.want_play = false;
         self.recoveries = 0;
         self.set_status(Status::Error, Some(message.clone()));
-        self.emit(Event::Error { uid, message, output: true });
+        self.emit(Event::Error { uid, message, output: true, codec: None });
     }
 
     /// 장치가 소리를 가져가는지 지켜본다. 넣은 소리가 있는데 몇 초 동안 한 프레임도 가져가지 않거나

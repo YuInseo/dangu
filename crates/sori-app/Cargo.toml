@@ -24,6 +24,7 @@ sori-server = { workspace = true, features = ["device"] }
 anyhow.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+serde_json.workspace = true
 tauri = { version = "2.12", features = [] }
 tauri-plugin-dialog = "2.8"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

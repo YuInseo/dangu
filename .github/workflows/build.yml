@@ -13,6 +13,8 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   CARGO_INCREMENTAL: 0
+  # 앱이 자기 빌드를 안다(자동 업데이트가 릴리스의 latest.json과 견준다).
+  SORI_BUILD: ${{ github.sha }}
 
 jobs:
   test:
@@ -63,6 +65,9 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
+      - name: 빌드 시각
+        shell: bash
+        run: echo "SORI_BUILD_TIME=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -132,6 +137,8 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v4
+      - name: 빌드 시각
+        run: echo "SORI_BUILD_TIME=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -195,6 +202,7 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           name: Sori-android
@@ -207,11 +215,16 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+          NOTES: ${{ github.event.head_commit.message }}
         run: |
           mkdir -p up
           cp dist/android/Sori.apk up/Sori-android.apk
           find dist/windows -name '*-setup.exe' -exec cp {} up/ \;
           find dist/windows -name '*.msi' -exec cp {} up/ \;
+          # 앱의 자동 업데이트가 보는 것: 빌드, 시각, 파일별 주소·크기·SHA-256
+          BUILD_TIME=$(git log -1 --format=%ct) python3 ci/latest-json.py up > latest.json
+          mv latest.json up/
+          cat up/latest.json
           ls -la up
           cat > notes.md <<NOTES
           \`sori\` 브랜치의 최신 빌드 (${GITHUB_SHA::7}). 커밋마다 새로 만들어진다.

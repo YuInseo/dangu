@@ -140,3 +140,34 @@ fn webm_files_are_listed() {
     let (spec, pcm) = sori_core::decode::decode_all(&path).unwrap();
     assert!((pcm.len() as f64 / spec.channels as f64 / spec.rate as f64 - 3.0).abs() < 0.05);
 }
+
+/// 돌비(E-AC-3) m4a: 형식을 AAC라고 잘못 적지 않고, 엔진은 "못 푸는 코덱"이라고 구분해 알린다.
+#[test]
+fn dolby_files_are_named_and_reported_as_unsupported() {
+    if !common::has_ffmpeg() {
+        return;
+    }
+    let music = tempfile::tempdir().unwrap();
+    let p = music.path().join("Over the Horizon.m4a");
+    let ok = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=2", "-ac", "2", "-c:a", "eac3", "-b:a", "384k"])
+        .arg(&p)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !ok {
+        return;
+    }
+    let data = tempfile::tempdir().unwrap();
+    let store = Store::open(Config::new(music.path().to_path_buf(), data.path()));
+    store.set_analysis_speed(sori_core::model::AnalysisSpeed::Off);
+    store.start_scan();
+    assert!(store.wait_for_scan(Duration::from_secs(60)));
+    let lib = store.library();
+    let t = lib.views.values().next().expect("목록에 없다");
+    assert_eq!(t.format.codec, "E-AC-3");
+    assert!(t.format.mime.contains("ec-3"), "{}", t.format.mime);
+    let err = sori_core::decode::open(&p).err().expect("엔진은 E-AC-3을 풀지 못한다");
+    let codec = err.downcast_ref::<sori_core::decode::UnsupportedCodec>().map(|c| c.0);
+    assert_eq!(codec, Some("E-AC-3"), "{err}");
+}

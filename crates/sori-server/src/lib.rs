@@ -10,6 +10,7 @@ pub mod live;
 pub mod logs;
 pub mod media;
 pub mod player;
+pub mod update;
 pub mod wav;
 
 use std::net::SocketAddr;
@@ -26,6 +27,11 @@ pub trait Host: Send + Sync {
     fn pick_folder(&self, start: Option<PathBuf>) -> Option<PathBuf>;
     /// "windows", "android" …
     fn name(&self) -> &'static str;
+    /// 받아 둔 새 버전을 설치한다. 윈도우는 설치 파일을 돌리고 앱을 닫고, 안드로이드는 설치 창을 띄운다.
+    fn install_update(&self, file: &std::path::Path) -> anyhow::Result<()> {
+        let _ = file;
+        anyhow::bail!("이 기기에서는 업데이트를 설치할 수 없습니다")
+    }
 }
 
 #[derive(Clone)]
@@ -44,6 +50,8 @@ pub struct App {
     pub link: Arc<link::Link>,
     /// 좋아요와 플레이리스트
     pub collections: Arc<sori_core::collections::Collections>,
+    /// 자동 업데이트(앱 안에서만 움직인다)
+    pub updater: Arc<update::Updater>,
 }
 
 impl App {
@@ -51,6 +59,7 @@ impl App {
         let irs = Arc::new(sori_core::dsp::ir::IrStore::new(&store.config.data_dir));
         let link = Arc::new(link::Link::open(&store.config.data_dir));
         let collections = Arc::new(sori_core::collections::Collections::open(&store.config.data_dir));
+        let updater = Arc::new(update::Updater::new(&store.config.data_dir));
         App {
             store,
             password: Arc::new(password),
@@ -61,6 +70,7 @@ impl App {
             live: Arc::new(sori_core::live::Archive::from_env()),
             link,
             collections,
+            updater,
         }
     }
 
@@ -90,6 +100,7 @@ pub fn router(app: App) -> Router {
         .merge(link::routes())
         .merge(collections::routes())
         .merge(logs::routes())
+        .merge(update::routes())
         .merge(auth::routes())
         .fallback(embed::serve)
         // 오디오는 이미 압축돼 있거나(FLAC, MP3) 받는 쪽이 길이를 알아야 하므로(Range) 압축하지 않는다.
@@ -105,6 +116,7 @@ pub async fn serve(app: App, addr: SocketAddr, ready: Option<tokio::sync::onesho
     tracing::info!("소리가 http://{local} 에서 기다립니다");
     // 같은 와이파이에 열기(선택): 서버 실행 파일은 처음부터 열려 있고, 앱은 설정대로.
     link::init(&app, local).await;
+    update::start(&app);
     if let Some(tx) = ready {
         let _ = tx.send(local);
     }

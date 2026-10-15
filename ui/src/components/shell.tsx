@@ -12,6 +12,7 @@ import { PlaylistPicker } from './playlist-picker';
 import { QueuePanel } from './queue-panel';
 import { MobileNav, Sidebar } from './sidebar';
 import { Topbar } from './topbar';
+import { UpdateBanner } from './update';
 
 function typing(target: EventTarget | null) {
   const el = target as HTMLElement | null;
@@ -119,6 +120,7 @@ export function Shell({ children, status, summary }: { children: ReactNode; stat
       <NowPlaying />
       <MobileNav />
       <PlaylistPicker />
+      <UpdateBanner />
     </div>
   );
 }

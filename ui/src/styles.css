@@ -5379,3 +5379,51 @@ button.zone-btn {
 .log-time {
   color: var(--text-3);
 }
+
+/* 새 버전 알림 띠 */
+.update-bar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--player-h) + var(--nav-h) + var(--safe-bottom) + 14px);
+  transform: translateX(-50%);
+  z-index: 55;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: min(560px, calc(100vw - 24px));
+  padding: 10px 10px 10px 16px;
+  border-radius: 14px;
+  background: var(--bg-pop);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.5);
+  animation: pop 0.2s ease-out;
+}
+
+.update-bar > svg {
+  flex: none;
+  color: var(--accent-strong);
+}
+
+.update-bar-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.update-bar-sub {
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.update-auto {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: 13.5px;
+  color: var(--text-2);
+}

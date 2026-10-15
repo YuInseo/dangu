@@ -4275,6 +4275,7 @@ name = "sori-app"
 version = "0.2.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "sori-core",
  "sori-server",
  "tauri",

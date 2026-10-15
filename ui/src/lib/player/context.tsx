@@ -216,6 +216,8 @@ export function PlayerProvider({
 
   /** 다음에 곡을 걸 때 바로 틀지, 어디서부터 틀지. 동작마다 정해 두고 한 번 쓴다. */
   const loadReq = useRef<{ autoplay: boolean; at: number } | null>(null);
+  /** 엔진이 풀지 못해 기본 재생(기기의 디코더)으로 잠시 넘긴 곡. 다른 곡으로 가면 엔진으로 돌아온다. */
+  const fallbackRef = useRef<string | null>(null);
   const restored = useRef(false);
   const [outputRate, setOutputRate] = useState<number | null>(null);
   const [probes, setProbes] = useState<Record<string, Partial<AudioFormat>>>({});
@@ -291,6 +293,14 @@ export function PlayerProvider({
       engine.stop();
       return;
     }
+    // 기본 재생으로 잠시 넘겼던 곡에서 다른 곡으로 왔다: 소리 엔진으로 돌아가서 건다.
+    if (fallbackRef.current && fallbackRef.current !== current.uid && engine.kind === 'browser' && nativeAvailable) {
+      fallbackRef.current = null;
+      loadReq.current = { autoplay: loadReq.current?.autoplay ?? engine.playing, at: loadReq.current?.at ?? 0 };
+      engine.pause();
+      setZoneState('native');
+      return;
+    }
     const req = loadReq.current ?? { autoplay: engine.playing, at: 0 };
     loadReq.current = null;
     engine.load(current, req);
@@ -327,6 +337,8 @@ export function PlayerProvider({
   });
   useEffect(() => {
     engine.dspFor = (item) => {
+      // 기기의 디코더로 잠시 넘긴 곡은 원본 그대로(서버의 DSP는 그 형식을 풀지 못한다).
+      if (fallbackRef.current === item.uid) return null;
       const s = stateRef.current;
       const i = s.items.findIndex((x) => x.uid === item.uid);
       const albumId = item.track.albumId;
@@ -408,10 +420,20 @@ export function PlayerProvider({
       loadReq.current = { autoplay: true, at: 0 };
       dispatch({ type: 'jump', index: n });
     };
-    engine.onError = (message, output) => {
+    engine.onError = (message, output, codec) => {
+      if (engine.kind === 'native' && codec) {
+        // 엔진이 풀지 못하는 형식(돌비 E-AC-3 같은 것): 이 곡만 기기의 디코더(기본 재생)로 튼다.
+        const s = stateRef.current;
+        toast(`${codec} 형식은 소리 엔진이 풀 수 없어 이 곡은 기본 재생으로 틉니다`);
+        fallbackRef.current = s.items[s.index]?.uid ?? null;
+        if (s.items.length) loadReq.current = { autoplay: true, at: 0 };
+        setZoneState('browser');
+        return;
+      }
       // 이 기기의 오디오 장치가 소리를 내지 못한다: 기본 재생(이 화면이 직접 트는 것)으로 바꿔 이어 튼다.
       if (output && engine.kind === 'native') {
         toast(`${message} · 기본 재생으로 바꿔 이어 틉니다`, 'error');
+        fallbackRef.current = null;
         if (stateRef.current.items.length) loadReq.current = { autoplay: true, at: engine.currentTime };
         writeJSON('sori.zone', 'browser');
         setZoneState('browser');
@@ -479,6 +501,7 @@ export function PlayerProvider({
     return {
       engine,
       setZone(next) {
+        fallbackRef.current = null;
         const old = engineRef.current;
         if (old.kind === next) return;
         const at = old.currentTime;

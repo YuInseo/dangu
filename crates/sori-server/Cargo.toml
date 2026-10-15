@@ -39,8 +39,9 @@ sha2 = "0.10"
 base64 = "0.22"
 rand = "0.9"
 httpdate = "1"
+# 자동 업데이트: 릴리스의 latest.json과 설치 파일을 받는다
+ureq = "3.4.2"
 
 [dev-dependencies]
 tempfile = "3"
-ureq = "3.4.2"
 hound = "3.5"

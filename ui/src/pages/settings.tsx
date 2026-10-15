@@ -7,6 +7,7 @@ import { GeneralPrefs, PlayPrefs } from '@/components/prefs-client';
 import { AnalysisCard, FormatSupport, RescanCard, ZoneCard } from '@/components/settings-client';
 import { SettingsNav } from '@/components/settings-nav';
 import { useToast } from '@/components/toast';
+import { UpdateCard } from '@/components/update';
 import { bytes, count, span } from '@/lib/time';
 import { useLibraryInfo } from '@/library';
 
@@ -240,6 +241,7 @@ export function AboutSettings() {
           Sori {info.version} · {info.platform}
         </div>
       </div>
+      <UpdateCard />
       <div className="pref-row">
         <div className="pref-label">단축키</div>
         <div className="pref-value keys">
