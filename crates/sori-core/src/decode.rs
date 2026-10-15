@@ -57,11 +57,70 @@ pub trait PcmSource: Send {
     }
 }
 
+/// 태그를 읽지 못하는 파일(WebM 등)의 형식과 길이. 디코더는 만들지 않는다.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ContainerInfo {
+    pub codec: &'static str,
+    pub sample_rate: Option<u32>,
+    pub channels: Option<u32>,
+    pub bits: Option<u32>,
+    /// 초
+    pub duration: f64,
+}
+
+pub fn probe_container(path: &Path) -> anyhow::Result<ContainerInfo> {
+    use symphonia::core::codecs::audio::well_known::{CODEC_ID_AAC, CODEC_ID_ALAC, CODEC_ID_FLAC, CODEC_ID_MP3, CODEC_ID_VORBIS};
+    let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
+    let file = File::open(path).with_context(|| format!("열 수 없습니다: {}", path.display()))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    hint.with_extension(if ext == "weba" { "webm" } else { &ext });
+    let mut format = symphonia::default::get_probe()
+        .probe(&hint, mss, FormatOptions::default(), MetadataOptions::default())
+        .map_err(|e| anyhow!("형식을 알 수 없습니다: {e}"))?;
+    let track = format.default_track(TrackType::Audio).ok_or_else(|| anyhow!("오디오 트랙이 없습니다"))?.clone();
+    let params = track.codec_params.as_ref().and_then(|p| p.audio()).ok_or_else(|| anyhow!("오디오 코덱 정보가 없습니다"))?;
+    let codec = match params.codec {
+        c if c == CODEC_ID_OPUS => "Opus",
+        c if c == CODEC_ID_VORBIS => "Vorbis",
+        c if c == CODEC_ID_AAC => "AAC",
+        c if c == CODEC_ID_FLAC => "FLAC",
+        c if c == CODEC_ID_ALAC => "ALAC",
+        c if c == CODEC_ID_MP3 => "MP3",
+        _ => "PCM",
+    };
+    let sample_rate = if codec == "Opus" { Some(48_000) } else { params.sample_rate };
+    let duration = match (track.num_frames, sample_rate, track.duration, track.time_base) {
+        (Some(n), Some(r), _, _) if r > 0 => n.saturating_sub(u64::from(track.delay.unwrap_or(0))) as f64 / f64::from(r),
+        (_, _, Some(d), Some(tb)) => tb.calc_time_saturating(symphonia::core::units::Timestamp::new(d.get() as i64)).as_secs_f64(),
+        (_, _, _, Some(tb)) => {
+            // 컨테이너가 길이를 알려 주지 않는다(WebM). 끝까지 패킷만 훑어(풀지는 않는다) 마지막 시각을 본다.
+            let mut end = 0i64;
+            while let Ok(Some(p)) = format.next_packet() {
+                if p.track_id == track.id {
+                    end = end.max(p.pts.get() + p.dur.get() as i64);
+                }
+            }
+            tb.calc_time_saturating(symphonia::core::units::Timestamp::new(end)).as_secs_f64()
+        }
+        _ => 0.0,
+    };
+    Ok(ContainerInfo {
+        codec,
+        sample_rate,
+        channels: params.channels.as_ref().map(|c| c.count() as u32),
+        bits: params.bits_per_sample,
+        duration,
+    })
+}
+
 pub fn open(path: &Path) -> anyhow::Result<Box<dyn PcmSource>> {
     let ext = path.extension().map(|e| e.to_string_lossy().to_lowercase()).unwrap_or_default();
     if ext == "dsf" || ext == "dff" {
         return Ok(Box::new(DsdSource::open(path)?));
     }
+    // .weba는 WebM이다(이름만 다르다).
+    let ext = if ext == "weba" { "webm".to_string() } else { ext };
     Ok(Box::new(SymphoniaSource::open(path, &ext)?))
 }
 

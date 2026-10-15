@@ -349,6 +349,23 @@ fn probe_file(path: &Path, ext: &str) -> Option<Probed> {
             tags,
         });
     }
+    if crate::formats::needs_container_probe(ext) {
+        // 태그는 못 읽으니 이름은 파일 이름에서, 형식과 길이는 컨테이너에서.
+        let info = crate::decode::probe_container(path).ok()?;
+        return Some(Probed {
+            facts: FormatFacts {
+                codec: info.codec,
+                sample_rate: info.sample_rate,
+                bit_depth: info.bits,
+                bitrate: (info.duration > 0.0)
+                    .then(|| std::fs::metadata(path).ok().map(|m| (m.len() as f64 * 8.0 / info.duration) as u32))
+                    .flatten(),
+                channels: info.channels,
+            },
+            duration: info.duration,
+            tags: Tags::default(),
+        });
+    }
     let file = Probe::open(path).ok()?.guess_file_type().ok()?.options(ParseOptions::new().read_cover_art(false)).read().ok()?;
     let props = file.properties();
     let mut ordered: Vec<&Tag> = Vec::new();

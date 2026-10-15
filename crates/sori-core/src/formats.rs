@@ -2,8 +2,15 @@
 
 use crate::model::AudioFormat;
 
-pub const AUDIO_EXTENSIONS: &[&str] =
-    &["flac", "mp3", "m4a", "mp4", "aac", "wav", "aif", "aiff", "aifc", "ogg", "oga", "opus", "wv", "ape", "dsf", "dff"];
+pub const AUDIO_EXTENSIONS: &[&str] = &[
+    "flac", "mp3", "m4a", "mp4", "aac", "wav", "aif", "aiff", "aifc", "ogg", "oga", "opus", "wv", "ape", "dsf", "dff", "webm", "weba",
+    "mka",
+];
+
+/// 태그 읽는 쪽(lofty)이 모르는 컨테이너. 길이와 형식은 디코더 쪽(symphonia)으로 읽는다.
+pub fn needs_container_probe(ext: &str) -> bool {
+    matches!(ext, "webm" | "weba" | "mka")
+}
 
 pub fn is_audio_ext(ext: &str) -> bool {
     AUDIO_EXTENSIONS.contains(&ext)
@@ -26,6 +33,13 @@ pub fn mime_for(codec: &str, ext: &str) -> &'static str {
         "ALAC" => "audio/mp4; codecs=\"alac\"",
         "WAV" => "audio/wav",
         "AIFF" => "audio/aiff",
+        "Opus" | "Vorbis" if ext == "webm" || ext == "weba" => {
+            if codec == "Opus" {
+                "audio/webm; codecs=\"opus\""
+            } else {
+                "audio/webm; codecs=\"vorbis\""
+            }
+        }
         "Vorbis" => "audio/ogg; codecs=\"vorbis\"",
         "Opus" => "audio/ogg; codecs=\"opus\"",
         "WavPack" => "audio/x-wavpack",
