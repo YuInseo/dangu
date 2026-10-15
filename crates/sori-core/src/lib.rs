@@ -14,6 +14,7 @@ pub mod dsp;
 pub mod formats;
 pub mod ids;
 pub mod library;
+pub mod live;
 pub mod model;
 pub mod player;
 pub mod quality;

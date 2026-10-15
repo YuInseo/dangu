@@ -56,5 +56,6 @@ export function fromLive(show: Pick<LiveShow, 'id' | 'band' | 'title' | 'date' |
     dspSrc: `/api/live/stream?id=${encodeURIComponent(show.id)}&file=${encodeURIComponent(t.file)}&`,
     art: { seed: show.id, title: show.band, subtitle: when || undefined },
     probe: t.format.codec === 'FLAC' ? { id: show.id, file: t.file } : undefined,
+    live: { id: show.id, file: t.file },
   };
 }

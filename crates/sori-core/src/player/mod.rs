@@ -35,8 +35,8 @@ use output::{OutSpec, Output, Shared};
 pub enum PlaySource {
     /// 라이브러리의 곡
     Library { id: String },
-    /// 주소(라이브 아카이브)
-    Url { url: String },
+    /// 라이브 아카이브의 곡(공연 ID와 그 안의 파일). 주소는 서버가 만든다.
+    Live { id: String, file: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -49,6 +49,13 @@ pub struct PlayItem {
     pub dsp: Option<String>,
 }
 
+impl PlayItem {
+    /// 네트워크에서 받는 곡이면 여는 일을 재생 스레드 밖에서 한다.
+    pub fn is_remote(&self) -> bool {
+        matches!(self.source, PlaySource::Live { .. })
+    }
+}
+
 /// 곡을 연 결과. 라우드니스는 볼륨 레벨링이 쓴다.
 pub struct Opened {
     pub source: Box<dyn PcmSource>,
@@ -57,15 +64,25 @@ pub struct Opened {
 
 pub type Resolver = Arc<dyn Fn(&PlayItem) -> anyhow::Result<Opened> + Send + Sync>;
 
-/// 라이브러리의 곡을 여는 기본 방법.
+fn open_library(store: &crate::Store, id: &str) -> anyhow::Result<Opened> {
+    let (path, _) = store.track_file(id).ok_or_else(|| anyhow::anyhow!("라이브러리에 없는 곡입니다"))?;
+    let loudness = store.library().views.get(id).and_then(|t| t.loudness.clone());
+    Ok(Opened { source: crate::decode::open(&path)?, loudness })
+}
+
+/// 라이브러리의 곡만 여는 방법.
 pub fn library_resolver(store: Arc<crate::Store>) -> Resolver {
     Arc::new(move |item: &PlayItem| match &item.source {
-        PlaySource::Library { id } => {
-            let (path, _) = store.track_file(id).ok_or_else(|| anyhow::anyhow!("라이브러리에 없는 곡입니다"))?;
-            let loudness = store.library().views.get(id).and_then(|t| t.loudness.clone());
-            Ok(Opened { source: crate::decode::open(&path)?, loudness })
-        }
-        PlaySource::Url { .. } => anyhow::bail!("라이브 아카이브는 아직 이 기기에서 직접 틀 수 없습니다"),
+        PlaySource::Library { id } => open_library(&store, id),
+        PlaySource::Live { .. } => anyhow::bail!("라이브 아카이브를 열 수 없습니다"),
+    })
+}
+
+/// 라이브러리의 곡과 라이브 아카이브의 곡(받으면서 푼다)을 여는 기본 방법.
+pub fn resolver(store: Arc<crate::Store>, archive: Arc<crate::live::Archive>) -> Resolver {
+    Arc::new(move |item: &PlayItem| match &item.source {
+        PlaySource::Library { id } => open_library(&store, id),
+        PlaySource::Live { id, file } => Ok(Opened { source: archive.open(id, file)?, loudness: None }),
     })
 }
 pub type OutputFactory = Box<dyn FnOnce() -> Box<dyn Output> + Send>;
@@ -147,7 +164,28 @@ enum Cmd {
         volume: f64,
         muted: bool,
     },
+    /// 뒤에서 하던 일(네트워크 곡 열기·시크)이 끝났다.
+    Job(Box<JobDone>),
     Shutdown,
+}
+
+/// 렌더 스레드를 막지 않으려고 따로 하는 일.
+#[derive(Clone, Copy, Debug)]
+enum JobKind {
+    /// 열고(필요하면 그 위치로 가서) 지금 곡으로 건다.
+    Load { at: f64 },
+    /// 다음 곡으로 미리 열어 둔다.
+    Preload,
+    /// 지금 곡을 그 위치로(곡을 잠시 빌려 간다).
+    Seek { t: f64 },
+}
+
+struct JobDone {
+    token: u64,
+    kind: JobKind,
+    deck: anyhow::Result<Deck>,
+    /// 시크했다면 그 결과(간 프레임)
+    seeked: Option<anyhow::Result<u64>>,
 }
 
 /// 링에 넣은 구간 하나: 이 절대 프레임부터는 이 곡의 이 위치다.
@@ -202,6 +240,34 @@ impl Deck {
     }
 }
 
+fn open_deck(resolver: &Resolver, item: &PlayItem) -> anyhow::Result<Deck> {
+    let opened = resolver(item)?;
+    let spec = opened.source.spec().clone();
+    let duration = spec.duration().unwrap_or(0.0);
+    let mut d = Deck {
+        item: item.clone(),
+        source: opened.source,
+        req: None,
+        loudness: opened.loudness,
+        gain: 1.0,
+        gain_db: 0.0,
+        spec,
+        frames_read: 0,
+        duration,
+    };
+    d.apply_request(item.dsp.clone());
+    Ok(d)
+}
+
+/// 곡을 `t`초로. 실제로 간 프레임을 돌려준다.
+fn seek_deck(d: &mut Deck, t: f64) -> anyhow::Result<u64> {
+    let frame = (t.max(0.0) * d.spec.rate as f64).round() as u64;
+    let frame = d.spec.frames.map(|f| frame.min(f)).unwrap_or(frame);
+    let at = d.source.seek(frame)?;
+    d.frames_read = at;
+    Ok(at)
+}
+
 pub struct Player {
     tx: Sender<Cmd>,
     pub clips: Arc<Clips>,
@@ -234,10 +300,11 @@ impl Player {
         }));
         let st = state.clone();
         let cl = clips.clone();
+        let jobs = tx.clone();
         let thread = std::thread::Builder::new()
             .name("sori-render".into())
             .spawn(move || {
-                let mut r = Render::new(factory(), resolver, rx, st);
+                let mut r = Render::new(factory(), resolver, rx, jobs, st);
                 r.irs = irs;
                 r.clips = cl;
                 r.run()
@@ -296,6 +363,17 @@ struct Render {
     output: Box<dyn Output>,
     resolver: Resolver,
     rx: Receiver<Cmd>,
+    /// 뒤에서 하는 일이 끝나면 여기로 알린다.
+    jobs: Sender<Cmd>,
+    job_seq: u64,
+    /// 지금 곡을 열거나 시크하는 일(이것이 끝나야 지금 곡이 있다)
+    job: Option<u64>,
+    /// 그 일의 곡(그사이 DSP가 바뀌면 여기에 적어 둔다)
+    job_item: Option<PlayItem>,
+    /// 그 일이 끝나면 갈 위치(그사이 사용자가 또 시크했다)
+    queued_seek: Option<f64>,
+    /// 다음 곡을 미리 여는 일
+    preload_job: Option<(u64, String)>,
     state: Arc<Mutex<PlayerState>>,
     shared: Option<Arc<Shared>>,
     producer: Option<rtrb::Producer<f64>>,
@@ -329,11 +407,17 @@ struct Render {
 }
 
 impl Render {
-    fn new(output: Box<dyn Output>, resolver: Resolver, rx: Receiver<Cmd>, state: Arc<Mutex<PlayerState>>) -> Self {
+    fn new(output: Box<dyn Output>, resolver: Resolver, rx: Receiver<Cmd>, jobs: Sender<Cmd>, state: Arc<Mutex<PlayerState>>) -> Self {
         Render {
             output,
             resolver,
             rx,
+            jobs,
+            job_seq: 0,
+            job: None,
+            job_item: None,
+            queued_seek: None,
+            preload_job: None,
             state,
             shared: None,
             producer: None,
@@ -415,23 +499,251 @@ impl Render {
         self.output.close();
     }
 
-    fn open_deck(&self, item: &PlayItem) -> anyhow::Result<Deck> {
-        let opened = (self.resolver)(item)?;
-        let spec = opened.source.spec().clone();
-        let duration = spec.duration().unwrap_or(0.0);
-        let mut d = Deck {
-            item: item.clone(),
-            source: opened.source,
-            req: None,
-            loudness: opened.loudness,
-            gain: 1.0,
-            gain_db: 0.0,
-            spec,
-            frames_read: 0,
-            duration,
+    /// 뒤에서 곡을 열거나(deck이 없으면) 시크한다. 끝나면 `Cmd::Job`이 온다.
+    fn spawn_job(&mut self, kind: JobKind, item: PlayItem, deck: Option<Deck>) -> u64 {
+        self.job_seq += 1;
+        let token = self.job_seq;
+        let resolver = self.resolver.clone();
+        let tx = self.jobs.clone();
+        let work = move || {
+            let mut seeked = None;
+            let deck = match deck {
+                Some(d) => Ok(d),
+                None => open_deck(&resolver, &item),
+            }
+            .map(|mut d| {
+                match kind {
+                    JobKind::Load { at } if at > 0.0 => seeked = Some(seek_deck(&mut d, at)),
+                    JobKind::Seek { t } => seeked = Some(seek_deck(&mut d, t)),
+                    _ => {}
+                }
+                d
+            });
+            let _ = tx.send(Cmd::Job(Box::new(JobDone { token, kind, deck, seeked })));
         };
-        d.apply_request(item.dsp.clone());
-        Ok(d)
+        if let Err(e) = std::thread::Builder::new().name("sori-open".into()).spawn(work) {
+            tracing::warn!("여는 스레드를 만들 수 없습니다: {e}");
+        }
+        token
+    }
+
+    fn cancel_job(&mut self) {
+        self.job = None;
+        self.job_item = None;
+        self.queued_seek = None;
+    }
+
+    fn load_failed(&mut self, uid: Option<String>, e: &anyhow::Error) {
+        self.current = None;
+        self.want_play = false;
+        if let Some(s) = &self.shared {
+            s.paused.store(true, Ordering::Relaxed);
+        }
+        self.set_status(Status::Error, Some(e.to_string()));
+        self.emit(Event::Error { uid, message: e.to_string() });
+    }
+
+    /// 다음 곡을 미리 연다. 네트워크 곡은 뒤에서.
+    fn preload(&mut self, it: PlayItem) {
+        if self.next.as_ref().is_some_and(|n| n.item.uid == it.uid)
+            || self.current.as_ref().is_some_and(|c| c.item.uid == it.uid)
+            || self.preload_job.as_ref().is_some_and(|(_, uid)| *uid == it.uid)
+            || self.job_item.as_ref().is_some_and(|j| j.uid == it.uid)
+        {
+            return;
+        }
+        self.next = None;
+        self.preload_job = None;
+        if it.is_remote() {
+            let uid = it.uid.clone();
+            let token = self.spawn_job(JobKind::Preload, it, None);
+            self.preload_job = Some((token, uid));
+        } else {
+            self.next = open_deck(&self.resolver, &it).ok();
+            // 지금 곡을 이미 다 읽고 기다리던 중이면 바로 이어 붙인다.
+            if self.draining {
+                self.draining = false;
+            }
+        }
+    }
+
+    /// 네트워크 곡: 지금 것을 멈추고 뒤에서 연다. 다 열리면 `finish_load`.
+    fn begin_remote_load(&mut self, item: PlayItem, at: f64) {
+        if let Err(e) = self.ensure_output() {
+            self.set_status(Status::Error, Some(format!("출력 장치를 열 수 없습니다: {e}")));
+            self.emit(Event::Error { uid: Some(item.uid), message: e.to_string() });
+            return;
+        }
+        self.flush_ring();
+        self.resampler = None;
+        self.current = None;
+        self.draining = false;
+        self.chain = None;
+        if let Some(s) = &self.shared {
+            s.paused.store(true, Ordering::Relaxed);
+        }
+        // 다음 곡으로 미리 열던 것이 바로 이 곡이면 그것을 기다린다.
+        let token = match self.preload_job.take() {
+            Some((t, uid)) if uid == item.uid && at == 0.0 => t,
+            other => {
+                self.preload_job = other;
+                self.spawn_job(JobKind::Load { at }, item.clone(), None)
+            }
+        };
+        self.job = Some(token);
+        self.job_item = Some(item.clone());
+        self.reported_uid = Some(item.uid.clone());
+        let mut s = self.state.lock();
+        s.uid = Some(item.uid);
+        s.position = at;
+        s.duration = 0.0;
+        s.source = None;
+        s.seq += 1;
+    }
+
+    /// 네트워크 곡의 시크: 곡을 뒤로 넘겨 시크하고 돌려받는다.
+    fn begin_remote_seek(&mut self, t: f64) {
+        let Some(d) = self.current.take() else { return };
+        if let Some(s) = &self.shared {
+            s.paused.store(true, Ordering::Relaxed);
+        }
+        let item = d.item.clone();
+        self.job_item = Some(item.clone());
+        self.job = Some(self.spawn_job(JobKind::Seek { t }, item, Some(d)));
+        let mut s = self.state.lock();
+        s.position = t;
+        s.seq += 1;
+    }
+
+    /// 곡이 열렸다: 지금 곡으로 건다.
+    fn finish_load(&mut self, deck: Deck, item: PlayItem, at: f64, seeked: Option<anyhow::Result<u64>>) {
+        if let Err(e) = self.ensure_output() {
+            self.set_status(Status::Error, Some(format!("출력 장치를 열 수 없습니다: {e}")));
+            self.emit(Event::Error { uid: Some(item.uid), message: e.to_string() });
+            return;
+        }
+        self.flush_ring();
+        self.resampler = None;
+        self.current = Some(deck);
+        self.draining = false;
+        self.chain = None;
+        match seeked {
+            Some(r) => {
+                let d = self.current.as_ref().unwrap();
+                if let Err(e) = &r {
+                    tracing::warn!("시크 실패: {e}");
+                }
+                self.start_segment(d.frames_read as f64 / d.spec.rate as f64);
+            }
+            None if at > 0.0 => self.seek_current(at),
+            None => self.start_segment(0.0),
+        }
+        self.sync_chain(at);
+        self.reported_uid = Some(item.uid.clone());
+        {
+            let mut s = self.state.lock();
+            s.uid = Some(item.uid.clone());
+            s.position = at;
+            s.duration = self.current.as_ref().map(|d| d.duration).unwrap_or(0.0);
+            s.source = self.current.as_ref().map(|d| d.info());
+            s.seq += 1;
+        }
+        // 다음 곡이 이 곡이었다면 비었으니, 기억해 둔 다음 곡을 다시 연다.
+        if self.next.is_none()
+            && let Some(n) = self.next_item.clone()
+            && n.uid != item.uid
+        {
+            self.preload(n);
+        }
+        let play = self.want_play;
+        if let Some(s) = &self.shared {
+            s.paused.store(!play, Ordering::Relaxed);
+        }
+        if !play {
+            self.set_status(Status::Paused, None);
+        }
+    }
+
+    /// 뒤에서 하던 일이 끝났다.
+    fn finish_job(&mut self, done: JobDone) {
+        let JobDone { token, kind, deck, seeked } = done;
+        if let Some((t, uid)) = self.preload_job.clone()
+            && t == token
+            && self.job != Some(token)
+        {
+            self.preload_job = None;
+            match deck {
+                Ok(mut d) => {
+                    let wanted = self.next_item.as_ref().filter(|n| n.uid == uid).map(|n| n.dsp.clone());
+                    let playing = self.current.as_ref().is_some_and(|c| c.item.uid == uid);
+                    if let Some(dsp) = wanted
+                        && !playing
+                    {
+                        if d.item.dsp != dsp {
+                            d.apply_request(dsp);
+                        }
+                        self.next = Some(d);
+                        // 지금 곡을 이미 다 읽고 기다리던 중이면 바로 이어 붙인다.
+                        if self.draining {
+                            self.draining = false;
+                            if let Some(s) = &self.shared {
+                                s.drained.store(false, Ordering::Relaxed);
+                            }
+                        }
+                    }
+                }
+                Err(e) => tracing::warn!("다음 곡을 미리 열지 못했습니다: {e:#}"),
+            }
+            return;
+        }
+        if self.job != Some(token) {
+            return; // 그사이 다른 곡을 걸었거나 멈췄다
+        }
+        if self.preload_job.as_ref().is_some_and(|(t, _)| *t == token) {
+            self.preload_job = None;
+        }
+        self.job = None;
+        let item = self.job_item.take();
+        let mut d = match deck {
+            Ok(d) => d,
+            Err(e) => {
+                let uid = item.map(|i| i.uid);
+                self.queued_seek = None;
+                self.load_failed(uid, &e);
+                return;
+            }
+        };
+        // 여는 사이에 DSP 설정이 바뀌었으면 따른다.
+        let item = item.unwrap_or_else(|| d.item.clone());
+        if d.item.dsp != item.dsp {
+            d.apply_request(item.dsp.clone());
+        }
+        match kind {
+            JobKind::Seek { t } => {
+                let offset = match &seeked {
+                    Some(Ok(at)) => *at as f64 / d.spec.rate as f64,
+                    Some(Err(e)) => {
+                        tracing::warn!("시크 실패: {e}");
+                        d.frames_read as f64 / d.spec.rate as f64
+                    }
+                    None => t,
+                };
+                self.current = Some(d);
+                self.start_segment(offset);
+                self.sync_chain(offset);
+                if let Some(s) = &self.shared {
+                    s.paused.store(!self.want_play, Ordering::Relaxed);
+                }
+                let mut s = self.state.lock();
+                s.source = self.current.as_ref().map(|d| d.info());
+                s.seq += 1;
+            }
+            JobKind::Load { at } => self.finish_load(d, item, at, seeked),
+            JobKind::Preload => self.finish_load(d, item, 0.0, None),
+        }
+        if let Some(t) = self.queued_seek.take() {
+            self.handle(Cmd::Seek(t));
+        }
     }
 
     /// 지금 곡의 요청에 맞는 체인을 준비한다. 열쇠가 같으면 이어 쓴다(곡 사이에도 필터 상태가 이어진다).
@@ -519,92 +831,46 @@ impl Render {
             Cmd::Load { item, autoplay, at, force } => {
                 // 이미 이 곡을 틀고 있으면(다음 곡으로 저절로 넘어간 뒤 화면이 따라온 경우) 그대로 둔다.
                 let playing_uid = self.segment_at_read().map(|s| s.uid.clone());
-                if !force && at == 0.0 && playing_uid.as_deref() == Some(item.uid.as_str()) {
+                if !force && at == 0.0 && playing_uid.as_deref() == Some(item.uid.as_str()) && self.job.is_none() {
                     if autoplay {
                         self.handle(Cmd::Play);
                     }
                     return;
                 }
                 self.set_status(Status::Loading, None);
-                let deck = if self.next.as_ref().is_some_and(|n| n.item.uid == item.uid) && at == 0.0 {
-                    self.next.take().unwrap()
-                } else {
-                    match self.open_deck(&item) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            self.current = None;
-                            self.want_play = false;
-                            self.set_status(Status::Error, Some(e.to_string()));
-                            self.emit(Event::Error { uid: Some(item.uid.clone()), message: e.to_string() });
-                            return;
-                        }
-                    }
-                };
-                if let Err(e) = self.ensure_output() {
-                    self.set_status(Status::Error, Some(format!("출력 장치를 열 수 없습니다: {e}")));
-                    self.emit(Event::Error { uid: Some(item.uid), message: e.to_string() });
-                    return;
-                }
-                self.flush_ring();
-                self.resampler = None;
-                self.current = Some(deck);
-                self.draining = false;
-                self.chain = None;
-                if at > 0.0 {
-                    self.seek_current(at);
-                } else {
-                    self.start_segment(0.0);
-                }
-                self.sync_chain(at);
-                self.reported_uid = Some(item.uid.clone());
-                {
-                    let mut s = self.state.lock();
-                    s.uid = Some(item.uid.clone());
-                    s.position = at;
-                    s.duration = self.current.as_ref().map(|d| d.duration).unwrap_or(0.0);
-                    s.source = self.current.as_ref().map(|d| d.info());
-                    s.seq += 1;
-                }
-                // 다음 곡이 이 곡이었다면 비었으니, 기억해 둔 다음 곡을 다시 연다.
-                if self.next.is_none()
-                    && let Some(n) = self.next_item.clone()
-                    && n.uid != item.uid
-                {
-                    self.next = self.open_deck(&n).ok();
-                }
+                self.cancel_job();
                 self.want_play = autoplay;
-                if let Some(s) = &self.shared {
-                    s.paused.store(!autoplay, Ordering::Relaxed);
-                }
-                if !autoplay {
-                    self.set_status(Status::Paused, None);
+                if self.next.as_ref().is_some_and(|n| n.item.uid == item.uid) && at == 0.0 {
+                    let deck = self.next.take().unwrap();
+                    self.finish_load(deck, item, at, None);
+                } else if item.is_remote() {
+                    self.begin_remote_load(item, at);
+                } else {
+                    match open_deck(&self.resolver, &item) {
+                        Ok(d) => self.finish_load(d, item, at, None),
+                        Err(e) => self.load_failed(Some(item.uid), &e),
+                    }
                 }
             }
             Cmd::Preload(item) => {
                 self.next_item = item.clone();
                 match item {
-                    None => self.next = None,
-                    Some(it) => {
-                        if self.next.as_ref().is_some_and(|n| n.item.uid == it.uid) {
-                            return;
-                        }
-                        if self.current.as_ref().is_some_and(|c| c.item.uid == it.uid) {
-                            return;
-                        }
-                        self.next = self.open_deck(&it).ok();
-                        // 지금 곡을 이미 다 읽고 기다리던 중이면 바로 이어 붙인다.
-                        if self.draining {
-                            self.draining = false;
-                        }
+                    None => {
+                        self.next = None;
+                        self.preload_job = None;
                     }
+                    Some(it) => self.preload(it),
                 }
             }
             Cmd::Play => {
-                if self.current.is_none() && self.segments.is_empty() {
+                if self.current.is_none() && self.segments.is_empty() && self.job.is_none() {
                     return;
                 }
                 self.want_play = true;
-                if let Some(s) = &self.shared {
+                // 아직 여는 중이면 장치는 열린 뒤에 튼다.
+                if let Some(s) = &self.shared
+                    && self.job.is_none()
+                {
                     s.paused.store(false, Ordering::Relaxed);
                 }
                 self.set_status(Status::Loading, None);
@@ -614,11 +880,13 @@ impl Render {
                 if let Some(s) = &self.shared {
                     s.paused.store(true, Ordering::Relaxed);
                 }
-                if self.current.is_some() || !self.segments.is_empty() {
+                if self.current.is_some() || !self.segments.is_empty() || self.job.is_some() {
                     self.set_status(Status::Paused, None);
                 }
             }
             Cmd::Stop => {
+                self.cancel_job();
+                self.preload_job = None;
                 self.want_play = false;
                 self.flush_ring();
                 self.current = None;
@@ -638,6 +906,14 @@ impl Render {
                 s.seq += 1;
             }
             Cmd::Seek(t) => {
+                // 아직 여는(시크하는) 중이면 끝난 뒤 그 위치로 간다.
+                if self.job.is_some() {
+                    self.queued_seek = Some(t.max(0.0));
+                    let mut s = self.state.lock();
+                    s.position = t.max(0.0);
+                    s.seq += 1;
+                    return;
+                }
                 // 장치가 아직 앞 곡의 끝을 틀고 있는데 렌더는 다음 곡으로 넘어갔다면, 앞 곡을 다시 연다.
                 let playing = self.segment_at_read().map(|s| s.uid.clone());
                 let cur = self.current.as_ref().map(|d| d.item.uid.clone());
@@ -662,8 +938,12 @@ impl Render {
                     if let Some((_, c)) = &mut self.chain {
                         c.reset();
                     }
-                    self.seek_current(t.max(0.0));
-                    self.sync_chain(t.max(0.0));
+                    if self.current.as_ref().is_some_and(|d| d.source.remote()) {
+                        self.begin_remote_seek(t.max(0.0));
+                    } else {
+                        self.seek_current(t.max(0.0));
+                        self.sync_chain(t.max(0.0));
+                    }
                     if self.want_play {
                         self.set_status(Status::Loading, None);
                     }
@@ -672,6 +952,9 @@ impl Render {
             Cmd::Dsp(items) => {
                 let mut redo = false;
                 for (uid, dsp) in items {
+                    if let Some(j) = self.job_item.as_mut().filter(|j| j.uid == uid) {
+                        j.dsp = dsp.clone();
+                    }
                     if let Some(n) = self.next.as_mut().filter(|n| n.item.uid == uid) {
                         n.apply_request(dsp.clone());
                     }
@@ -692,10 +975,14 @@ impl Render {
                     self.resampler = None;
                     self.draining = false;
                     self.chain = None;
-                    self.seek_current(pos);
-                    self.sync_chain(pos);
+                    if self.current.as_ref().is_some_and(|d| d.source.remote()) {
+                        self.begin_remote_seek(pos);
+                    } else {
+                        self.seek_current(pos);
+                        self.sync_chain(pos);
+                    }
                     let mut s = self.state.lock();
-                    s.source = self.current.as_ref().map(|d| d.info());
+                    s.source = self.current.as_ref().map(|d| d.info()).or(s.source.clone());
                     s.seq += 1;
                 }
             }
@@ -711,6 +998,7 @@ impl Render {
                 s.muted = muted;
                 s.seq += 1;
             }
+            Cmd::Job(done) => self.finish_job(*done),
             Cmd::Shutdown => {}
         }
     }
@@ -726,20 +1014,11 @@ impl Render {
 
     fn seek_current(&mut self, t: f64) {
         let Some(d) = &mut self.current else { return };
-        let frame = (t * d.spec.rate as f64).round() as u64;
-        let frame = d.spec.frames.map(|f| frame.min(f)).unwrap_or(frame);
-        match d.source.seek(frame) {
-            Ok(at) => {
-                d.frames_read = at;
-                let offset = at as f64 / d.spec.rate as f64;
-                self.start_segment(offset);
-            }
-            Err(e) => {
-                tracing::warn!("시크 실패: {e}");
-                let offset = d.frames_read as f64 / d.spec.rate as f64;
-                self.start_segment(offset);
-            }
+        if let Err(e) = seek_deck(d, t) {
+            tracing::warn!("시크 실패: {e}");
         }
+        let offset = d.frames_read as f64 / d.spec.rate as f64;
+        self.start_segment(offset);
     }
 
     /// 장치가 지금 틀고 있는 구간.
@@ -780,6 +1059,10 @@ impl Render {
                 return Ok(());
             }
             if self.draining {
+                return Ok(());
+            }
+            // 네트워크 곡을 아직 다 못 받았으면 기다리지 않고 돌아간다(명령은 계속 받는다).
+            if self.current.as_ref().is_some_and(|d| !d.source.ready()) {
                 return Ok(());
             }
             self.render_some()?;
@@ -919,7 +1202,12 @@ impl Render {
             patch = Some((Some(seg.uid.clone()), pos, seg.duration, seg.source.clone()));
         }
         // 대기열 끝: 넣은 것을 장치가 다 틀었다.
-        let ended = self.draining && self.pending.is_empty() && read >= self.written && self.want_play;
+        let ended = self.draining
+            && self.pending.is_empty()
+            && read >= self.written
+            && self.want_play
+            && self.preload_job.is_none()
+            && self.job.is_none();
         if ended {
             let uid = seg.as_ref().map(|s| s.uid.clone()).unwrap_or_default();
             self.want_play = false;

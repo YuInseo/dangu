@@ -13,7 +13,7 @@ use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error as SymError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
-use symphonia::core::io::MediaSourceStream;
+use symphonia::core::io::{MediaSource, MediaSourceStream};
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::units::Time;
 
@@ -44,6 +44,15 @@ pub trait PcmSource: Send {
     fn read(&mut self, out: &mut Vec<f64>) -> anyhow::Result<usize>;
     /// 샘플 단위로 정확히 그 프레임으로 간다. 실제로 간 프레임을 돌려준다.
     fn seek(&mut self, frame: u64) -> anyhow::Result<u64>;
+    /// 지금 읽어도 막히지 않는지. 네트워크 원본이 아직 받는 중이면 false라서, 재생 스레드는
+    /// 기다리는 대신 다른 일(명령)을 보고 다시 온다.
+    fn ready(&self) -> bool {
+        true
+    }
+    /// 네트워크에서 받는 원본인지(시크·열기를 재생 스레드 밖에서 한다).
+    fn remote(&self) -> bool {
+        false
+    }
 }
 
 pub fn open(path: &Path) -> anyhow::Result<Box<dyn PcmSource>> {
@@ -70,12 +79,19 @@ pub struct SymphoniaSource {
     /// 시크한 뒤 버려야 할 프레임 수.
     skip: u64,
     scratch: Vec<f64>,
+    /// 네트워크 원본이면 읽어도 되는지 묻는 곳
+    gate: Option<Box<dyn Fn() -> bool + Send>>,
 }
 
 impl SymphoniaSource {
     pub fn open(path: &Path, ext: &str) -> anyhow::Result<Self> {
         let file = File::open(path).with_context(|| format!("열 수 없습니다: {}", path.display()))?;
-        let mss = MediaSourceStream::new(Box::new(file), Default::default());
+        Self::from_media(Box::new(file), ext)
+    }
+
+    /// 파일이 아닌 원본(네트워크)에서. `ext`는 형식을 짐작하는 데 쓴다.
+    pub fn from_media(media: Box<dyn MediaSource>, ext: &str) -> anyhow::Result<Self> {
+        let mss = MediaSourceStream::new(media, Default::default());
         let mut hint = Hint::new();
         if !ext.is_empty() {
             hint.with_extension(ext);
@@ -98,7 +114,13 @@ impl SymphoniaSource {
             dsd_rate: None,
         };
         let track_id = track.id;
-        Ok(SymphoniaSource { format, decoder, track_id, spec, skip: 0, scratch: Vec::new() })
+        Ok(SymphoniaSource { format, decoder, track_id, spec, skip: 0, scratch: Vec::new(), gate: None })
+    }
+
+    /// 네트워크 원본: `ready`가 false면 재생 스레드가 읽지 않고 기다린다.
+    pub fn with_gate(mut self, ready: impl Fn() -> bool + Send + 'static) -> Self {
+        self.gate = Some(Box::new(ready));
+        self
     }
 
     fn rebuild_decoder(&mut self) -> anyhow::Result<()> {
@@ -112,6 +134,14 @@ impl SymphoniaSource {
 impl PcmSource for SymphoniaSource {
     fn spec(&self) -> &Spec {
         &self.spec
+    }
+
+    fn ready(&self) -> bool {
+        self.gate.as_ref().is_none_or(|g| g())
+    }
+
+    fn remote(&self) -> bool {
+        self.gate.is_some()
     }
 
     fn read(&mut self, out: &mut Vec<f64>) -> anyhow::Result<usize> {

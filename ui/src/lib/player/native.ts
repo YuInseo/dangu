@@ -43,11 +43,19 @@ interface ServerState {
   events: [number, { type: 'advanced' | 'ended' | 'error'; uid?: string | null; message?: string }][];
 }
 
+/** 라이브 곡: 공연 ID에는 `/`가 없으니 키(`live:<공연>/<파일>`)의 첫 `/`에서 나눈다(예전에 저장한 대기열). */
+function liveOf(t: QueueItem['track']) {
+  if (t.live) return t.live;
+  const rest = t.key.replace(/^live:/, '');
+  const i = rest.indexOf('/');
+  return { id: rest.slice(0, i), file: rest.slice(i + 1) };
+}
+
 function toPlayItem(item: QueueItem, dsp: DspPlan | null) {
   const t = item.track;
   return {
     uid: item.uid,
-    source: t.source === 'library' ? { kind: 'library', id: t.key.replace(/^lib:/, '') } : { kind: 'url', url: t.src },
+    source: t.source === 'library' ? { kind: 'library', id: t.key.replace(/^lib:/, '') } : { kind: 'live', ...liveOf(t) },
     dsp: dsp?.q,
   };
 }

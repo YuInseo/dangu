@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use sori_core::decode;
+use sori_core::decode::{self, PcmSource, Spec};
 use sori_core::dsp::resample::{Quality, Resampler};
 use sori_core::player::output::NullOutput;
 use sori_core::player::{Event, Opened, PlayItem, PlaySource, Player, Status};
@@ -18,22 +18,62 @@ fn tracks(dir: &str) -> Vec<PathBuf> {
     v
 }
 
+/// 시험에서는 라이브러리 곡의 ID 자리에 파일 경로를 쓴다.
 fn item(p: &std::path::Path) -> PlayItem {
     PlayItem {
         uid: p.file_name().unwrap().to_string_lossy().to_string(),
-        source: PlaySource::Url { url: p.to_string_lossy().to_string() },
+        source: PlaySource::Library { id: p.to_string_lossy().to_string() },
         dsp: None,
     }
 }
 
-fn player(rate: u32) -> (Player, Arc<parking_lot::Mutex<Vec<f64>>>) {
-    let out = NullOutput::new(rate, false);
+/// 네트워크 곡 흉내: 여는 데 `open`만큼, 시크하는 데 `seek`만큼 걸린다.
+fn remote_item(p: &std::path::Path) -> PlayItem {
+    PlayItem {
+        uid: format!("live:{}", p.file_name().unwrap().to_string_lossy()),
+        source: PlaySource::Live { id: p.to_string_lossy().to_string(), file: String::new() },
+        dsp: None,
+    }
+}
+
+struct Slow {
+    inner: Box<dyn PcmSource>,
+    seek: Duration,
+}
+
+impl PcmSource for Slow {
+    fn spec(&self) -> &Spec {
+        self.inner.spec()
+    }
+    fn read(&mut self, out: &mut Vec<f64>) -> anyhow::Result<usize> {
+        self.inner.read(out)
+    }
+    fn seek(&mut self, frame: u64) -> anyhow::Result<u64> {
+        std::thread::sleep(self.seek);
+        self.inner.seek(frame)
+    }
+    fn remote(&self) -> bool {
+        true
+    }
+}
+
+fn player_with(rate: u32, realtime: bool, open: Duration, seek: Duration) -> (Player, Arc<parking_lot::Mutex<Vec<f64>>>) {
+    let out = NullOutput::new(rate, realtime);
     let captured = out.captured.clone();
-    let resolver = Arc::new(|it: &PlayItem| -> anyhow::Result<Opened> {
-        let PlaySource::Url { url } = &it.source else { anyhow::bail!("주소가 아님") };
-        Ok(Opened { source: decode::open(std::path::Path::new(url))?, loudness: None })
+    let resolver = Arc::new(move |it: &PlayItem| -> anyhow::Result<Opened> {
+        match &it.source {
+            PlaySource::Library { id } => Ok(Opened { source: decode::open(std::path::Path::new(id))?, loudness: None }),
+            PlaySource::Live { id, .. } => {
+                std::thread::sleep(open);
+                Ok(Opened { source: Box::new(Slow { inner: decode::open(std::path::Path::new(id))?, seek }), loudness: None })
+            }
+        }
     });
     (Player::new(Box::new(move || Box::new(out)), resolver), captured)
+}
+
+fn player(rate: u32) -> (Player, Arc<parking_lot::Mutex<Vec<f64>>>) {
+    player_with(rate, false, Duration::ZERO, Duration::ZERO)
 }
 
 fn wait_for(p: &Player, what: impl Fn(&[(u64, Event)]) -> bool) {
@@ -123,9 +163,82 @@ fn seek_and_volume() {
 #[test]
 fn errors_are_reported() {
     let (p, _) = player(48_000);
-    p.load(PlayItem { uid: "x".into(), source: PlaySource::Url { url: "/없는/파일.flac".into() }, dsp: None }, true, 0.0, false);
+    p.load(PlayItem { uid: "x".into(), source: PlaySource::Library { id: "/없는/파일.flac".into() }, dsp: None }, true, 0.0, false);
     wait_for(&p, |e| e.iter().any(|(_, e)| matches!(e, Event::Error { .. })));
     assert_eq!(p.state().status, Status::Error);
+    // 네트워크 곡도 뒤에서 열다 실패하면 같은 길로 알린다.
+    let (p, _) = player_with(48_000, false, Duration::from_millis(50), Duration::ZERO);
+    p.load(remote_item(std::path::Path::new("/없는/곡.flac")), true, 0.0, false);
+    wait_for(&p, |e| e.iter().any(|(_, e)| matches!(e, Event::Error { uid: Some(u), .. } if u == "live:곡.flac")));
+    assert_eq!(p.state().status, Status::Error);
+}
+
+#[test]
+fn slow_network_tracks_are_still_gapless() {
+    if common::samples().is_none() {
+        return;
+    }
+    let t = tracks("Neon Harbor/2023 - Night Drive"); // FLAC 24/96
+    // 여는 데 0.4초: 첫 곡이 다 끝나도 다음 곡이 아직 안 열렸을 수 있다(출력은 시간을 기다리지 않는다).
+    let (p, captured) = player_with(96_000, false, Duration::from_millis(400), Duration::ZERO);
+    let (a, b) = (remote_item(&t[0]), remote_item(&t[1]));
+    p.load(a.clone(), true, 0.0, false);
+    p.preload(Some(b.clone()));
+    // 여는 동안에도 화면은 이 곡을 보여 주고, 명령은 바로 듣는다.
+    std::thread::sleep(Duration::from_millis(30));
+    let st = p.state();
+    assert_eq!(st.uid.as_deref(), Some(a.uid.as_str()));
+    assert_eq!(st.status, Status::Loading);
+    wait_for(&p, |e| e.iter().any(|(_, e)| matches!(e, Event::Advanced { uid } if *uid == b.uid)));
+    wait_for(&p, ended);
+    let (_, x) = decode::decode_all(&t[0]).unwrap();
+    let (_, y) = decode::decode_all(&t[1]).unwrap();
+    let got = captured.lock().clone();
+    assert_eq!(got.len(), x.len() + y.len(), "길이");
+    assert!(got[..x.len()] == x[..], "첫 곡");
+    assert!(got[x.len()..] == y[..], "다음 곡을 늦게 열었어도 첫 곡 바로 다음 샘플에 붙어야 한다");
+}
+
+#[test]
+fn controls_answer_while_a_track_opens_or_seeks() {
+    if common::samples().is_none() {
+        return;
+    }
+    let t = tracks("하늘 사중주/아침의 차"); // FLAC 16/44.1
+    let (p, captured) = player_with(44_100, false, Duration::from_millis(600), Duration::from_millis(600));
+    let a = remote_item(&t[0]);
+    p.load(a.clone(), false, 0.0, false);
+    let quick = |p: &Player, what: &dyn Fn(&sori_core::player::PlayerState) -> bool| {
+        let t0 = Instant::now();
+        while t0.elapsed() < Duration::from_millis(200) {
+            if what(&p.state()) {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        panic!("여는 동안 명령이 막혔습니다: {:?}", p.state());
+    };
+    p.set_volume(0.5, false);
+    quick(&p, &|s| s.volume == 0.5);
+    p.set_volume(1.0, false);
+    quick(&p, &|s| s.volume == 1.0);
+    // 여는 중에 시크하면 열린 뒤 그 위치로 간다.
+    p.seek(3.0);
+    quick(&p, &|s| s.position == 3.0);
+    wait_for(&p, |_| p.state().status == Status::Paused && p.state().source.is_some());
+    // 시크(0.6초 걸린다)하는 동안에도 명령을 듣는다.
+    p.seek(5.0);
+    p.set_volume(0.75, false);
+    quick(&p, &|s| s.volume == 0.75);
+    p.set_volume(1.0, false);
+    std::thread::sleep(Duration::from_millis(50));
+    p.play();
+    wait_for(&p, ended);
+    let (_, x) = decode::decode_all(&t[0]).unwrap();
+    let got = captured.lock().clone();
+    let from = 5 * 44_100 * 2;
+    assert_eq!(got.len(), x.len() - from, "5초부터 끝까지");
+    assert!(got[4096..] == x[from + 4096..], "시크한 위치부터 그대로");
 }
 
 #[test]

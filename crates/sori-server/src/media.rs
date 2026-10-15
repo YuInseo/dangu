@@ -80,10 +80,16 @@ async fn stream_track(State(app): State<App>, Path(id): Path<String>, Query(q): 
     if let Some(req) = q.dsp.as_deref().and_then(sori_core::dsp::request::parse_request) {
         let loudness = app.store.library().views.get(&id).and_then(|t| t.loudness.clone());
         let sid = q.sid.filter(|s| sori_core::dsp::chain::valid_sid(s));
-        return pcm_stream(abs, at, Some(Dsp { req, loudness, sid, app: app.clone() })).await;
+        return pcm_stream(
+            move || decode::open(&abs),
+            at,
+            Some(Dsp { req, loudness, sid, app: app.clone() }),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE,
+        )
+        .await;
     }
     if q.transcode.is_some() {
-        return pcm_stream(abs, at, None).await;
+        return pcm_stream(move || decode::open(&abs), at, None, StatusCode::UNSUPPORTED_MEDIA_TYPE).await;
     }
     let meta = match tokio::fs::metadata(&abs).await {
         Ok(m) => m,
@@ -129,17 +135,23 @@ async fn stream_track(State(app): State<App>, Path(id): Path<String>, Query(q): 
     }
 }
 
-struct Dsp {
-    req: sori_core::dsp::request::DspRequest,
-    loudness: Option<sori_core::model::Loudness>,
-    sid: Option<String>,
-    app: App,
+pub(crate) struct Dsp {
+    pub req: sori_core::dsp::request::DspRequest,
+    pub loudness: Option<sori_core::model::Loudness>,
+    pub sid: Option<String>,
+    pub app: App,
 }
 
 /// 풀어서 WAV로. DSP가 없으면 원본이 정수 PCM일 때 샘플이 그대로 간다.
-async fn pcm_stream(abs: PathBuf, at: f64, dsp: Option<Dsp>) -> Response {
+/// `open`은 원본을 여는 일(파일, 또는 라이브 아카이브에서 받기). 열지 못하면 `fail`로 답한다.
+pub(crate) async fn pcm_stream(
+    open: impl FnOnce() -> anyhow::Result<Box<dyn decode::PcmSource>> + Send + 'static,
+    at: f64,
+    dsp: Option<Dsp>,
+    fail: StatusCode,
+) -> Response {
     let opened = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
-        let mut src = decode::open(&abs)?;
+        let mut src = open()?;
         let spec = src.spec().clone();
         let start = (at * spec.rate as f64).round() as u64;
         if start > 0 {
@@ -150,7 +162,7 @@ async fn pcm_stream(abs: PathBuf, at: f64, dsp: Option<Dsp>) -> Response {
     .await;
     let (mut src, spec, start) = match opened {
         Ok(Ok(v)) => v,
-        Ok(Err(e)) => return text(StatusCode::UNSUPPORTED_MEDIA_TYPE, &format!("이 파일을 풀 수 없습니다: {e}")),
+        Ok(Err(e)) => return text(fail, &format!("이 파일을 풀 수 없습니다: {e}")),
         Err(_) => return text(StatusCode::INTERNAL_SERVER_ERROR, "변환 작업이 멈췄습니다"),
     };
     let remaining_in = spec.frames.map(|f| f.saturating_sub(start));

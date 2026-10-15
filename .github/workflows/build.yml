@@ -162,20 +162,66 @@ jobs:
         working-directory: crates/sori-app
         run: npm run tauri -- android build --apk --target aarch64 --target x86_64 --ci
       - name: 서명
+        env:
+          # 저장소 비밀값에 배포용 키가 있으면 그것으로, 없으면 저장소의 개발용 키로 서명한다.
+          # 키가 빌드마다 같아야 새 APK를 지우지 않고 덮어 설치할 수 있다.
+          KEYSTORE_B64: ${{ secrets.SORI_KEYSTORE_BASE64 }}
+          KEYSTORE_PASS: ${{ secrets.SORI_KEYSTORE_PASS }}
         run: |
           APK=$(find crates/sori-app/gen/android/app/build/outputs/apk -name '*release*.apk' | head -1)
           echo "APK: $APK"
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
-          keytool -genkeypair -keystore sori.jks -alias sori -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass soripass -keypass soripass -dname "CN=Sori"
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > sori.jks
+            PASS="$KEYSTORE_PASS"
+          else
+            cp ci/sori-dev.jks sori.jks
+            PASS=sori-dev-key
+          fi
           "$BT/zipalign" -p -f 4 "$APK" aligned.apk
-          "$BT/apksigner" sign --ks sori.jks --ks-pass pass:soripass --key-pass pass:soripass --out Sori.apk aligned.apk
-          "$BT/apksigner" verify Sori.apk
+          "$BT/apksigner" sign --ks sori.jks --ks-pass "pass:$PASS" --key-pass "pass:$PASS" --out Sori.apk aligned.apk
+          "$BT/apksigner" verify --print-certs Sori.apk | head -3
           ls -la Sori.apk
       - uses: actions/upload-artifact@v4
         with:
           name: Sori-android
           path: Sori.apk
+
+  release:
+    name: 내려받기 (sori-latest)
+    runs-on: ubuntu-latest
+    needs: [windows, android]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/sori'
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: Sori-android
+          path: dist/android
+      - uses: actions/download-artifact@v4
+        with:
+          name: Sori-windows
+          path: dist/windows
+      - name: 미리 보기 릴리스를 새로 만든다
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mkdir -p up
+          cp dist/android/Sori.apk up/Sori-android.apk
+          find dist/windows -name '*-setup.exe' -exec cp {} up/ \;
+          find dist/windows -name '*.msi' -exec cp {} up/ \;
+          ls -la up
+          cat > notes.md <<NOTES
+          \`sori\` 브랜치의 최신 빌드 (${GITHUB_SHA::7}). 커밋마다 새로 만들어진다.
+
+          - **안드로이드**: 휴대폰에서 \`Sori-android.apk\`를 내려받아 설치한다(설정에서 이 출처의 앱 설치를 허용).
+            PC나 서버 없이 휴대폰 안에서 라이브러리를 읽고 직접 튼다. 처음 열 때 음악 파일 권한을 허용한다.
+          - **윈도우**: \`*-setup.exe\`(또는 \`.msi\`)로 설치한다.
+          NOTES
+          gh release delete sori-latest --yes --cleanup-tag || true
+          gh release create sori-latest up/* --prerelease --target "$GITHUB_SHA" --title "소리 최신 빌드" --notes-file notes.md
 
   android-screens:
     name: 안드로이드 화면 (에뮬레이터)
@@ -214,7 +260,6 @@ jobs:
       - name: 화면을 로그로
         if: always()
         run: |
-          mkdir -p logshots
-          for f in shots/*.png; do [ -f "$f" ] && convert "$f" -resize 540x -quality 78 "logshots/$(basename "${f%.png}").jpg"; done
-          cp shots/logcat.txt logshots/ 2>/dev/null || true
-          python3 ci/print-shots.py logshots
+          python3 -m venv /tmp/shots-venv
+          /tmp/shots-venv/bin/pip install --quiet pillow
+          /tmp/shots-venv/bin/python ci/print-shots.py shots --width 540

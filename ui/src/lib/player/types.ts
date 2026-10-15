@@ -30,6 +30,8 @@ export interface PlayableTrack {
   art: { seed: string; title: string; subtitle?: string };
   /** 라이브 FLAC은 실제 샘플레이트를 따로 물어봐야 안다. */
   probe?: { id: string; file: string };
+  /** 라이브 아카이브 곡이면 공연 ID와 그 안의 파일. 이 기기 존은 서버가 직접 받아 푼다. */
+  live?: { id: string; file: string };
 }
 
 /** 대기열의 한 칸. 같은 곡을 두 번 넣어도 칸은 다르다. */

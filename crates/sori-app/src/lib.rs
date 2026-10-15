@@ -124,7 +124,18 @@ pub fn run() {
                 .min_inner_size(380.0, 560.0)
                 .background_color(tauri::window::Color(14, 14, 16, 255))
                 .theme(Some(tauri::Theme::Dark));
-            builder.build()?;
+            let _win = builder.build()?;
+            // 화면이 창보다 작으면(노트북, 작은 모니터) 작업 영역에 맞춰 줄이고 가운데에 둔다.
+            #[cfg(desktop)]
+            if let Ok(Some(m)) = _win.current_monitor() {
+                let scale = m.scale_factor();
+                let area = m.work_area();
+                let (w, h) = (area.size.width as f64 / scale, area.size.height as f64 / scale);
+                if w < 1320.0 || h < 860.0 {
+                    let _ = _win.set_size(tauri::LogicalSize::new((w * 0.94).min(1320.0), (h * 0.94).min(860.0)));
+                    let _ = _win.center();
+                }
+            }
             Ok(())
         })
         .run(tauri::generate_context!())

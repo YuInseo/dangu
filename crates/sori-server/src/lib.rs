@@ -4,6 +4,7 @@ pub mod api;
 pub mod auth;
 pub mod dsp;
 pub mod embed;
+pub mod live;
 pub mod media;
 pub mod player;
 pub mod wav;
@@ -34,12 +35,22 @@ pub struct App {
     pub player: Option<Arc<sori_core::player::Player>>,
     pub irs: Arc<sori_core::dsp::ir::IrStore>,
     pub clips: Arc<sori_core::dsp::chain::Clips>,
+    /// 라이브 아카이브(archive.org)
+    pub live: Arc<sori_core::live::Archive>,
 }
 
 impl App {
     pub fn new(store: Arc<Store>, password: String) -> App {
         let irs = Arc::new(sori_core::dsp::ir::IrStore::new(&store.config.data_dir));
-        App { store, password: Arc::new(password), host: None, player: None, irs, clips: Arc::new(Default::default()) }
+        App {
+            store,
+            password: Arc::new(password),
+            host: None,
+            player: None,
+            irs,
+            clips: Arc::new(Default::default()),
+            live: Arc::new(sori_core::live::Archive::from_env()),
+        }
     }
 
     /// 이 기기의 기본 오디오 장치로 트는 존을 붙인다.
@@ -51,8 +62,8 @@ impl App {
 
     /// 출력을 골라 네이티브 존을 붙인다(시험할 때는 소리 없는 가짜 출력).
     pub fn with_output(mut self, factory: sori_core::player::OutputFactory) -> App {
-        use sori_core::player::{Player, library_resolver};
-        let player = Player::with_dsp(factory, library_resolver(self.store.clone()), self.irs.clone(), self.clips.clone());
+        use sori_core::player::{Player, resolver};
+        let player = Player::with_dsp(factory, resolver(self.store.clone(), self.live.clone()), self.irs.clone(), self.clips.clone());
         self.player = Some(Arc::new(player));
         self
     }
@@ -64,6 +75,7 @@ pub fn router(app: App) -> Router {
         .merge(media::routes())
         .merge(player::routes())
         .merge(dsp::routes())
+        .merge(live::routes())
         .merge(auth::routes())
         .fallback(embed::serve)
         // 오디오는 이미 압축돼 있거나(FLAC, MP3) 받는 쪽이 길이를 알아야 하므로(Range) 압축하지 않는다.
