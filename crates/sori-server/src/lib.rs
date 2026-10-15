@@ -10,6 +10,7 @@ pub mod live;
 pub mod logs;
 pub mod media;
 pub mod player;
+pub mod saves;
 pub mod update;
 pub mod wav;
 
@@ -52,6 +53,8 @@ pub struct App {
     pub collections: Arc<sori_core::collections::Collections>,
     /// 자동 업데이트(앱 안에서만 움직인다)
     pub updater: Arc<update::Updater>,
+    /// 라이브 아카이브 공연을 라이브러리에 저장하기(받기 목록)
+    pub saves: Arc<saves::Saves>,
 }
 
 impl App {
@@ -60,6 +63,7 @@ impl App {
         let link = Arc::new(link::Link::open(&store.config.data_dir));
         let collections = Arc::new(sori_core::collections::Collections::open(&store.config.data_dir));
         let updater = Arc::new(update::Updater::new(&store.config.data_dir));
+        let saves = Arc::new(saves::Saves::open(&store.config.data_dir));
         App {
             store,
             password: Arc::new(password),
@@ -71,6 +75,7 @@ impl App {
             link,
             collections,
             updater,
+            saves,
         }
     }
 

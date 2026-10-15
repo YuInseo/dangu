@@ -119,3 +119,21 @@ test('길이와 글', () => {
   assert.equal(htmlToText('<p>a</p><p>b &amp; c</p>'), 'a\nb & c');
   assert.equal(qualityFromFormats(['Shorten', 'Ogg Vorbis']), 'lossy');
 });
+
+test('저장 진행: 크기를 알면 바이트로, 모르면 곡 수로', async () => {
+  const { saveFraction, saveText, isActive } = await import('../src/lib/live/saves');
+  const job = { id: 'x', state: 'saving' as const, filesDone: 1, filesTotal: 4, bytesDone: 15 * 1024 * 1024, bytesTotal: 30 * 1024 * 1024 };
+  assert.equal(saveFraction(job), 0.5);
+  assert.equal(saveText(job), '저장 중 2/4곡 · 15.0 MB / 30.0 MB');
+  assert.ok(isActive(job));
+  const noSize = { ...job, bytesTotal: null, bytesDone: 0 };
+  assert.equal(saveFraction(noSize), 0.25);
+  assert.equal(saveText(noSize), '저장 중 2/4곡');
+  // 마지막 곡을 받는 중에도 4/4를 넘지 않는다
+  assert.equal(saveText({ ...job, filesDone: 4 }), '저장 중 4/4곡 · 15.0 MB / 30.0 MB');
+  assert.equal(saveFraction({ ...job, state: 'done' }), 1);
+  assert.equal(saveText({ ...job, state: 'failed', error: '연결이 끊겼습니다' }), '저장하지 못했습니다: 연결이 끊겼습니다');
+  assert.equal(saveText({ ...job, state: 'queued' }), '저장 대기 중');
+  assert.ok(!isActive({ ...job, state: 'cancelled' }));
+  assert.ok(!isActive(null));
+});

@@ -186,3 +186,102 @@ fn native_zone_streams_live_tracks() {
     let got = captured.lock().clone();
     assert!(got == want, "받으면서 튼 소리가 파일과 비트 단위로 같아야 합니다");
 }
+
+fn post_status(url: &str, body: Value) -> (u16, Value) {
+    let mut r = client().post(url).header("content-type", "application/json").send(body.to_string()).unwrap();
+    let status = r.status().as_u16();
+    (status, serde_json::from_slice(&r.body_mut().read_to_vec().unwrap()).unwrap_or(Value::Null))
+}
+
+fn wait_for(what: &str, mut ok: impl FnMut() -> bool) {
+    let until = Instant::now() + Duration::from_secs(60);
+    while !ok() {
+        assert!(Instant::now() < until, "{what}: 시간이 지났습니다");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// 링크로 열고, 라이브러리에 저장하고, 라이브러리에 앨범으로 오르는 데까지.
+#[test]
+fn links_and_saving_to_the_library() {
+    use sha1::{Digest, Sha1};
+    let Some(path) = sample() else { return };
+    let flac = std::fs::read(&path).unwrap();
+    let sha1: String = Sha1::digest(&flac).iter().map(|b| format!("{b:02x}")).collect();
+    let meta = |collection: Value, files: Value| {
+        serde_json::to_vec(&json!({ "metadata": { "title": "Live", "creator": "Band", "date": "2001-02-03", "venue": "Hall", "collection": collection }, "files": files }))
+            .unwrap()
+    };
+    let file =
+        |name: &str, title: &str| json!({ "name": name, "format": "Flac", "title": title, "size": flac.len().to_string(), "sha1": sha1 });
+    let fake = fake_archive::serve(
+        HashMap::from([
+            ("/metadata/show-2".to_string(), meta(json!(["Band", "etree"]), json!([file("b-t01.flac", "One"), file("b-t02.flac", "Two")]))),
+            (
+                "/metadata/gd".to_string(),
+                meta(
+                    json!(["GratefulDead", "etree", "stream_only"]),
+                    json!([{ "name": "a.shn", "format": "Shorten", "private": "true" }, { "name": "a.mp3", "format": "VBR MP3" }]),
+                ),
+            ),
+            ("/metadata/other".to_string(), meta(json!(["opensource_audio"]), json!([file("x.flac", "X")]))),
+            ("/metadata/missing".to_string(), b"{}".to_vec()),
+            ("/items/show-2/b-t01.flac".to_string(), flac.clone()),
+            ("/items/show-2/b-t02.flac".to_string(), flac.clone()),
+        ]),
+        None,
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let base = start(app(&fake.base, &dir));
+
+    // 링크로 열기: 라이브 음악 아카이브의 공연만
+    let (s, r) = post_status(&format!("{base}/api/live/resolve"), json!({ "url": "https://archive.org/details/show-2?x=1" }));
+    assert_eq!((s, &r["id"], &r["saveable"]), (200, &json!("show-2"), &json!(true)), "{r}");
+    let (s, r) = post_status(&format!("{base}/api/live/resolve"), json!({ "url": "https://www.youtube.com/watch?v=abc" }));
+    assert_eq!(s, 400);
+    assert!(r["error"].as_str().unwrap().contains("저작권"), "{r}");
+    let (s, _) = post_status(&format!("{base}/api/live/resolve"), json!({ "url": "https://archive.org/details/other" }));
+    assert_eq!(s, 422, "라이브 음악 아카이브가 아닌 자료");
+    let (s, _) = post_status(&format!("{base}/api/live/resolve"), json!({ "url": "archive.org/details/missing" }));
+    assert_eq!(s, 404);
+
+    // 아티스트가 듣기만 허락한 공연은 저장하지 않는다.
+    let (s, show) = get_json(&format!("{base}/api/live/show/gd"));
+    assert_eq!((s, &show["saveable"]), (200, &json!(false)));
+    let (s, r) = post_status(&format!("{base}/api/live/save"), json!({ "id": "gd" }));
+    assert_eq!(s, 403);
+    assert!(r["error"].as_str().unwrap().contains("듣기만"), "{r}");
+    assert_eq!(get_json(&format!("{base}/api/live/saves/gd")).0, 404);
+
+    // 저장
+    let (s, job) = post_status(&format!("{base}/api/live/save"), json!({ "id": "show-2" }));
+    assert_eq!(s, 200, "{job}");
+    assert_eq!(job["filesTotal"], 2);
+    assert_eq!(job["album"], "2001-02-03 Hall");
+    wait_for("저장", || get_json(&format!("{base}/api/live/saves/show-2")).1["state"] == "done");
+    let show_dir = dir.path().join("music/Live Archive/Band/2001-02-03 Hall");
+    let mut names: Vec<String> =
+        std::fs::read_dir(&show_dir).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+    names.sort();
+    assert_eq!(names, ["01 One.flac", "02 Two.flac"]);
+
+    // 다 받으면 라이브러리를 다시 읽고, 공연이 앨범 하나로 오른다.
+    let mut album = String::new();
+    wait_for("라이브러리", || {
+        let (_, j) = get_json(&format!("{base}/api/live/saves/show-2"));
+        album = j["albumId"].as_str().unwrap_or_default().to_string();
+        !album.is_empty()
+    });
+    let (s, a) = get_json(&format!("{base}/api/albums/{album}"));
+    assert_eq!(s, 200);
+    assert_eq!(a["album"]["title"], "2001-02-03 Hall", "{a}");
+    assert_eq!(a["album"]["artist"], "Band");
+    assert_eq!(a["album"]["trackIds"].as_array().map(Vec::len), Some(2));
+    let (_, list) = get_json(&format!("{base}/api/live/saves"));
+    assert_eq!(list["jobs"][0]["state"], "done");
+
+    // 앱을 다시 켜도 저장한 공연인 줄 안다.
+    let again = start(app(&fake.base, &dir));
+    let (s, j) = get_json(&format!("{again}/api/live/saves/show-2"));
+    assert_eq!((s, &j["state"]), (200, &json!("done")), "{j}");
+}

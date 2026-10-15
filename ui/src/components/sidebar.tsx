@@ -5,7 +5,7 @@ import { usePathname } from '@/compat/navigation';
 import { useApi } from '@/api';
 import type { PlaylistSummary } from '@/lib/collections';
 import type { LibrarySummary, ScanStatus } from '@/lib/library/types';
-import { Disc3, Heart, House, Library, LibraryBig, ListMusic, MicVocal, Radio, Search, Settings, SlidersHorizontal, Tags } from './icons';
+import { Disc3, Heart, House, Library, LibraryBig, ListMusic, MicVocal, Radio, Settings, SlidersHorizontal, Tags } from './icons';
 import { Logo } from './logo';
 import { SidebarScan } from './scan-status';
 
@@ -88,7 +88,12 @@ function SidePlaylists({ pathname }: { pathname: string }) {
   return (
     <div className="side-sub">
       {data.slice(0, 8).map((p) => (
-        <Link key={p.id} href={`/playlists/${p.id}`} className={`side-sub-link${pathname === `/playlists/${p.id}` ? ' is-active' : ''}`} title={p.name}>
+        <Link
+          key={p.id}
+          href={`/playlists/${p.id}`}
+          className={`side-sub-link${pathname === `/playlists/${p.id}` ? ' is-active' : ''}`}
+          title={p.name}
+        >
           {p.name}
         </Link>
       ))}
@@ -96,13 +101,16 @@ function SidePlaylists({ pathname }: { pathname: string }) {
   );
 }
 
-/** 휴대폰 아래쪽 탭. 아티스트·곡·장르·좋아요·플레이리스트는 보관함 안에 있다. */
+/**
+ * 휴대폰 아래쪽 탭. 아티스트·곡·장르·좋아요·플레이리스트는 보관함 안에, 검색은 위쪽 검색창에 있다.
+ * 설정(음악 폴더, DSP, 연결, 업데이트)은 옆 막대가 없는 휴대폰에서 여기로 간다.
+ */
 const MOBILE = [
   { href: '/', label: '홈', icon: House, also: [] as string[] },
   { href: '/albums', label: '앨범', icon: Disc3, also: [] },
   { href: '/collection', label: '보관함', icon: LibraryBig, also: ['/favorites', '/playlists', '/artists', '/tracks', '/genres'] },
   { href: '/live', label: '라이브', icon: Radio, also: [] },
-  { href: '/search', label: '검색', icon: Search, also: [] },
+  { href: '/settings', label: '설정', icon: Settings, also: ['/dsp'] },
 ];
 
 export function MobileNav() {
@@ -110,7 +118,11 @@ export function MobileNav() {
   return (
     <nav className="mobile-nav" aria-label="탐색">
       {MOBILE.map(({ href, label, icon: Icon, also }) => (
-        <Link key={href} href={href} className={`mobile-link${active(pathname, href) || also.some((a) => active(pathname, a)) ? ' is-active' : ''}`}>
+        <Link
+          key={href}
+          href={href}
+          className={`mobile-link${active(pathname, href) || also.some((a) => active(pathname, a)) ? ' is-active' : ''}`}
+        >
           <Icon size={21} />
           <span>{label}</span>
         </Link>

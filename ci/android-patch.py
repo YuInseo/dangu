@@ -9,6 +9,8 @@
   그 밑에 깔리지 않게 시스템 막대와 키보드 자리만큼 띄우고, 막대 자리는 앱의 어두운 바탕으로 둔다.
 - 자동 업데이트: 소리 서버가 받아 둔 새 APK를 시스템 설치 창으로 연다(UpdatePlugin, FileProvider,
   REQUEST_INSTALL_PACKAGES).
+- 라이브 공연 저장: 음악 폴더에 쓴다. 안드로이드 10 이하에서만 쓰기 권한(WRITE_EXTERNAL_STORAGE,
+  requestLegacyExternalStorage)이 필요하다.
 """
 import pathlib
 import re
@@ -81,6 +83,9 @@ perms = [
     '<uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />',
     '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
     '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
+    # 라이브 아카이브 공연을 음악 폴더에 저장한다. 안드로이드 11부터는 권한 없이 Music 폴더에 음악 파일을
+    # 만들 수 있고, 10 이하에서만 이 권한이 필요하다.
+    '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />',
     '<uses-permission android:name="android.permission.WAKE_LOCK" />',
     # 화면이 꺼져도 계속 틀고, 잠금 화면·알림에서 조종한다.
     '<uses-permission android:name="android.permission.FOREGROUND_SERVICE" />',
@@ -109,6 +114,9 @@ if 'UpdateFileProvider' not in m:
                 android:resource="@xml/sori_update_paths" />
         </provider>
     </application>''', 1)
+# 안드로이드 10: 음악 폴더에 직접 쓰려면 옛 저장공간 방식을 쓴다(11부터는 무시된다).
+if 'requestLegacyExternalStorage' not in m:
+    m = m.replace('<application', '<application android:requestLegacyExternalStorage="true"', 1)
 # 평문 주소(127.0.0.1)를 릴리스에서도 열 수 있게
 m = re.sub(r'android:usesCleartextTraffic="[^"]*"', 'android:usesCleartextTraffic="true"', m)
 if 'usesCleartextTraffic' not in m:
@@ -160,8 +168,11 @@ class MainActivity : TauriActivity() {{
     }} catch (e: Exception) {{
     }}
     // 음악 폴더를 읽으려면 사용자의 허락이 필요하다. 허락하면 소리가 몇 초 안에 다시 스캔한다.
+    // 안드로이드 10 이하는 라이브 공연을 음악 폴더에 저장할 권한도 함께 묻는다(같은 창 하나).
     val wanted = if (Build.VERSION.SDK_INT >= 33)
       arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_IMAGES, Manifest.permission.POST_NOTIFICATIONS)
+    else if (Build.VERSION.SDK_INT <= 29)
+      arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
     else
       arrayOf(Manifest.permission.READ_EXTERNAL_STORAGE)
     val missing = wanted.filter {{ checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }}

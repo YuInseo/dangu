@@ -7,6 +7,7 @@
 //! `archive.ts`와 같은 규칙). 곡은 [`http::HttpSource`]로 받으면서 64비트로 푼다.
 
 pub mod http;
+pub mod save;
 
 use std::any::Any;
 use std::cmp::Ordering;
@@ -63,6 +64,12 @@ pub struct LiveTrack {
     pub duration: f64,
     pub format: AudioFormat,
     pub url: String,
+    /// 파일 크기(바이트). archive.org가 알려 준 것.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub size: Option<u64>,
+    /// 받은 파일을 맞춰 볼 SHA-1(화면에는 보내지 않는다).
+    #[serde(skip)]
+    pub sha1: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -79,6 +86,11 @@ pub struct LiveShowDetail {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub taper: Option<String>,
     pub tracks: Vec<LiveTrack>,
+    /// 라이브러리에 저장(내려받기)해도 되는가. 아티스트가 듣기만 허락한 공연은 아니다.
+    pub saveable: bool,
+    /// 저장할 수 없으면 그 까닭
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub save_block: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -387,8 +399,39 @@ pub fn html_to_text(html: Option<&str>) -> Option<String> {
     (!out.is_empty()).then(|| out.to_string())
 }
 
-fn truthy_private(v: Option<&Value>) -> bool {
+fn truthy(v: Option<&Value>) -> bool {
     matches!(v, Some(Value::Bool(true))) || matches!(v, Some(Value::String(s)) if s == "true")
+}
+
+/// archive.org의 format 이름이 음악 파일인가("Flac", "24bit Flac", "Shorten", "VBR MP3" …).
+/// "Flac FingerPrint"는 검사값 파일이다.
+fn is_audio_format(format: &str) -> bool {
+    let f = format.to_ascii_lowercase();
+    !f.contains("fingerprint")
+        && ["flac", "shorten", "mp3", "ogg", "wav", "aiff", "lossless", "opus", "m4a", "aac"].iter().any(|k| f.contains(k))
+}
+
+pub const NOT_LMA: &str = "라이브 음악 아카이브(etree)의 공연이 아닙니다";
+pub const STREAM_ONLY: &str = "아티스트가 이 공연은 듣기만 허락했습니다. 내려받을 수 없습니다";
+const NOTHING_TO_SAVE: &str = "받을 수 있는 음악 파일이 없습니다";
+
+/// 내려받아도 되는가. Live Music Archive에서 밴드가 "스트리밍만" 허락한 공연은 stream_only
+/// 컬렉션에 들어 있고 원본 파일이 비공개다. 그 밖의 archive.org 자료는 저작권이 제각각이라
+/// 받지 않는다.
+fn save_block(m: &Value, all_files: &[Value], tracks: &[LiveTrack]) -> Option<&'static str> {
+    let collections: Vec<String> = many(m.get("collection")).iter().map(|c| c.trim().to_ascii_lowercase()).collect();
+    if !collections.iter().any(|c| c == "etree") {
+        return Some(NOT_LMA);
+    }
+    let private_audio =
+        all_files.iter().any(|f| truthy(f.get("private")) && f.get("format").and_then(Value::as_str).is_some_and(is_audio_format));
+    if collections.iter().any(|c| c == "stream_only") || truthy(m.get("access-restricted-item")) || private_audio {
+        return Some(STREAM_ONLY);
+    }
+    if tracks.is_empty() {
+        return Some(NOTHING_TO_SAVE);
+    }
+    None
 }
 
 pub fn parse_show(base: &str, id: &str, json: &Value) -> Option<LiveShowDetail> {
@@ -401,7 +444,7 @@ pub fn parse_show(base: &str, id: &str, json: &Value) -> Option<LiveShowDetail> 
         .and_then(Value::as_array)
         .map(|a| {
             a.iter()
-                .filter(|f| !truthy_private(f.get("private")))
+                .filter(|f| !truthy(f.get("private")))
                 .filter(|f| f.get("format").and_then(Value::as_str).is_some_and(|s| !s.is_empty()))
                 .filter(|f| f.get("name").and_then(Value::as_str).is_some())
                 .collect()
@@ -432,12 +475,16 @@ pub fn parse_show(base: &str, id: &str, json: &Value) -> Option<LiveShowDetail> 
                     duration: parse_length(one(f.get("length")).as_deref()),
                     format: preferred_format(rank, f),
                     url: download_url(base, id, name),
+                    size: one(f.get("size")).and_then(|s| s.trim().parse().ok()),
+                    sha1: one(f.get("sha1")).filter(|h| h.len() == 40 && h.bytes().all(|b| b.is_ascii_hexdigit())),
                 }
             })
             .collect();
         break;
     }
-    tracks.sort_by(track_order);
+    sort_tracks(&mut tracks);
+    let all_files: &[Value] = json.get("files").and_then(Value::as_array).map(Vec::as_slice).unwrap_or(&[]);
+    let block = save_block(m, all_files, &tracks);
 
     let formats: Vec<String> = files.iter().map(|f| f.get("format").and_then(Value::as_str).unwrap_or_default().to_string()).collect();
     Some(LiveShowDetail {
@@ -456,11 +503,39 @@ pub fn parse_show(base: &str, id: &str, json: &Value) -> Option<LiveShowDetail> 
         lineage: one(m.get("lineage")),
         taper: one(m.get("taper")),
         tracks,
+        saveable: block.is_none(),
+        save_block: block.map(str::to_string),
     })
 }
 
+/// 붙여 넣은 링크에서 공연 ID를 꺼낸다. archive.org의 공연 주소(details, download, embed,
+/// metadata, 데이터 서버의 items)나 ID 그 자체만 받는다.
+pub fn parse_link(text: &str) -> Option<String> {
+    let t = text.trim();
+    if is_valid_id(t) && !t.contains('.') {
+        return Some(t.to_string());
+    }
+    let rest = t.strip_prefix("https://").or_else(|| t.strip_prefix("http://")).unwrap_or(t);
+    let (host, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let host = host.split('@').next_back()?.split(':').next()?.to_ascii_lowercase();
+    if host != "archive.org" && !host.ends_with(".archive.org") {
+        // ID에도 점이 들어갈 수 있다(gd1977-05-08.sbd.miller.97065.flac16).
+        return (is_valid_id(t) && !t.contains('/')).then(|| t.to_string());
+    }
+    let path = path.split(['?', '#']).next().unwrap_or("");
+    let parts: Vec<&str> = path.split('/').filter(|p| !p.is_empty()).collect();
+    let id = match parts.as_slice() {
+        ["details" | "download" | "embed" | "metadata" | "compress" | "stream", id, ..] => *id,
+        // ia800300.us.archive.org/14/items/<id>/<파일>
+        [n, "items", id, ..] if n.bytes().all(|b| b.is_ascii_digit()) => *id,
+        ["items", id, ..] => *id,
+        _ => return None,
+    };
+    is_valid_id(id).then(|| id.to_string())
+}
+
 pub fn is_valid_id(id: &str) -> bool {
-    (1..=120).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+    (1..=120).contains(&id.len()) && !id.starts_with('.') && id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
 }
 
 /// 공연 안의 파일 이름. 위로 올라가거나 절대 경로인 것은 받지 않는다.
@@ -607,10 +682,18 @@ impl Archive {
     }
 }
 
-/// 같은 공연 안에서의 순서: 트랙 번호가 있으면 그 순서로, 없으면 파일 이름을 사람이 읽는 순서로.
-fn track_order(a: &LiveTrack, b: &LiveTrack) -> Ordering {
-    let key = |t: &LiveTrack| (t.track_no.is_none(), t.track_no.unwrap_or(0));
-    key(a).cmp(&key(b)).then_with(|| crate::collate::compare(&a.file, &b.file)).then_with(|| a.file.cmp(&b.file))
+/// 같은 공연 안에서의 순서: 곡마다 서로 다른 트랙 번호가 있으면 그 순서로, 아니면 파일 이름을
+/// 사람이 읽는 순서로(d1t01, d1t02, d2t01 …). 여러 장으로 나뉜 공연은 장마다 번호가 1부터 다시
+/// 시작해서, 번호로만 늘어놓으면 장이 뒤섞인다.
+fn sort_tracks(tracks: &mut [LiveTrack]) {
+    let mut seen = std::collections::HashSet::new();
+    let by_number = tracks.iter().all(|t| t.track_no.is_some_and(|n| seen.insert(n)));
+    let by_name = |a: &LiveTrack, b: &LiveTrack| crate::collate::compare(&a.file, &b.file).then_with(|| a.file.cmp(&b.file));
+    if by_number {
+        tracks.sort_by(|a, b| a.track_no.cmp(&b.track_no).then_with(|| by_name(a, b)));
+    } else {
+        tracks.sort_by(|a, b| -> Ordering { by_name(a, b) });
+    }
 }
 
 #[cfg(test)]
@@ -659,11 +742,13 @@ mod tests {
             "description": "Set 1:<br />01. Mars For The Rich<br/>02. Hate Dancin&#39;<br><br>Recorded by &amp; transferred by taper",
             "source": "Schoeps MK4 > Sound Devices MixPre-6",
             "lineage": "WAV > FLAC",
-            "taper": "Someone"
+            "taper": "Someone",
+            "collection": ["KingGizzardAndTheLizardWizard", "etree"]
           },
           "files": [
             { "name": "kglw2023-06-07d1t02.flac", "format": "24bit Flac", "source": "original", "title": "Hate Dancin'", "track": "02", "length": "5:12" },
-            { "name": "kglw2023-06-07d1t01.flac", "format": "24bit Flac", "source": "original", "title": "Mars For The Rich", "track": "01", "length": "423.54" },
+            { "name": "kglw2023-06-07d1t01.flac", "format": "24bit Flac", "source": "original", "title": "Mars For The Rich", "track": "01", "length": "423.54",
+              "size": "98765432", "sha1": "0123456789abcdef0123456789abcdef01234567" },
             { "name": "kglw2023-06-07d1t01.mp3", "format": "VBR MP3", "source": "derivative", "title": "Mars For The Rich", "length": "07:03" },
             { "name": "kglw2023-06-07.ffp", "format": "Flac FingerPrint", "source": "original" },
             { "name": "secret.flac", "format": "24bit Flac", "private": "true" }
@@ -716,10 +801,74 @@ mod tests {
         assert!(notes.contains("01. Mars For The Rich\n02. Hate Dancin'"), "{notes:?}");
         assert!(notes.contains("Recorded by & transferred"));
         assert_eq!(s.show.quality, Quality::Flac24);
+        assert_eq!(s.tracks[0].size, Some(98_765_432));
+        assert_eq!(s.tracks[0].sha1.as_deref(), Some("0123456789abcdef0123456789abcdef01234567"));
+        assert_eq!(s.tracks[1].size, None);
+        // 원본 하나가 비공개다: 아티스트가 내려받기를 막아 둔 공연으로 본다.
+        assert!(!s.saveable);
+        assert_eq!(s.save_block.as_deref(), Some(STREAM_ONLY));
         let j = serde_json::to_value(&s).unwrap();
         assert_eq!(j["band"], "King Gizzard & The Lizard Wizard");
         assert_eq!(j["tracks"][0]["trackNo"], 1);
         assert_eq!(j["tracks"][0]["format"]["bitDepth"], 24);
+        assert_eq!(j["tracks"][0]["size"], 98_765_432);
+        assert!(j["tracks"][0].get("sha1").is_none(), "검사값은 화면에 보내지 않는다");
+        assert_eq!(j["saveable"], false);
+        assert!(j["saveBlock"].is_string());
+    }
+
+    fn item(collection: Value, files: Value) -> Value {
+        json!({ "metadata": { "title": "Show", "creator": "Band", "date": "1990-01-02", "collection": collection }, "files": files })
+    }
+
+    #[test]
+    fn saving_is_allowed_only_for_shows_the_artist_shares() {
+        let flac = json!([{ "name": "t01.flac", "format": "Flac", "title": "A" }, { "name": "x.ffp", "format": "Flac FingerPrint", "private": "true" }]);
+        let ok = parse_show(ARCHIVE, "x", &item(json!(["Band", "etree"]), flac.clone())).unwrap();
+        assert!(ok.saveable, "{:?}", ok.save_block);
+        assert_eq!(ok.save_block, None);
+
+        // 밴드가 스트리밍만 허락한 공연(stream_only), 원본이 비공개인 공연
+        let s = parse_show(ARCHIVE, "x", &item(json!(["Band", "etree", "stream_only"]), flac.clone())).unwrap();
+        assert_eq!((s.saveable, s.save_block.as_deref()), (false, Some(STREAM_ONLY)));
+        let shn = json!([{ "name": "t01.shn", "format": "Shorten", "private": "true" }, { "name": "t01.mp3", "format": "VBR MP3", "title": "A" }]);
+        let s = parse_show(ARCHIVE, "x", &item(json!(["Band", "etree"]), shn)).unwrap();
+        assert_eq!(s.tracks.len(), 1, "듣기는 된다");
+        assert_eq!((s.saveable, s.save_block.as_deref()), (false, Some(STREAM_ONLY)));
+        let mut restricted = item(json!("etree"), flac.clone());
+        restricted["metadata"]["access-restricted-item"] = json!("true");
+        assert!(!parse_show(ARCHIVE, "x", &restricted).unwrap().saveable);
+
+        // 라이브 음악 아카이브가 아닌 자료는 저작권이 제각각이라 받지 않는다.
+        let s = parse_show(ARCHIVE, "x", &item(json!(["opensource_audio"]), flac.clone())).unwrap();
+        assert_eq!((s.saveable, s.save_block.as_deref()), (false, Some(NOT_LMA)));
+        let s = parse_show(ARCHIVE, "x", &item(Value::Null, flac)).unwrap();
+        assert!(!s.saveable);
+
+        // 받을 파일이 없다
+        let s = parse_show(ARCHIVE, "x", &item(json!("etree"), json!([{ "name": "info.txt", "format": "Text" }]))).unwrap();
+        assert!(!s.saveable);
+    }
+
+    #[test]
+    fn discs_that_restart_numbering_stay_in_order() {
+        let f = |name: &str, track: &str| json!({ "name": name, "format": "Flac", "track": track, "title": name });
+        let s = parse_show(
+            ARCHIVE,
+            "x",
+            &item(
+                json!("etree"),
+                json!([f("x-d2t01.flac", "01"), f("x-d1t02.flac", "02"), f("x-d2t02.flac", "02"), f("x-d1t01.flac", "01")]),
+            ),
+        )
+        .unwrap();
+        assert_eq!(
+            s.tracks.iter().map(|t| t.file.as_str()).collect::<Vec<_>>(),
+            ["x-d1t01.flac", "x-d1t02.flac", "x-d2t01.flac", "x-d2t02.flac"]
+        );
+        // 번호가 곡마다 다르면 번호 순서(파일 이름이 엉뚱해도)
+        let s = parse_show(ARCHIVE, "x", &item(json!("etree"), json!([f("b.flac", "2"), f("c.flac", "1"), f("a.flac", "3")]))).unwrap();
+        assert_eq!(s.tracks.iter().map(|t| t.file.as_str()).collect::<Vec<_>>(), ["c.flac", "b.flac", "a.flac"]);
     }
 
     #[test]
@@ -763,9 +912,38 @@ mod tests {
     }
 
     #[test]
+    fn links() {
+        let id = "kglw2023-06-07.schoeps.flac24";
+        for link in [
+            "https://archive.org/details/kglw2023-06-07.schoeps.flac24",
+            "archive.org/details/kglw2023-06-07.schoeps.flac24?q=x#top",
+            "http://www.archive.org/details/kglw2023-06-07.schoeps.flac24/kglw-d1t01.flac",
+            "https://archive.org/download/kglw2023-06-07.schoeps.flac24/kglw-d1t01.flac",
+            "https://archive.org/embed/kglw2023-06-07.schoeps.flac24",
+            "https://ia800300.us.archive.org/14/items/kglw2023-06-07.schoeps.flac24/kglw-d1t01.flac",
+            "  kglw2023-06-07.schoeps.flac24  ",
+        ] {
+            assert_eq!(parse_link(link).as_deref(), Some(id), "{link}");
+        }
+        assert_eq!(parse_link("gd1977").as_deref(), Some("gd1977"));
+        for bad in [
+            "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            "https://tidal.com/browse/album/99799754",
+            "https://archive.org/search?query=dead",
+            "https://archive.org/details/",
+            "https://evilarchive.org/details/x",
+            "https://archive.org.evil.com/details/x",
+            "",
+        ] {
+            assert_eq!(parse_link(bad), None, "{bad}");
+        }
+    }
+
+    #[test]
     fn ids_and_urls() {
         assert!(is_valid_id("gd1977-05-08.sbd.miller.97065.flac16"));
         assert!(!is_valid_id("../etc"));
+        assert!(!is_valid_id(".."));
         assert!(!is_valid_id(""));
         assert!(is_valid_file("disc 1/01 Intro.flac"));
         assert!(!is_valid_file("../x.flac"));

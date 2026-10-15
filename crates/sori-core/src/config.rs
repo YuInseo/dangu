@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 #[derive(Clone, Debug)]
 pub struct Config {
-    /// 음악이 있는 폴더. 읽기만 한다. 설정 화면에서 바꾸면 `settings.json`의 값이 이긴다.
+    /// 음악이 있는 폴더. 읽기만 하고, 라이브 아카이브 공연을 저장할 때만 그 아래 `Live Archive`에 쓴다.
+    /// 설정 화면에서 바꾸면 `settings.json`의 값이 이긴다.
     pub music_dir: PathBuf,
     /// 색인, 표지 캐시, 분석 결과, 설정을 두는 곳.
     pub data_dir: PathBuf,

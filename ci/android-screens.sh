@@ -19,17 +19,37 @@ echo
 
 n=0
 shot() {
+  dump
+  dismiss_anr || true
   n=$((n + 1))
   adb exec-out screencap -p > "shots/android-$(printf %02d $n)-$1.png"
+}
+
+dump() {
+  adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1
+  adb pull /sdcard/ui.xml /tmp/ui.xml > /dev/null 2>&1
+}
+
+# 에뮬레이터의 런처가 가끔 "응답하지 않습니다" 창을 띄워 화면을 가린다(소리와는 상관없다).
+# 보이면 기다리기를 누른다.
+dismiss_anr() {
+  grep -q "isn't responding\|응답하지 않" /tmp/ui.xml 2> /dev/null || return 1
+  local pos
+  pos=$(find_label "Wait" first)
+  [ -n "$pos" ] || pos=$(find_label "기다리기" first)
+  [ -n "$pos" ] && adb shell input tap $pos
+  sleep 2
+  dump
+  return 0
 }
 
 # 화면에서 글자(또는 aria-label)가 $1인 것의 가운데를 누른다. 웹뷰는 접근성 트리를 늦게 만드니
 # 못 찾으면 몇 번 다시 본다. 끝내 없으면 1을 돌려준다.
 tap_label() {
   local pos=""
-  for attempt in 1 2 3 4; do
-    adb shell uiautomator dump /sdcard/ui.xml > /dev/null 2>&1
-    adb pull /sdcard/ui.xml /tmp/ui.xml > /dev/null 2>&1
+  for attempt in 1 2 3 4 5; do
+    dump
+    dismiss_anr || true
     pos=$(find_label "$1" "${3:-first}")
     [ -n "$pos" ] && break
     sleep 2
@@ -92,6 +112,51 @@ adb shell input keyevent 4
 sleep 3
 tap_label "Night Drive Mix" 4 && shot playlist
 tap_label "라이브" 10 last && shot live
+
+# 라이브 아카이브: 공연마다 내려받기를 허락했는지(진짜 archive.org). 그레이트풀 데드의 사운드보드
+# 녹음은 듣기만 허락돼 있어야 하고, 킹 기저드는 받을 수 있어야 한다.
+for band in "Grateful Dead" "King Gizzard & The Lizard Wizard"; do
+  q=$(python3 -c "import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))" "$band")
+  curl -s --max-time 30 "http://127.0.0.1:4380/api/live/search?q=$q&sort=popular&rows=6" \
+    | python3 -c "import json,sys; [print(s['id']) for s in json.load(sys.stdin)['shows']]" > /tmp/ids.txt || true
+  while read -r id; do
+    curl -s --max-time 30 "http://127.0.0.1:4380/api/live/show/$id" \
+      | python3 -c "import json,sys; d=json.load(sys.stdin); t=d['tracks'][0]['format'] if d['tracks'] else {}; print('공연', d['id'], '저장', d['saveable'], d.get('saveBlock') or '', t.get('codec'), sum(x.get('size') or 0 for x in d['tracks']))" || true
+  done < /tmp/ids.txt
+done
+# 받을 수 있는 공연 중 가장 작은 것을 링크로 열고, 저장을 시작했다가 취소한다(휴대폰의 Music 폴더에 쓴다).
+pick=$(for id in $(cat /tmp/ids.txt); do curl -s --max-time 30 "http://127.0.0.1:4380/api/live/show/$id"; echo; done \
+  | python3 -c "
+import json, sys
+best = None
+for line in sys.stdin:
+    try:
+        d = json.loads(line)
+    except Exception:
+        continue
+    size = sum(t.get('size') or 0 for t in d.get('tracks', []))
+    if d.get('saveable') and size and (best is None or size < best[0]):
+        best = (size, d['id'])
+print(best[1] if best else '')
+" || true)
+echo "저장해 볼 공연: $pick"
+if [ -n "$pick" ] && { tap_label "archive.org 링크" 2 || tap_label "archive.org 공연 링크로 열기" 2; }; then
+  adb shell input text "https://archive.org/details/$pick"
+  adb shell input keyevent 66
+  sleep 8
+  shot live-show
+  if tap_label "라이브러리에 저장" 12; then
+    shot live-saving
+    curl -s --max-time 10 "http://127.0.0.1:4380/api/live/saves/$pick" || true
+    echo
+    adb shell ls -la "/sdcard/Music/Live\ Archive/*/" || true
+    tap_label "취소" 4 && shot live-cancelled
+    curl -s --max-time 10 "http://127.0.0.1:4380/api/live/saves/$pick" || true
+    echo
+    # 취소하면 받던 것을 지운다.
+    adb shell ls -la "/sdcard/Music/" || true
+  fi
+fi
 tap_label "설정" && shot settings
 tap_label "연결" && shot connect
 tap_label "라이브러리" && shot settings-library

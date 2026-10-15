@@ -22,6 +22,8 @@ export interface LiveTrack {
   duration: number;
   format: AudioFormat;
   url: string;
+  /** 파일 크기(바이트) */
+  size?: number;
 }
 
 export interface LiveShowDetail extends LiveShow {
@@ -30,6 +32,10 @@ export interface LiveShowDetail extends LiveShow {
   lineage?: string;
   taper?: string;
   tracks: LiveTrack[];
+  /** 라이브러리에 저장(내려받기)해도 되는가. 아티스트가 듣기만 허락한 공연은 아니다. */
+  saveable: boolean;
+  /** 저장할 수 없으면 그 까닭 */
+  saveBlock?: string;
 }
 
 export type LiveSort = 'popular' | 'recent' | 'newest';

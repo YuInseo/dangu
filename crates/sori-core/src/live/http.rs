@@ -66,7 +66,7 @@ fn resolve(base: &str, loc: &str) -> anyhow::Result<String> {
 
 /// `from`부터 받는 요청. 옮겨 가라는 응답은 직접 따라가며 마지막 주소를 돌려준다
 /// (같은 파일을 다시 받을 때 바로 그 주소로 간다).
-fn get_from(agent: &ureq::Agent, url: &str, from: u64) -> anyhow::Result<(Response<ureq::Body>, String)> {
+pub(crate) fn get_from(agent: &ureq::Agent, url: &str, from: u64) -> anyhow::Result<(Response<ureq::Body>, String)> {
     let mut url = url.to_string();
     for _ in 0..=MAX_REDIRECTS {
         let res = agent
@@ -95,7 +95,7 @@ fn header_u64(h: &HeaderMap, name: header::HeaderName) -> Option<u64> {
 }
 
 /// `Content-Range: bytes a-b/total` → (a, total)
-fn content_range(h: &HeaderMap) -> Option<(u64, Option<u64>)> {
+pub(crate) fn content_range(h: &HeaderMap) -> Option<(u64, Option<u64>)> {
     let v = h.get(header::CONTENT_RANGE)?.to_str().ok()?.trim();
     let r = v.strip_prefix("bytes ")?;
     let (span, total) = r.split_once('/')?;

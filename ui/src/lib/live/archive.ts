@@ -238,6 +238,8 @@ export function parseShow(id: string, json: unknown): LiveShowDetail | null {
     lineage: one(m.lineage),
     taper: one(m.taper),
     tracks,
+    // 내려받기는 소리 서버가 판단한다(아티스트가 허락한 공연만). 브라우저 쪽은 듣기만.
+    saveable: false,
   };
 }
 

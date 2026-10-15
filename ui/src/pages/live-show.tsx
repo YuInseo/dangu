@@ -4,6 +4,7 @@ import Link from '@/compat/link';
 import { useApi, useTitle } from '@/api';
 import { Backdrop } from '@/components/backdrop';
 import { GeneratedArt } from '@/components/cover';
+import { LiveSave } from '@/components/live-save';
 import { PlayButtons } from '@/components/play-buttons';
 import { QualityBadge } from '@/components/quality-badge';
 import { Section } from '@/components/section';
@@ -34,7 +35,9 @@ export function LiveShowPage() {
         <div className="detail-info">
           <div className="eyebrow">라이브 · Live Music Archive</div>
           <h1 className="detail-title">{show.band}</h1>
-          <div className="detail-artist detail-artist-plain">{[prettyDate(show.date), show.venue, show.city].filter(Boolean).join(' · ')}</div>
+          <div className="detail-artist detail-artist-plain">
+            {[prettyDate(show.date), show.venue, show.city].filter(Boolean).join(' · ')}
+          </div>
           <div className="detail-meta">{[`${tracks.length}곡`, duration ? span(duration) : null].filter(Boolean).join(' · ')}</div>
           <div className="detail-tags">
             {tracks[0] && <QualityBadge format={tracks[0].format} />}
@@ -43,10 +46,15 @@ export function LiveShowPage() {
             </a>
           </div>
           <PlayButtons tracks={tracks} />
+          <LiveSave show={show} />
         </div>
       </header>
 
-      {tracks.length ? <TrackTable tracks={tracks} variant="live" /> : <p className="muted pad">이 공연에는 재생할 수 있는 파일이 없습니다.</p>}
+      {tracks.length ? (
+        <TrackTable tracks={tracks} variant="live" />
+      ) : (
+        <p className="muted pad">이 공연에는 재생할 수 있는 파일이 없습니다.</p>
+      )}
 
       {(show.notes || show.source || show.lineage || show.taper) && (
         <Section title="공연 정보">
