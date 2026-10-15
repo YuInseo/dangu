@@ -66,8 +66,36 @@ fn streamed_seek_matches_the_file() {
         assert!(n > 0);
         assert!(x[..n] == y[..n], "{t}프레임으로 건너뛴 뒤가 다릅니다");
     }
-    // 처음 한 번 옮겨 가고, 그다음부터는 옮겨 간 주소로 바로 범위 요청을 한다.
-    assert!(fake.requests() >= 3);
+    // 처음 한 번 옮겨 가고(302), 그다음은 옮겨 간 주소로 범위 요청을 한다. 짧은 파일이면 처음
+    // 받은 것에 다 들어 있어 더 묻지 않을 수도 있다(멀리 건너뛰기는 아래 시험이 따로 본다).
+    assert!(fake.requests() >= 2);
+}
+
+#[test]
+fn far_seeks_restart_with_range_requests() {
+    use std::io::{Read, Seek, SeekFrom};
+    // 앞서 받는 창(16MB)보다 큰 파일: 멀리 건너뛰면 그 위치부터 새로 받고, 뒤로 멀리 가도 그렇다.
+    let size = 40usize << 20;
+    let bytes: Vec<u8> = (0..size).map(|i| (i.wrapping_mul(2654435761) >> 13) as u8).collect();
+    let fake = serve(HashMap::from([("/items/big/blob.bin".to_string(), bytes.clone())]), None);
+    let agent = sori_core::live::http::agent();
+    let mut src = sori_core::live::http::HttpSource::open(&agent, &format!("{}/download/big/blob.bin", fake.base)).unwrap();
+    assert_eq!(src.len(), size as u64);
+    let check = |src: &mut sori_core::live::http::HttpSource, at: usize| {
+        src.seek(SeekFrom::Start(at as u64)).unwrap();
+        let mut buf = vec![0u8; 100_000];
+        src.read_exact(&mut buf).unwrap();
+        assert!(buf == bytes[at..at + buf.len()], "{at}에서 읽은 것이 다릅니다");
+    };
+    check(&mut src, 0);
+    let before = fake.requests();
+    check(&mut src, 33 << 20);
+    check(&mut src, 5 << 20);
+    check(&mut src, size - 100_000);
+    assert!(fake.requests() >= before + 2, "멀리 건너뛸 때 범위 요청으로 새로 받아야 합니다: {}", fake.requests() - before);
+    // 끝에서는 0바이트
+    src.seek(SeekFrom::End(0)).unwrap();
+    assert_eq!(src.read(&mut [0u8; 16]).unwrap(), 0);
 }
 
 #[test]
