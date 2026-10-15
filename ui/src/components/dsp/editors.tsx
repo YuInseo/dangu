@@ -22,6 +22,7 @@ import type {
 } from '@/lib/dsp/types';
 import type { AnalysisStatus } from '@/lib/library/types';
 import { useQueue } from '@/lib/player/context';
+import { useZoneOutput } from '@/lib/player/zone-output';
 import { khz } from '@/lib/quality';
 import { count } from '@/lib/time';
 import { useClipIndicator } from '../signal-path';
@@ -219,15 +220,17 @@ const SRC_HINT: Record<DspConfig['src']['mode'], string> = {
 
 export function SrcEditor() {
   const { config, update } = useDsp();
-  const { current, outputRate, formatOf } = useQueue();
+  const { current, formatOf } = useQueue();
+  const out = useZoneOutput();
+  const outputRate = out.rate;
   const s = config.src;
   const fmt = current ? formatOf(current.track) : null;
   const target = fmt ? srcTarget(s, fmt.sampleRate, outputRate) : null;
   return (
     <>
       <p className="dsp-lede">
-        완전 동기식 폴리페이즈 리샘플러(SoX)로 64비트 부동소수점에서 바꿉니다. 브라우저는 출력 장치와 샘플레이트가 다르면 자체 리샘플러로
-        바꾸는데, 그보다 정밀한 변환을 서버에서 먼저 해 두려는 것입니다.
+        카이저 창을 씌운 다상(polyphase) 리샘플러로 64비트 부동소수점에서 바꿉니다. 출력 장치와 샘플레이트가 다르면 운영체제나 브라우저가
+        대신 바꾸는데, 그보다 정밀하게 소리 엔진이 먼저 바꿔 두려는 것입니다.
       </p>
       <Field label="샘플레이트 변환">
         <Switch label="샘플레이트 변환" on={s.enabled} onChange={(v) => update((c) => void (c.src.enabled = v))} />
@@ -313,7 +316,7 @@ export function SrcEditor() {
         />
       </Field>
       <div className="dsp-now">
-        <div className="dsp-now-label">이 브라우저</div>
+        <div className="dsp-now-label">{out.name}</div>
         <div>
           출력 장치 {outputRate ? `${khz(outputRate)}kHz` : '— (재생하면 확인)'}
           {fmt?.sampleRate ? ` · 지금 곡 ${khz(fmt.sampleRate)}kHz${target ? ` → ${khz(target)}kHz` : ' · 변환 없음'}` : ''}

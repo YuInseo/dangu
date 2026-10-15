@@ -1157,7 +1157,7 @@ a.tag:hover {
 }
 
 .trow-sub,
-.trow-album {
+.trow-albumcol {
   color: var(--text-2);
   font-size: 13px;
   white-space: nowrap;
@@ -1166,7 +1166,7 @@ a.tag:hover {
 }
 
 .trow-sub a:hover,
-.trow-album a:hover {
+.trow-albumcol a:hover {
   color: var(--text);
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -3088,7 +3088,7 @@ kbd {
     grid-template-columns: 44px minmax(0, 1fr) 46px 32px;
   }
 
-  .trow-album {
+  .trow-albumcol {
     display: none;
   }
 

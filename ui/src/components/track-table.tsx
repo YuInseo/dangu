@@ -100,7 +100,7 @@ function Row({
         )}
       </div>
       {variant === 'list' && (
-        <div className="trow-album">
+        <div className="trow-albumcol">
           {track.albumHref ? (
             <Link href={track.albumHref} onClick={stop} prefetch={false}>
               {track.album}

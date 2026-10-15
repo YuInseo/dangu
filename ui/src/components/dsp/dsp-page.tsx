@@ -13,6 +13,7 @@ import { SRC_MODE_LABEL } from '@/lib/dsp/src';
 import { useDsp } from '@/lib/dsp/store';
 import type { DspFilter, FilterType } from '@/lib/dsp/types';
 import { useEngineState, usePlayer, useQueue } from '@/lib/player/context';
+import { useZoneOutput } from '@/lib/player/zone-output';
 import { SIGNAL_LABEL, signalPath } from '@/lib/player/signal';
 import { khz } from '@/lib/quality';
 import {
@@ -28,6 +29,7 @@ import {
   RotateCcw,
   Save,
   SlidersHorizontal,
+  Speaker,
   Trash2,
   Waves,
   X,
@@ -262,11 +264,8 @@ function Row({
 
 export function DspPage() {
   const { config, update } = useDsp();
-  const { outputRate } = useQueue();
-  const { engine } = usePlayer();
+  const out = useZoneOutput();
   const [sel, setSel] = useState<Selection>(null);
-  const [zone, setZone] = useState<string | null>(null);
-  useEffect(() => setZone(engine.zone), [engine]);
   const [adding, setAdding] = useState(false);
   const [drag, setDrag] = useState<number | null>(null);
   const [over, setOver] = useState<number | null>(null);
@@ -324,11 +323,11 @@ export function DspPage() {
       <div className="muse-body">
         <aside className="muse-list" aria-label="신호 흐름">
           <div className="muse-zone">
-            <Monitor size={20} />
+            {out.kind === 'native' ? <Speaker size={20} /> : <Monitor size={20} />}
             <div>
-              <div className="muse-zone-name">이 브라우저</div>
+              <div className="muse-zone-name">{out.name}</div>
               <div className="muse-zone-sub">
-                {zone ? `존 ${zone} · ` : ''}출력 {outputRate ? `${khz(outputRate)}kHz` : '확인 전'}
+                {out.device ? `${out.device} · ` : ''}출력 {out.rate ? `${khz(out.rate)}kHz` : '확인 전'}
               </div>
             </div>
           </div>
@@ -483,8 +482,8 @@ export function DspPage() {
             <div className="muse-intro">
               <h2>정밀 오디오 제어</h2>
               <p>
-                소리결은 EQ, 크로스피드, 샘플레이트 변환, 컨볼루션 같은 도구로 오디오 신호를 계산해 바꿉니다. 모든 계산은 서버에서 64비트
-                부동소수점으로 하고, 결과는 FLAC으로 손실 없이 이 브라우저에 옵니다.
+                소리결은 EQ, 크로스피드, 샘플레이트 변환, 컨볼루션 같은 도구로 오디오 신호를 계산해 바꿉니다. 모든 계산은 소리 엔진이
+                64비트 부동소수점으로 하고, 결과는 손실 없이 {out.name}에 갑니다.
               </p>
               <Ridge />
               <p>
@@ -498,7 +497,7 @@ export function DspPage() {
               )}
               <SignalPreview />
               <p className="muted">
-                <Combine size={13} /> 필터는 끌어서 순서를 바꿀 수 있고, 위에서 아래로 차례로 적용됩니다. 설정은 이 브라우저에만 저장됩니다.
+                <Combine size={13} /> 필터는 끌어서 순서를 바꿀 수 있고, 위에서 아래로 차례로 적용됩니다. 설정은 이 기기에 저장됩니다.
               </p>
             </div>
           )}
