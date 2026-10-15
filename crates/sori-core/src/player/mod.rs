@@ -47,6 +47,23 @@ pub struct PlayItem {
     /// 이 곡에 걸 DSP 요청(화면의 `encodeRequest`). 없으면 원본 그대로.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dsp: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub meta: Option<Meta>,
+}
+
+/// 곡의 이름표. 잠금 화면·알림이 보여 준다(엔진은 읽지 않는다).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Meta {
+    #[serde(default)]
+    pub title: String,
+    #[serde(default)]
+    pub artist: String,
+    #[serde(default)]
+    pub album: String,
+    /// 표지 주소(이 서버 기준, 예: `/api/cover/…`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cover: Option<String>,
 }
 
 impl PlayItem {
@@ -138,6 +155,8 @@ pub struct PlayerState {
     pub error: Option<String>,
     pub output: Option<OutSpec>,
     pub source: Option<SourceInfo>,
+    /// 지금 들리는 곡의 이름표
+    pub meta: Option<Meta>,
     pub resampling: Option<(u32, u32)>,
     pub underruns: u64,
     /// 바뀔 때마다 오른다
@@ -156,6 +175,15 @@ enum Cmd {
     /// 곡마다의 DSP 요청이 바뀌었다(설정을 고쳤다).
     Dsp(Vec<(String, Option<String>)>),
     Preload(Option<PlayItem>),
+    /// 다음에 틀 곡들(순서대로)과 앞서 튼 곡들(가까운 것부터). 화면이 잠들어도 엔진이 혼자
+    /// 이어 튼다. `repeat_one`이면 지금 곡을 이음매 없이 되풀이한다.
+    Queue {
+        upcoming: Vec<PlayItem>,
+        previous: Vec<PlayItem>,
+        repeat_one: bool,
+    },
+    Next,
+    Prev,
     Play,
     Pause,
     Stop,
@@ -197,6 +225,7 @@ struct Segment {
     offset: f64,
     duration: f64,
     source: Option<SourceInfo>,
+    meta: Option<Meta>,
 }
 
 struct Deck {
@@ -293,6 +322,7 @@ impl Player {
             error: None,
             output: None,
             source: None,
+            meta: None,
             resampling: None,
             underruns: 0,
             seq: 0,
@@ -328,6 +358,16 @@ impl Player {
     pub fn preload(&self, item: Option<PlayItem>) {
         let _ = self.tx.send(Cmd::Preload(item));
     }
+    /// 다음에 틀 곡들과 앞서 튼 곡들. 엔진이 혼자 이어 틀고, 다음·이전 단추(알림, 헤드셋)도 이것으로 간다.
+    pub fn set_queue(&self, upcoming: Vec<PlayItem>, previous: Vec<PlayItem>, repeat_one: bool) {
+        let _ = self.tx.send(Cmd::Queue { upcoming, previous, repeat_one });
+    }
+    pub fn next(&self) {
+        let _ = self.tx.send(Cmd::Next);
+    }
+    pub fn prev(&self) {
+        let _ = self.tx.send(Cmd::Prev);
+    }
     pub fn play(&self) {
         let _ = self.tx.send(Cmd::Play);
     }
@@ -356,6 +396,8 @@ impl Drop for Player {
 
 /// 링 버퍼 길이(초). 길수록 끊김에 강하고, 시크·곡 바꾸기는 링을 비우므로 늦어지지 않는다.
 const RING_SECONDS: f64 = 1.0;
+/// 엔진이 들고 있는 대기열의 길이(앞뒤 각각)
+const QUEUE_MAX: usize = 64;
 /// 한 번에 링에 넣는 양(초)
 const CHUNK_SECONDS: f64 = 0.02;
 
@@ -374,6 +416,10 @@ struct Render {
     queued_seek: Option<f64>,
     /// 다음 곡을 미리 여는 일
     preload_job: Option<(u64, String)>,
+    /// 다음에 틀 곡들, 앞서 튼 곡들(가까운 것부터)
+    upcoming: VecDeque<PlayItem>,
+    previous: VecDeque<PlayItem>,
+    repeat_one: bool,
     state: Arc<Mutex<PlayerState>>,
     shared: Option<Arc<Shared>>,
     producer: Option<rtrb::Producer<f64>>,
@@ -418,6 +464,9 @@ impl Render {
             job_item: None,
             queued_seek: None,
             preload_job: None,
+            upcoming: VecDeque::new(),
+            previous: VecDeque::new(),
+            repeat_one: false,
             state,
             shared: None,
             producer: None,
@@ -822,6 +871,7 @@ impl Render {
             offset,
             duration: d.duration,
             source: Some(d.info()),
+            meta: d.item.meta.clone(),
         };
         self.segments.push_back(seg);
     }
@@ -851,6 +901,35 @@ impl Render {
                         Err(e) => self.load_failed(Some(item.uid), &e),
                     }
                 }
+            }
+            Cmd::Queue { upcoming, previous, repeat_one } => {
+                self.upcoming = upcoming.into_iter().take(QUEUE_MAX).collect();
+                self.previous = previous.into_iter().take(QUEUE_MAX).collect();
+                self.repeat_one = repeat_one;
+                let front = self.upcoming.front().cloned();
+                self.handle(Cmd::Preload(front));
+            }
+            Cmd::Next => {
+                let Some(n) = self.upcoming.pop_front() else { return };
+                if let Some(c) = self.playing_item() {
+                    self.previous.push_front(c);
+                    self.previous.truncate(QUEUE_MAX);
+                }
+                self.jump(n);
+            }
+            Cmd::Prev => {
+                // 3초 넘게 들었으면 이 곡의 처음으로, 아니면 앞 곡으로(다른 플레이어와 같은 규칙).
+                let pos = self.playing_position().unwrap_or(0.0);
+                if pos > 3.0 || self.previous.is_empty() {
+                    self.handle(Cmd::Seek(0.0));
+                    return;
+                }
+                let p = self.previous.pop_front().unwrap();
+                if let Some(c) = self.playing_item() {
+                    self.upcoming.push_front(c);
+                    self.upcoming.truncate(QUEUE_MAX);
+                }
+                self.jump(p);
             }
             Cmd::Preload(item) => {
                 self.next_item = item.clone();
@@ -922,6 +1001,7 @@ impl Render {
                         uid: playing.clone().unwrap(),
                         source: PlaySource::Library { id: String::new() },
                         dsp: None,
+                        meta: None,
                     });
                     if let Some(c) = self.current.take() {
                         self.next_item = Some(c.item.clone());
@@ -1003,6 +1083,22 @@ impl Render {
         }
     }
 
+    /// 장치가 지금 틀고 있는(또는 열고 있는) 곡.
+    fn playing_item(&self) -> Option<PlayItem> {
+        let uid = self.segment_at_read().map(|s| s.uid.clone()).or_else(|| self.job_item.as_ref().map(|j| j.uid.clone()))?;
+        self.find_item(Some(&uid))
+    }
+
+    /// 다음·이전 단추: 그 곡을 바로 틀고, 화면에는 넘어갔다고 알린다.
+    fn jump(&mut self, item: PlayItem) {
+        let uid = item.uid.clone();
+        self.next_item = self.upcoming.front().cloned();
+        self.handle(Cmd::Load { item, autoplay: true, at: 0.0, force: true });
+        let front = self.upcoming.front().cloned();
+        self.handle(Cmd::Preload(front));
+        self.emit(Event::Advanced { uid });
+    }
+
     fn find_item(&self, uid: Option<&str>) -> Option<PlayItem> {
         [self.current.as_ref(), self.next.as_ref()]
             .into_iter()
@@ -1010,6 +1106,7 @@ impl Render {
             .find(|d| Some(d.item.uid.as_str()) == uid)
             .map(|d| d.item.clone())
             .or_else(|| self.next_item.clone().filter(|n| Some(n.uid.as_str()) == uid))
+            .or_else(|| self.job_item.clone().filter(|n| Some(n.uid.as_str()) == uid))
     }
 
     fn seek_current(&mut self, t: f64) {
@@ -1136,6 +1233,15 @@ impl Render {
     }
 
     fn end_of_track(&mut self) -> anyhow::Result<()> {
+        // 한 곡 반복: 처음으로 돌아가 이음매 없이 잇는다(리샘플러·체인이 그대로 이어진다).
+        if self.repeat_one
+            && let Some(d) = self.current.as_mut()
+            && seek_deck(d, 0.0).is_ok()
+        {
+            self.sync_chain(0.0);
+            self.start_segment(0.0);
+            return Ok(());
+        }
         let out_rate = self.out_rate();
         let next_rate = self.next.as_ref().map(|n| n.spec.rate);
         // 리샘플러: 다음 곡이 같은 샘플레이트면 기록을 이어 쓴다(이음매 없음). 다르면 꼬리를 뺀다.
@@ -1150,8 +1256,19 @@ impl Render {
                 let uid = next.item.uid.clone();
                 // DSP를 켜고 끄는 경계에서는 채널 배치가 바뀌므로 리샘플러를 새로 만든다.
                 let was = self.chain.is_some() || self.clip.is_some();
-                self.current = Some(next);
+                if let Some(prev) = self.current.replace(next) {
+                    self.previous.push_front(prev.item);
+                    self.previous.truncate(QUEUE_MAX);
+                }
                 self.next_item = None;
+                // 엔진이 들고 있는 대기열에서 다음 곡을 꺼내고, 그다음 곡을 미리 연다.
+                if self.upcoming.front().is_some_and(|u| u.uid == uid) {
+                    self.upcoming.pop_front();
+                }
+                if let Some(n) = self.upcoming.front().cloned() {
+                    self.next_item = Some(n.clone());
+                    self.preload(n);
+                }
                 self.sync_chain(0.0);
                 let now = self.chain.is_some() || self.clip.is_some();
                 if was != now
@@ -1191,7 +1308,8 @@ impl Render {
         }
         let seg = self.segments.front().cloned();
         let mut events = Vec::new();
-        let mut patch: Option<(Option<String>, f64, f64, Option<SourceInfo>)> = None;
+        // 지금 들리는 구간과 그 안의 위치
+        let mut patch: Option<(Segment, f64)> = None;
         if let Some(seg) = &seg {
             let pos = if read >= seg.start { seg.offset + (read - seg.start) as f64 / rate } else { seg.offset };
             let pos = if seg.duration > 0.0 { pos.min(seg.duration) } else { pos };
@@ -1199,7 +1317,7 @@ impl Render {
                 self.reported_uid = Some(seg.uid.clone());
                 events.push(Event::Advanced { uid: seg.uid.clone() });
             }
-            patch = Some((Some(seg.uid.clone()), pos, seg.duration, seg.source.clone()));
+            patch = Some((seg.clone(), pos));
         }
         // 대기열 끝: 넣은 것을 장치가 다 틀었다.
         let ended = self.draining
@@ -1222,11 +1340,13 @@ impl Render {
         {
             let mut s = self.state.lock();
             let mut changed = false;
-            if let Some((uid, pos, dur, src)) = patch {
-                if s.uid != uid || s.source != src || s.duration != dur {
-                    s.uid = uid;
-                    s.duration = dur;
-                    s.source = src;
+            if let Some((seg, pos)) = patch {
+                if s.uid.as_deref() != Some(seg.uid.as_str()) || s.source != seg.source || s.duration != seg.duration || s.meta != seg.meta
+                {
+                    s.uid = Some(seg.uid);
+                    s.duration = seg.duration;
+                    s.source = seg.source;
+                    s.meta = seg.meta;
                     changed = true;
                 }
                 if (s.position - pos).abs() > 0.2 {

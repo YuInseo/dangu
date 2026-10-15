@@ -28,7 +28,7 @@ import type { AudioFormat } from '../library/types';
 import { AudioEngine, type EngineSnapshot, type PlaybackEngine } from './engine';
 import { NativeEngine } from './native';
 import { pushRecent, readJSON, writeJSON } from './storage';
-import { initialQueue as initial, nextIndex, queueReducer as reducer, wrap, type QueueState } from './queue';
+import { initialQueue as initial, nextIndex, queueReducer as reducer, queueWindows, wrap, type QueueState } from './queue';
 import type { PlayableTrack, QueueItem, RepeatMode } from './types';
 
 // -- 컨텍스트 ---------------------------------------------------------------
@@ -306,8 +306,13 @@ export function PlayerProvider({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [engine, current?.uid, state.token]);
 
-  // 다음 곡을 미리 받아 둔다.
+  // 다음 곡을 미리 받아 둔다. 이 기기 존은 앞뒤 대기열을 통째로 맡겨 화면 없이도 이어 튼다.
   useEffect(() => {
+    if (engine.setQueue) {
+      const w = queueWindows(state);
+      engine.setQueue(w.upcoming, w.previous, w.repeatOne);
+      return;
+    }
     const n = state.repeat === 'one' ? null : nextIndex(state);
     const next = n == null ? null : state.items[n]!;
     engine.preload(next && next.uid !== current?.uid ? next : null);

@@ -57,6 +57,8 @@ function toPlayItem(item: QueueItem, dsp: DspPlan | null) {
     uid: item.uid,
     source: t.source === 'library' ? { kind: 'library', id: t.key.replace(/^lib:/, '') } : { kind: 'live', ...liveOf(t) },
     dsp: dsp?.q,
+    // 잠금 화면·알림이 보여 줄 이름표
+    meta: { title: t.title, artist: t.artist, album: t.album, cover: t.cover?.lg },
   };
 }
 
@@ -91,6 +93,9 @@ export class NativeEngine implements PlaybackEngine {
   /** 지금 곡과 다음 곡, 그리고 각각에 보낸 DSP 요청 */
   private current: QueueItem | null = null;
   private next: QueueItem | null = null;
+  /** 엔진에 맡긴 앞뒤 대기열(넘어간 곡을 찾고, DSP가 바뀌면 다시 보내려고) */
+  private queue: { upcoming: QueueItem[]; previous: QueueItem[]; repeatOne: boolean } | null = null;
+  private queueKey = '';
   private sent = new Map<string, string | undefined>();
   private listeners = new Set<Listener>();
   private timeListeners = new Set<Listener>();
@@ -147,8 +152,9 @@ export class NativeEngine implements PlaybackEngine {
       if (seq <= this.lastEvent) continue;
       this.lastEvent = seq;
       if (ev.type === 'advanced' && ev.uid) {
-        if (this.next?.uid === ev.uid) {
-          this.current = this.next;
+        const known = [this.next, ...(this.queue?.upcoming ?? []), ...(this.queue?.previous ?? [])].find((x) => x?.uid === ev.uid);
+        if (known) {
+          this.current = known;
           this.next = null;
           const plan = this.plan(this.current);
           this.update({ dsp: plan?.req ?? null, sid: plan ? this.sidOf(this.current) : null });
@@ -203,6 +209,23 @@ export class NativeEngine implements PlaybackEngine {
     void post('/api/player/preload', { item: item ? toPlayItem(item, plan) : null });
   }
 
+  setQueue(upcoming: QueueItem[], previous: QueueItem[], repeatOne: boolean) {
+    this.queue = { upcoming, previous, repeatOne };
+    this.next = upcoming[0] ?? null;
+    const items = (list: QueueItem[]) =>
+      list.map((it) => {
+        const plan = this.plan(it);
+        this.sent.set(it.uid, plan?.q);
+        return toPlayItem(it, plan);
+      });
+    const body = { upcoming: items(upcoming), previous: items(previous), repeatOne };
+    // 같은 것을 거듭 보내지 않는다(대기열 화면이 다시 그려질 때마다 이 함수가 불린다).
+    const key = JSON.stringify(body);
+    if (key === this.queueKey) return;
+    this.queueKey = key;
+    void post('/api/player/queue', body);
+  }
+
   /** DSP 설정이 바뀌었다. 지금 곡과 다음 곡의 요청을 다시 만들어 바뀐 것만 보낸다. */
   refreshDsp() {
     const items: { uid: string; dsp: string | null }[] = [];
@@ -218,6 +241,8 @@ export class NativeEngine implements PlaybackEngine {
       this.update({ dsp: plan?.req ?? null, sid: plan ? this.sidOf(this.current) : null });
     }
     if (items.length) void post('/api/player/dsp', { items });
+    // 엔진이 들고 있는 뒤쪽 곡들의 요청도 새 설정으로
+    if (this.queue) this.setQueue(this.queue.upcoming, this.queue.previous, this.queue.repeatOne);
   }
 
   play() {

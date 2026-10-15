@@ -47,6 +47,28 @@ function shuffled<T>(xs: T[]): T[] {
 }
 
 /** 곡이 끝났을 때 갈 곳. 한 곡 반복은 여기서 다루지 않는다. */
+/**
+ * 엔진에 맡길 대기열 창: 지금 곡 다음 것들(재생 순서대로)과 앞의 것들(가까운 것부터).
+ * 전체 반복이면 끝에서 처음으로 돌아가며 채운다. 한 곡 반복은 엔진이 지금 곡을 되풀이하게 하고,
+ * 다음 단추를 위해 다음 곡들은 그대로 준다.
+ */
+export function queueWindows(s: QueueState, size = 30): { upcoming: QueueItem[]; previous: QueueItem[]; repeatOne: boolean } {
+  const n = s.items.length;
+  const upcoming: QueueItem[] = [];
+  const previous: QueueItem[] = [];
+  if (!n) return { upcoming, previous, repeatOne: false };
+  const wrap = s.repeat !== 'off';
+  for (let i = 1; i <= size; i++) {
+    const j = s.index + i;
+    if (j >= n && !wrap) break;
+    upcoming.push(s.items[j % n]!);
+  }
+  for (let i = 1; i <= Math.min(size, wrap ? n - 1 : s.index); i++) previous.push(s.items[(s.index - i + n) % n]!);
+  // 한 곡만 있는 전체 반복은 한 곡 반복과 같다(같은 칸이 바로 다시 오면 엔진이 이어 붙이지 못한다).
+  const repeatOne = s.repeat === 'one' || (s.repeat === 'all' && n === 1);
+  return { upcoming: n === 1 ? [] : upcoming, previous, repeatOne };
+}
+
 export function nextIndex(s: QueueState): number | null {
   if (!s.items.length) return null;
   if (s.index + 1 < s.items.length) return s.index + 1;

@@ -80,6 +80,11 @@ export interface PlaybackEngine {
   sidOf(item: QueueItem): string;
   load(item: QueueItem, opts: { autoplay: boolean; at?: number }): void;
   preload(item: QueueItem | null): void;
+  /**
+   * 다음에 틀 곡들과 앞서 튼 곡들을 엔진에 맡긴다(이 기기 존). 화면이 잠들어도 엔진이 혼자 이어
+   * 틀고, 알림·잠금 화면의 다음/이전 단추도 이것으로 간다. 없으면 `preload`만 쓴다.
+   */
+  setQueue?(upcoming: QueueItem[], previous: QueueItem[], repeatOne: boolean): void;
   refreshDsp(): void;
   play(): void;
   pause(): void;

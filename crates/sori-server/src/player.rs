@@ -80,6 +80,9 @@ async fn control(State(app): State<App>, Json(c): Json<Cmd>) -> Response {
             }
         }
         "stop" => p.stop(),
+        // 알림·잠금 화면·헤드셋 단추: 엔진이 들고 있는 대기열로 간다.
+        "next" => p.next(),
+        "prev" => p.prev(),
         "seek" => p.seek(c.t.max(0.0)),
         "volume" => {
             let s = p.state();
@@ -87,6 +90,24 @@ async fn control(State(app): State<App>, Json(c): Json<Cmd>) -> Response {
         }
         other => return (StatusCode::BAD_REQUEST, Json(json!({ "error": format!("모르는 명령: {other}") }))).into_response(),
     }
+    Json(json!({ "ok": true })).into_response()
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct QueueBody {
+    #[serde(default)]
+    upcoming: Vec<PlayItem>,
+    #[serde(default)]
+    previous: Vec<PlayItem>,
+    #[serde(default)]
+    repeat_one: bool,
+}
+
+/// 다음에 틀 곡들과 앞서 튼 곡들. 화면이 잠들어도 엔진이 혼자 이어 튼다.
+async fn queue(State(app): State<App>, Json(b): Json<QueueBody>) -> Response {
+    let Some(p) = &app.player else { return unavailable() };
+    p.set_queue(b.upcoming, b.previous, b.repeat_one);
     Json(json!({ "ok": true })).into_response()
 }
 
@@ -130,6 +151,7 @@ pub fn routes() -> Router<App> {
         .route("/api/player", get(info))
         .route("/api/player/load", post(load))
         .route("/api/player/preload", post(preload))
+        .route("/api/player/queue", post(queue))
         .route("/api/player/control", post(control))
         .route("/api/player/dsp", post(dsp))
         .route("/api/player/events", get(events))

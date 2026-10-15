@@ -24,6 +24,7 @@ fn item(p: &std::path::Path) -> PlayItem {
         uid: p.file_name().unwrap().to_string_lossy().to_string(),
         source: PlaySource::Library { id: p.to_string_lossy().to_string() },
         dsp: None,
+        meta: None,
     }
 }
 
@@ -33,6 +34,7 @@ fn remote_item(p: &std::path::Path) -> PlayItem {
         uid: format!("live:{}", p.file_name().unwrap().to_string_lossy()),
         source: PlaySource::Live { id: p.to_string_lossy().to_string(), file: String::new() },
         dsp: None,
+        meta: None,
     }
 }
 
@@ -163,7 +165,12 @@ fn seek_and_volume() {
 #[test]
 fn errors_are_reported() {
     let (p, _) = player(48_000);
-    p.load(PlayItem { uid: "x".into(), source: PlaySource::Library { id: "/없는/파일.flac".into() }, dsp: None }, true, 0.0, false);
+    p.load(
+        PlayItem { uid: "x".into(), source: PlaySource::Library { id: "/없는/파일.flac".into() }, dsp: None, meta: None },
+        true,
+        0.0,
+        false,
+    );
     wait_for(&p, |e| e.iter().any(|(_, e)| matches!(e, Event::Error { .. })));
     assert_eq!(p.state().status, Status::Error);
     // 네트워크 곡도 뒤에서 열다 실패하면 같은 길로 알린다.
@@ -302,4 +309,92 @@ fn changing_dsp_mid_track_applies_from_the_playing_position() {
     let g = 10f64.powf(-6.0 / 20.0);
     let max = got.iter().zip(&a[from..]).map(|(x, y)| (x - g * y).abs()).fold(0.0, f64::max);
     assert!(max < 1e-12, "{max}");
+}
+
+fn advanced_to(e: &[(u64, Event)], uid: &str) -> bool {
+    e.iter().any(|(_, e)| matches!(e, Event::Advanced { uid: u } if u == uid))
+}
+
+#[test]
+fn engine_queue_plays_on_without_the_screen() {
+    if common::samples().is_none() {
+        return;
+    }
+    // 화면이 잠들어도(대기열을 더 보내지 않아도) 엔진이 들고 있는 다음 곡들을 이어 튼다.
+    let t = tracks("Neon Harbor/2023 - Night Drive");
+    let (p, captured) = player(96_000);
+    p.load(item(&t[0]), true, 0.0, false);
+    p.set_queue(vec![item(&t[1]), item(&t[2])], vec![], false);
+    wait_for(&p, ended);
+    let mut want = Vec::new();
+    for f in &t[..3] {
+        want.extend(decode::decode_all(f).unwrap().1);
+    }
+    let got = captured.lock().clone();
+    assert_eq!(got.len(), want.len());
+    assert!(got == want, "세 곡이 이음매 없이 이어져야 한다");
+    let events = p.state().events;
+    assert!(advanced_to(&events, &item(&t[1]).uid) && advanced_to(&events, &item(&t[2]).uid));
+}
+
+#[test]
+fn next_and_previous_buttons() {
+    if common::samples().is_none() {
+        return;
+    }
+    let t = tracks("Neon Harbor/2023 - Night Drive");
+    let (p, _) = player_with(96_000, true, Duration::ZERO, Duration::ZERO);
+    let (a, b, c) = (item(&t[0]), item(&t[1]), item(&t[2]));
+    p.load(a.clone(), true, 0.0, false);
+    p.set_queue(vec![b.clone(), c.clone()], vec![], false);
+    wait_for(&p, |_| p.state().status == Status::Playing);
+    // 다음: b로, 화면에는 넘어갔다고 알린다.
+    p.next();
+    wait_for(&p, |e| advanced_to(e, &b.uid));
+    wait_for(&p, |_| p.state().uid.as_deref() == Some(b.uid.as_str()) && p.state().status == Status::Playing);
+    // 바로 이전(3초 안): a로 돌아간다.
+    p.prev();
+    wait_for(&p, |_| p.state().uid.as_deref() == Some(a.uid.as_str()) && p.state().status == Status::Playing);
+    // 다시 다음, 다음: b, c
+    p.next();
+    wait_for(&p, |_| p.state().uid.as_deref() == Some(b.uid.as_str()));
+    p.next();
+    wait_for(&p, |_| p.state().uid.as_deref() == Some(c.uid.as_str()));
+    // 더 갈 곳이 없으면 그대로
+    p.next();
+    std::thread::sleep(Duration::from_millis(200));
+    assert_eq!(p.state().uid.as_deref(), Some(c.uid.as_str()));
+    // 이름표가 따라온다
+    let mut m = item(&t[0]);
+    m.uid = "with-meta".into();
+    m.meta = Some(sori_core::player::Meta {
+        title: "Harbor Lights".into(),
+        artist: "Neon Harbor".into(),
+        album: "Night Drive".into(),
+        cover: None,
+    });
+    p.load(m, true, 0.0, false);
+    wait_for(&p, |_| p.state().meta.as_ref().is_some_and(|m| m.title == "Harbor Lights"));
+}
+
+#[test]
+fn repeat_one_loops_without_a_gap() {
+    if common::samples().is_none() {
+        return;
+    }
+    let t = tracks("하늘 사중주/아침의 차"); // 44.1kHz
+    let (p, captured) = player(44_100);
+    p.set_queue(vec![], vec![], true);
+    p.load(item(&t[0]), true, 0.0, false);
+    let (_, a) = decode::decode_all(&t[0]).unwrap();
+    let t0 = Instant::now();
+    while captured.lock().len() < a.len() * 2 + 4096 {
+        assert!(t0.elapsed() < Duration::from_secs(60), "되풀이하지 않습니다");
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    p.stop();
+    let got = captured.lock().clone();
+    assert!(got[..a.len()] == a[..], "첫 바퀴");
+    assert!(got[a.len()..a.len() * 2] == a[..], "둘째 바퀴가 첫 바퀴 바로 다음 샘플에 붙어야 한다");
+    assert!(!ended(&p.state().events), "되풀이 중에는 끝나지 않는다");
 }

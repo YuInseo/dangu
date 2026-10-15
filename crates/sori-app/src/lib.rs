@@ -89,7 +89,7 @@ pub fn run() {
             let data_dir = app.path().app_data_dir()?;
             let music_dir = default_music_dir(app);
             tracing::info!(music = %music_dir.display(), data = %data_dir.display(), "소리를 엽니다");
-            let store = Store::open(Config::new(music_dir, data_dir));
+            let store = Store::open(Config::new(music_dir, data_dir.clone()));
             store.start_scan();
             keep_trying(store.clone());
 
@@ -114,6 +114,8 @@ pub fn run() {
                 });
             })?;
             let addr = rx.recv_timeout(Duration::from_secs(15)).map_err(|_| anyhow::anyhow!("서버가 뜨지 않습니다"))?;
+            // 안드로이드의 재생 서비스(잠금 화면·알림)가 엔진을 찾는 곳
+            let _ = std::fs::write(data_dir.join("server.port"), addr.port().to_string());
             let url = format!("http://127.0.0.1:{}/", addr.port()).parse()?;
 
             let builder = WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url));
