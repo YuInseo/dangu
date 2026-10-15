@@ -56,6 +56,13 @@ shot home
 tap_label "앨범" && shot albums
 tap_label "Lo-Fi Sketches" && shot album
 tap_label "재생" 6 && shot playing
+# 재생 서비스: 미디어 세션과 알림(잠금 화면·알림 막대의 재생 단추)
+adb shell dumpsys media_session | grep -iE "sori|state=|metadata|description" | head -20 || true
+adb shell cmd statusbar expand-notifications
+sleep 3
+shot notification
+adb shell cmd statusbar collapse
+sleep 2
 # 미니 플레이어를 누르면 지금 재생 중 화면
 tap_label "Tape Hiss Morning" 4 || tap_label "Rooftop Notebook" 4
 shot now-playing
