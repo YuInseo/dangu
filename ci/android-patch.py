@@ -5,6 +5,8 @@
   처음 켤 때 묻는다.
 - 창은 앱 안에서 뜬 소리 서버(http://127.0.0.1:4380)를 연다. 릴리스 빌드에서도 이 평문
   주소를 열 수 있게 한다(밖으로 나가는 주소가 아니다).
+- 안드로이드 15부터는 화면이 상태 표시줄·제스처 막대 밑까지 그려진다(edge-to-edge). 화면이
+  그 밑에 깔리지 않게 시스템 막대와 키보드 자리만큼 띄우고, 막대 자리는 앱의 어두운 바탕으로 둔다.
 """
 import pathlib
 import re
@@ -43,12 +45,31 @@ act.write_text(f'''package {pkg}
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import androidx.activity.enableEdgeToEdge
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {{
   override fun onCreate(savedInstanceState: Bundle?) {{
+    enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // 상태 표시줄·제스처 막대·키보드 자리만큼 화면을 띄운다. 그 자리는 앱의 바탕색, 아이콘은 밝게.
+    window.decorView.setBackgroundColor(Color.parseColor("#0E0E10"))
+    WindowCompat.getInsetsController(window, window.decorView).apply {{
+      isAppearanceLightStatusBars = false
+      isAppearanceLightNavigationBars = false
+    }}
+    val content = findViewById<android.view.View>(android.R.id.content)
+    ViewCompat.setOnApplyWindowInsetsListener(content) {{ v, insets ->
+      val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+      val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+      v.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
+      WindowInsetsCompat.CONSUMED
+    }}
     // 음악 폴더를 읽으려면 사용자의 허락이 필요하다. 허락하면 소리가 몇 초 안에 다시 스캔한다.
     val wanted = if (Build.VERSION.SDK_INT >= 33)
       arrayOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_IMAGES)
@@ -59,5 +80,25 @@ class MainActivity : TauriActivity() {{
   }}
 }}
 ''')
+
+# 테마: 처음 뜨는 순간(스플래시)부터 앱의 어두운 바탕
+colors = root / 'app/src/main/res/values/colors.xml'
+if colors.exists():
+    c = colors.read_text()
+    if 'sori_bg' not in c:
+        c = c.replace('</resources>', '    <color name="sori_bg">#0E0E10</color>\n</resources>')
+else:
+    c = '<?xml version="1.0" encoding="utf-8"?>\n<resources>\n    <color name="sori_bg">#0E0E10</color>\n</resources>\n'
+colors.write_text(c)
+for t in root.glob('app/src/main/res/values*/themes.xml'):
+    x = t.read_text()
+    if 'sori_bg' not in x:
+        x = x.replace('<!-- Customize your theme here. -->', '''<item name="android:windowBackground">@color/sori_bg</item>
+        <item name="android:statusBarColor">@color/sori_bg</item>
+        <item name="android:navigationBarColor">@color/sori_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar" tools:targetApi="27">false</item>''')
+        t.write_text(x)
+
 print('patched', manifest, gradle, act, sep='\n  ')
 print(manifest.read_text())
