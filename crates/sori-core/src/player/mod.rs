@@ -14,7 +14,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -118,16 +118,14 @@ pub enum Status {
 #[serde(rename_all = "camelCase", tag = "type")]
 pub enum Event {
     /// 다음 곡으로 넘어갔다(장치가 그 곡의 첫 샘플을 틀기 시작했다).
-    Advanced {
-        uid: String,
-    },
+    Advanced { uid: String },
     /// 대기열 끝까지 다 틀었다.
-    Ended {
-        uid: String,
-    },
+    Ended { uid: String },
     Error {
         uid: Option<String>,
         message: String,
+        /// 오디오 장치가 문제다(곡이 아니라). 화면은 다른 재생 방법으로 바꿀 수 있다.
+        output: bool,
     },
 }
 
@@ -400,6 +398,10 @@ const RING_SECONDS: f64 = 1.0;
 const QUEUE_MAX: usize = 64;
 /// 한 번에 링에 넣는 양(초)
 const CHUNK_SECONDS: f64 = 0.02;
+/// 넣은 소리를 장치가 이만큼 가져가지 않으면 장치를 다시 연다.
+const STALL: Duration = Duration::from_secs(3);
+/// 그래도 안 되면 몇 번까지 다시 열어 볼지
+const MAX_RECOVERIES: u32 = 1;
 
 struct Render {
     output: Box<dyn Output>,
@@ -450,6 +452,11 @@ struct Render {
     /// 장치 샘플레이트에서 도는 체인과 그 열쇠(요청의 헤드룸·필터 부분)
     chain: Option<(String, Chain)>,
     clip: Option<ClipMeter>,
+    /// 장치가 마지막으로 가져간 위치와 그때(지켜보기)
+    watch_read: u64,
+    watch_since: Instant,
+    /// 연달아 장치를 다시 연 횟수(소리를 가져가면 0으로)
+    recoveries: u32,
 }
 
 impl Render {
@@ -491,6 +498,9 @@ impl Render {
             clips: Arc::new(Clips::default()),
             chain: None,
             clip: None,
+            watch_read: 0,
+            watch_since: Instant::now(),
+            recoveries: 0,
         }
     }
 
@@ -541,9 +551,10 @@ impl Render {
                     s.paused.store(true, Ordering::Relaxed);
                 }
                 self.set_status(Status::Error, Some(e.to_string()));
-                self.emit(Event::Error { uid, message: e.to_string() });
+                self.emit(Event::Error { uid, message: e.to_string(), output: false });
             }
             self.update_state();
+            self.watchdog();
         }
         self.output.close();
     }
@@ -589,7 +600,80 @@ impl Render {
             s.paused.store(true, Ordering::Relaxed);
         }
         self.set_status(Status::Error, Some(e.to_string()));
-        self.emit(Event::Error { uid, message: e.to_string() });
+        self.emit(Event::Error { uid, message: e.to_string(), output: false });
+    }
+
+    /// 오디오 장치를 쓸 수 없다. 멈추고 화면에 알린다.
+    fn output_failed(&mut self, uid: Option<String>, message: String) {
+        tracing::warn!("{message}");
+        self.current = None;
+        self.want_play = false;
+        self.recoveries = 0;
+        self.set_status(Status::Error, Some(message.clone()));
+        self.emit(Event::Error { uid, message, output: true });
+    }
+
+    /// 장치가 소리를 가져가는지 지켜본다. 넣은 소리가 있는데 몇 초 동안 한 프레임도 가져가지 않거나
+    /// (안드로이드에서 출력이 시작하지 않는 때) 장치가 오류를 알리면(이어폰·블루투스로 바뀌며 끊기는 때)
+    /// 장치를 다시 열고 들리던 자리부터 잇는다. 다시 열어도 안 되면 오류를 낸다.
+    fn watchdog(&mut self) {
+        let Some(shared) = self.shared.clone() else { return };
+        let failed = shared.failed.load(Ordering::Relaxed);
+        let read = shared.read.load(Ordering::Acquire);
+        let waiting = self.want_play && self.job.is_none() && !shared.paused.load(Ordering::Relaxed) && self.written > read;
+        if read != self.watch_read {
+            self.watch_read = read;
+            self.watch_since = Instant::now();
+            self.recoveries = 0;
+        } else if !waiting {
+            self.watch_since = Instant::now();
+        }
+        if !failed && self.watch_since.elapsed() < STALL {
+            return;
+        }
+        self.watch_since = Instant::now();
+        self.recover_output(failed);
+    }
+
+    fn recover_output(&mut self, failed: bool) {
+        let heard = self.segment_at_read().map(|s| s.uid.clone());
+        let pos = self.playing_position().unwrap_or(0.0);
+        let device = self.spec.as_ref().map(|s| s.device.clone()).unwrap_or_default();
+        let uid = self.current.as_ref().map(|d| d.item.uid.clone());
+        self.recoveries += 1;
+        tracing::warn!(device, failed, attempt = self.recoveries, "오디오 장치가 소리를 가져가지 않습니다. 다시 엽니다");
+        self.output.close();
+        self.producer = None;
+        self.shared = None;
+        if self.recoveries > MAX_RECOVERIES {
+            let why = if failed { "장치가 오류를 냈습니다" } else { "소리를 가져가지 않습니다" };
+            self.output_failed(uid, format!("이 기기의 오디오 출력이 응답하지 않습니다({device}: {why})"));
+            return;
+        }
+        if let Err(e) = self.ensure_output() {
+            self.output_failed(uid, format!("출력 장치를 열 수 없습니다: {e}"));
+            return;
+        }
+        // 들리던 자리부터. 장치가 아직 앞 곡의 끝을 틀던 중이었으면 지금 곡의 처음부터.
+        if self.current.is_none() {
+            return;
+        }
+        let t = if heard.is_some() && heard == uid { pos } else { 0.0 };
+        self.draining = false;
+        self.resampler = None;
+        self.chain = None;
+        if self.current.as_ref().is_some_and(|d| d.source.remote()) {
+            self.begin_remote_seek(t);
+        } else {
+            self.seek_current(t);
+            self.sync_chain(t);
+            if let Some(s) = &self.shared {
+                s.paused.store(!self.want_play, Ordering::Relaxed);
+            }
+        }
+        if self.want_play {
+            self.set_status(Status::Loading, None);
+        }
     }
 
     /// 다음 곡을 미리 연다. 네트워크 곡은 뒤에서.
@@ -619,8 +703,7 @@ impl Render {
     /// 네트워크 곡: 지금 것을 멈추고 뒤에서 연다. 다 열리면 `finish_load`.
     fn begin_remote_load(&mut self, item: PlayItem, at: f64) {
         if let Err(e) = self.ensure_output() {
-            self.set_status(Status::Error, Some(format!("출력 장치를 열 수 없습니다: {e}")));
-            self.emit(Event::Error { uid: Some(item.uid), message: e.to_string() });
+            self.output_failed(Some(item.uid), format!("출력 장치를 열 수 없습니다: {e}"));
             return;
         }
         self.flush_ring();
@@ -667,8 +750,7 @@ impl Render {
     /// 곡이 열렸다: 지금 곡으로 건다.
     fn finish_load(&mut self, deck: Deck, item: PlayItem, at: f64, seeked: Option<anyhow::Result<u64>>) {
         if let Err(e) = self.ensure_output() {
-            self.set_status(Status::Error, Some(format!("출력 장치를 열 수 없습니다: {e}")));
-            self.emit(Event::Error { uid: Some(item.uid), message: e.to_string() });
+            self.output_failed(Some(item.uid), format!("출력 장치를 열 수 없습니다: {e}"));
             return;
         }
         self.flush_ring();

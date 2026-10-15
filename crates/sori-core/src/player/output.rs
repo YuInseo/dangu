@@ -170,6 +170,10 @@ pub struct NullOutput {
     pub preferred: u32,
     pub realtime: bool,
     pub captured: Arc<parking_lot::Mutex<Vec<f64>>>,
+    /// 이만큼은 열려도 소리를 가져가지 않는다(시동이 안 걸리는 장치 흉내).
+    pub dead_opens: usize,
+    /// 지금까지 연 횟수
+    pub opens: Arc<std::sync::atomic::AtomicUsize>,
     stop: Arc<AtomicBool>,
     thread: Option<std::thread::JoinHandle<()>>,
 }
@@ -182,6 +186,8 @@ impl NullOutput {
             preferred,
             realtime,
             captured: Arc::new(parking_lot::Mutex::new(Vec::new())),
+            dead_opens: 0,
+            opens: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
             stop: Arc::new(AtomicBool::new(false)),
             thread: None,
         }
@@ -192,6 +198,20 @@ impl Output for NullOutput {
     fn open(&mut self, rate: Option<u32>, consumer: Consumer<f64>, shared: Arc<Shared>) -> anyhow::Result<OutSpec> {
         self.close();
         let rate = rate.filter(|r| self.rates.contains(r)).unwrap_or(self.preferred);
+        self.opens.fetch_add(1, Ordering::Relaxed);
+        let spec = OutSpec {
+            rate,
+            channels: self.channels,
+            format: SampleKind::F64,
+            device: "시험용 출력".into(),
+            api: "null".into(),
+            mixer: false,
+        };
+        if self.dead_opens > 0 {
+            self.dead_opens -= 1;
+            drop(consumer);
+            return Ok(spec);
+        }
         let stop = Arc::new(AtomicBool::new(false));
         self.stop = stop.clone();
         let captured = self.captured.clone();
@@ -219,7 +239,7 @@ impl Output for NullOutput {
                 }
             }
         }));
-        Ok(OutSpec { rate, channels: ch, format: SampleKind::F64, device: "시험용 출력".into(), api: "null".into(), mixer: false })
+        Ok(spec)
     }
 
     fn close(&mut self) {

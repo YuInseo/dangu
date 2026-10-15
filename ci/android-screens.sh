@@ -76,16 +76,27 @@ sleep 3
 shot notification
 adb shell cmd statusbar collapse
 sleep 2
-# 미니 플레이어를 누르면 지금 재생 중 화면
-tap_label "Tape Hiss Morning" 4 || tap_label "Rooftop Notebook" 4
-shot now-playing
+# 미니 플레이어를 누르면 지금 재생 중 화면(시험 곡이 짧아 제목이 그새 바뀌니 이름표로 누른다)
+tap_label "지금 재생 중 화면 열기" 4 && shot now-playing
+# 지금 재생 중의 ♥(아래쪽 미니 플레이어에도 같은 단추가 있어 맨 뒤의 것)
+tap_label "좋아요" 3 last && shot now-playing-liked
 adb shell input keyevent 4
 sleep 3
-tap_label "아티스트" 5 last && shot artists
+# 보관함에 보일 플레이리스트 하나(앞의 곡 여섯)
+ids=$(curl -s --max-time 10 "http://127.0.0.1:4380/api/tracks?offset=0&limit=6" | python3 -c "import json,sys; print(json.dumps([t['id'] for t in json.load(sys.stdin)['tracks']]))" || echo "[]")
+curl -s --max-time 10 -X POST -H 'content-type: application/json' -d "{\"name\":\"Night Drive Mix\",\"tracks\":$ids}" http://127.0.0.1:4380/api/playlists || true
+echo
+tap_label "보관함" 5 last && shot collection
+tap_label "좋아요" 4 && shot favorites
+adb shell input keyevent 4
+sleep 3
+tap_label "Night Drive Mix" 4 && shot playlist
 tap_label "라이브" 10 last && shot live
 tap_label "설정" && shot settings
 tap_label "연결" && shot connect
 tap_label "라이브러리" && shot settings-library
+tap_label "정보" 3 && tap_label "기록 보기" 3 && shot logs
+curl -s --max-time 10 http://127.0.0.1:4380/api/logs | python3 -c "import json,sys; [print(l['level'], l['message']) for l in json.load(sys.stdin)]" | tail -40 || true
 
 adb logcat -d | grep -iE "sori|tauri|rust|chromium" | tail -150 > shots/logcat.txt || true
 ls -la shots

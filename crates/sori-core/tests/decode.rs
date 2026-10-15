@@ -80,3 +80,85 @@ fn seeking_is_sample_accurate() {
         }
     }
 }
+
+/// ffmpeg로 푼 32비트 float PCM(48kHz, 인터리브)
+fn ffmpeg_f32(path: &Path) -> Vec<f64> {
+    let out = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-i"])
+        .arg(path)
+        .args(["-f", "f32le", "-acodec", "pcm_f32le", "-"])
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "ffmpeg");
+    out.stdout.chunks_exact(4).map(|b| f64::from(f32::from_le_bytes([b[0], b[1], b[2], b[3]]))).collect()
+}
+
+fn snr_db(ours: &[f64], theirs: &[f64]) -> f64 {
+    let (mut sig, mut err) = (0.0, 0.0);
+    for (a, b) in ours.iter().zip(theirs) {
+        sig += b * b;
+        err += (a - b) * (a - b);
+    }
+    10.0 * (sig / err.max(1e-30)).log10()
+}
+
+/// 유튜브에서 받은 음악에 흔한 Opus(.opus, .webm): ffmpeg(libopus)와 같은 길이, 같은 소리.
+#[test]
+fn opus_decodes_like_ffmpeg() {
+    if !common::has_ffmpeg() {
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    // 2.5초, 스테레오, 왼쪽 440Hz + 오른쪽 1.1kHz와 잡음 조금(SILK·CELT가 다 쓰이게 160kbps)
+    for (name, extra) in [("a.opus", vec![]), ("a.webm", vec!["-f", "webm"])] {
+        let p = dir.path().join(name);
+        let st = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i"])
+            .arg("aevalsrc=0.4*sin(2*PI*440*t)+0.02*random(0)|0.4*sin(2*PI*1100*t):s=44100:d=2.5")
+            .args(["-c:a", "libopus", "-b:a", "160k"])
+            .args(&extra)
+            .arg(&p)
+            .status()
+            .unwrap();
+        if !st.success() {
+            eprintln!("이 ffmpeg에는 libopus가 없습니다");
+            return;
+        }
+        let (spec, ours) = decode::decode_all(&p).unwrap();
+        assert_eq!((spec.rate, spec.channels), (48_000, 2), "{name}");
+        let theirs = ffmpeg_f32(&p);
+        if name.ends_with(".opus") {
+            // Ogg: pre-skip과 끝 패딩을 잘라 원래 길이(2.5초 → 48kHz로 120000프레임) 그대로
+            assert_eq!(ours.len(), theirs.len(), "{name}: 길이");
+            assert_eq!(ours.len(), 120_000 * 2, "{name}: 원래 길이");
+        } else {
+            // WebM은 컨테이너가 끝 패딩을 늘 알려 주지는 않는다. 길이는 한 패킷(20ms) 안에서.
+            assert!(ours.len().abs_diff(theirs.len()) <= 960 * 2 * 2, "{name}: 길이 {} vs {}", ours.len(), theirs.len());
+        }
+        let n = ours.len().min(theirs.len());
+        let snr = snr_db(&ours[..n], &theirs[..n]);
+        assert!(snr > 40.0, "{name}: ffmpeg와의 차이가 크다: SNR {snr:.1}dB");
+
+        // 1초로 시크: 그 자리의 소리가 처음부터 푼 것의 그 자리와 같다(pre-skip만큼 밀린 시간축).
+        let mut src = decode::open(&p).unwrap();
+        let at = src.seek(48_000).unwrap();
+        assert_eq!(at, 48_000, "{name}: 시크한 위치");
+        let mut got = Vec::new();
+        while got.len() < 9_600 * 2 && src.read(&mut got).unwrap() > 0 {}
+        if name.ends_with(".opus") {
+            // 디코더가 상태를 미리 쌓아 두므로(pre-roll) 시크한 첫 샘플부터 같은 소리다.
+            let want = &ours[(48_000 * 2)..(48_000 * 2 + 9_600 * 2)];
+            let snr = snr_db(&got[..9_600 * 2], want);
+            assert!(snr > 60.0, "{name}: 시크한 자리의 소리가 다르다: SNR {snr:.1}dB");
+        } else {
+            // WebM의 시간은 밀리초로 반올림돼 적혀 있다: 2ms 안에 들어오면 된다.
+            let best = (-240i64..=240)
+                .map(|off| {
+                    let from = ((48_000 + off) * 2) as usize;
+                    (snr_db(&got[960..9_600 * 2], &ours[from + 960..from + 9_600 * 2]), off)
+                })
+                .fold((f64::MIN, 0), |a, b| if b.0 > a.0 { b } else { a });
+            assert!(best.0 > 60.0 && best.1.abs() <= 96, "{name}: 시크한 자리가 2ms 넘게 어긋난다: {best:?}");
+        }
+    }
+}

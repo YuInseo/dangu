@@ -68,7 +68,8 @@ export interface PlaybackEngine {
   readonly zone: string;
   canTranscode: boolean;
   onEnded: (() => void) | null;
-  onError: ((message: string) => void) | null;
+  /** `output`: 곡이 아니라 오디오 장치가 문제다(다른 재생 방법으로 바꿀 수 있다). */
+  onError: ((message: string, output?: boolean) => void) | null;
   /** 엔진이 스스로 다음 곡으로 넘어갔다(갭리스). 화면은 대기열 위치만 맞춘다. */
   onAdvanced: ((uid: string) => void) | null;
   dspFor: ((item: QueueItem) => DspPlan | null) | null;
@@ -102,7 +103,7 @@ export class AudioEngine implements PlaybackEngine {
   readonly kind = 'browser' as const;
   canTranscode = false;
   onEnded: (() => void) | null = null;
-  onError: ((message: string) => void) | null = null;
+  onError: ((message: string, output?: boolean) => void) | null = null;
   onAdvanced: ((uid: string) => void) | null = null;
   /** 곡마다 DSP를 어떻게 걸지. 프로바이더가 설정을 보고 정한다. null이면 원본 그대로. */
   dspFor: ((item: QueueItem) => DspPlan | null) | null = null;

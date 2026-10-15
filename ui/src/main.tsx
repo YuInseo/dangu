@@ -14,7 +14,9 @@ import { AlbumPage } from '@/pages/album';
 import { AlbumsPage } from '@/pages/albums';
 import { ArtistPage } from '@/pages/artist';
 import { ArtistsPage } from '@/pages/artists';
+import { CollectionPage } from '@/pages/collection';
 import { DspScreen } from '@/pages/dsp';
+import { FavoritesPage } from '@/pages/favorites';
 import { GenrePage } from '@/pages/genre';
 import { GenresPage } from '@/pages/genres';
 import { Home } from '@/pages/home';
@@ -22,6 +24,8 @@ import { LivePage } from '@/pages/live';
 import { LiveShowPage } from '@/pages/live-show';
 import { LoginPage } from '@/pages/login';
 import { NotFound } from '@/pages/not-found';
+import { PlaylistPage } from '@/pages/playlist';
+import { PlaylistsPage } from '@/pages/playlists';
 import { SearchPage } from '@/pages/search';
 import { AboutSettings, AudioSettings, ConnectSettings, GeneralSettings, LibrarySettings, PlaySettings, SettingsLayout } from '@/pages/settings';
 import { TracksPage } from '@/pages/tracks';
@@ -64,6 +68,10 @@ const router = createBrowserRouter([
       { path: 'genres', element: <GenresPage /> },
       { path: 'genres/:id', element: <GenrePage /> },
       { path: 'search', element: <SearchPage /> },
+      { path: 'collection', element: <CollectionPage /> },
+      { path: 'favorites', element: <FavoritesPage /> },
+      { path: 'playlists', element: <PlaylistsPage /> },
+      { path: 'playlists/:id', element: <PlaylistPage /> },
       { path: 'live', element: <LivePage /> },
       { path: 'live/:id', element: <LiveShowPage /> },
       { path: 'dsp', element: <DspScreen /> },

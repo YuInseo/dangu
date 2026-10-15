@@ -288,6 +288,69 @@ export function AboutSettings() {
           </form>
         </div>
       )}
+      <RecentLog />
     </section>
+  );
+}
+
+interface LogLine {
+  at: number;
+  level: 'info' | 'warn' | 'error';
+  target: string;
+  message: string;
+}
+
+/** 소리가 안 날 때 무엇이 잘못됐는지: 엔진의 최근 기록(경고·오류가 먼저 보이게 색으로). */
+function RecentLog() {
+  const [open, setOpen] = useState(false);
+  const { data } = useApi<LogLine[]>(open ? '/api/logs' : null);
+  const toast = useToast();
+  const text = (data ?? [])
+    .map((l) => `${new Date(l.at).toLocaleTimeString('ko-KR', { hour12: false })} ${l.level.toUpperCase()} ${l.message}`)
+    .join('\n');
+  return (
+    <div className="pref-row pref-row-stack">
+      <div className="pref-label">최근 기록</div>
+      <div className="pref-value">
+        소리가 안 나거나 곡이 열리지 않으면 여기에 까닭이 남습니다. 화면을 찍어 보내 주시면 바로 알 수 있습니다.
+        <div className="log-actions">
+          <button type="button" className="btn btn-sm" onClick={() => setOpen(!open)}>
+            {open ? '접기' : '기록 보기'}
+          </button>
+          {open && data && (
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() =>
+                navigator.clipboard?.writeText(text).then(
+                  () => toast('기록을 복사했습니다'),
+                  () => toast('복사하지 못했습니다', 'error'),
+                )
+              }
+            >
+              복사
+            </button>
+          )}
+        </div>
+        {open && (
+          <div className="log-box" role="log">
+            {!data ? (
+              <span className="muted">불러오는 중…</span>
+            ) : data.length === 0 ? (
+              <span className="muted">아직 기록이 없습니다.</span>
+            ) : (
+              data
+                .slice()
+                .reverse()
+                .map((l, i) => (
+                  <div key={i} className={`log-line log-${l.level}`}>
+                    <span className="log-time">{new Date(l.at).toLocaleTimeString('ko-KR', { hour12: false })}</span> {l.message}
+                  </div>
+                ))
+            )}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

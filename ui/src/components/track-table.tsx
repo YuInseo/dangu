@@ -2,12 +2,14 @@
 
 import Link from '@/compat/link';
 import { Fragment } from 'react';
+import { libraryId } from '@/lib/collections';
 import { useIsCurrent, usePlayer } from '@/lib/player/context';
 import { usePrefs } from '@/lib/prefs';
 import type { PlayableTrack } from '@/lib/player/types';
 import { formatLabel, tierOf } from '@/lib/quality';
 import { clock } from '@/lib/time';
 import { Cover } from './cover';
+import { LikeButton } from './like-button';
 import { TrackMenuButton } from './track-menu';
 
 type Variant = 'album' | 'list' | 'live';
@@ -112,7 +114,8 @@ function Row({
       )}
       <div className={`trow-fmt tier-${tierOf(track.format)}`}>{showFmt ? fmt : ''}</div>
       <div className="trow-time">{track.duration ? clock(track.duration) : ''}</div>
-      <div onClick={stop}>
+      <div className="trow-actions" onClick={stop}>
+        <LikeButton kind="tracks" id={libraryId(track)} size={16} className="trow-like" name={track.title} />
         <TrackMenuButton track={track} />
       </div>
     </div>

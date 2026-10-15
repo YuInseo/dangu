@@ -3,6 +3,7 @@
  */
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { fetchJson, noteGeneration } from '@/api';
+import { noteCollections } from '@/lib/collections';
 import type { AnalysisStatus, LibrarySummary, ScanStatus } from '@/lib/library/types';
 
 export interface LibraryInfo {
@@ -41,12 +42,14 @@ export function LibraryProvider({ children, fallback }: { children: ReactNode; f
     void load();
     const es = new EventSource('/api/events');
     es.addEventListener('library', (e) => {
-      const d = JSON.parse((e as MessageEvent<string>).data) as Pick<LibraryInfo, 'generation' | 'status' | 'analysis'>;
+      const d = JSON.parse((e as MessageEvent<string>).data) as Pick<LibraryInfo, 'generation' | 'status' | 'analysis'> & { collections?: number };
       setInfo((prev) => {
         if (prev && prev.generation !== d.generation) void load();
         return prev ? { ...prev, status: d.status, analysis: d.analysis } : prev;
       });
       noteGeneration(d.generation);
+      // 좋아요·플레이리스트가 (다른 화면에서도) 바뀌었으면 다시 받는다.
+      noteCollections(d.collections);
     });
     return () => {
       alive = false;

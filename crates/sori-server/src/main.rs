@@ -15,11 +15,14 @@ fn arg(args: &[String], name: &str) -> Option<String> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
+    use tracing_subscriber::prelude::*;
+    tracing_subscriber::registry()
+        .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "info,tower_http=warn,symphonia=error,symphonia_core=error,symphonia_bundle_mp3=error".into()),
         )
+        .with(tracing_subscriber::fmt::layer())
+        .with(sori_server::logs::layer())
         .init();
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == "-h" || a == "--help") {

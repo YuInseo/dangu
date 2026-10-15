@@ -2,10 +2,12 @@
 
 import { useEffect, useRef, useState } from 'react';
 import Link from '@/compat/link';
+import { libraryId } from '@/lib/collections';
 import { useEngineState, usePlayer, useQueue, useUi, useZone } from '@/lib/player/context';
 import { Progress, ProgressLine, PlayPause, Transport, Volume } from './controls';
 import { Cover } from './cover';
 import { Check, ListMusic, Maximize2, Monitor, SkipForward, Speaker } from './icons';
+import { LikeButton } from './like-button';
 import { useDsp } from '@/lib/dsp/store';
 import { nativeZoneName } from '@/lib/link';
 import { useLibraryInfo } from '@/library';
@@ -54,6 +56,7 @@ export function PlayerBar() {
                 )}
               </div>
             </div>
+            <LikeButton kind="tracks" id={libraryId(t)} size={18} className="player-like" name={t.title} />
           </>
         ) : (
           <div className="player-idle">재생할 곡을 고르세요</div>
@@ -101,9 +104,8 @@ export function PlayerBar() {
   );
 }
 
-/** 룬의 존 표시. 이 브라우저가 곧 하나의 존이고, 누르면 이 존의 DSP 설정으로 간다. */
-/** 소리를 낼 곳. 이 브라우저, 또는 소리 서버가 도는 기기의 오디오 장치. */
-function ZoneButton() {
+/** 소리를 낼 곳(룬의 존). 이 화면이 직접 트는 것, 또는 소리 엔진이 이 기기의 오디오 장치로 트는 것. */
+export function ZoneButton() {
   const { dsp } = useEngineState();
   const { config } = useDsp();
   const { setZone } = usePlayer();
@@ -111,9 +113,12 @@ function ZoneButton() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const on = config.enabled || config.leveling.mode !== 'off';
-  const deviceName = useLibraryInfo().deviceName;
-  const nativeName = nativeZoneName(deviceName);
-  const name = zone === 'native' ? nativeName : '이 브라우저';
+  const info = useLibraryInfo();
+  const nativeName = nativeZoneName(info.deviceName);
+  // 앱 안에서는 화면(웹뷰)이 직접 트는 것이 "기본 재생"이다.
+  const plainName = info.host ? '기본 재생' : '이 브라우저';
+  const plainHint = info.host ? '앱 화면이 받아서 재생 · 시스템 믹서' : '브라우저가 받아서 재생 · OS 믹서';
+  const name = zone === 'native' ? nativeName : plainName;
 
   useEffect(() => {
     if (!open) return;
@@ -131,9 +136,9 @@ function ZoneButton() {
 
   if (!nativeAvailable) {
     return (
-      <Link href="/dsp" className={`zone-btn${dsp ? ' is-dsp' : ''}`} title={on ? '이 브라우저 · DSP 켜짐' : '이 브라우저 · DSP 꺼짐'} prefetch={false}>
+      <Link href="/dsp" className={`zone-btn${dsp ? ' is-dsp' : ''}`} title={`${plainName} · DSP ${on ? '켜짐' : '꺼짐'}`} prefetch={false}>
         <Monitor size={18} />
-        <span className="zone-name">이 브라우저</span>
+        <span className="zone-name">{plainName}</span>
         {on && <span className="zone-dsp">DSP</span>}
       </Link>
     );
@@ -151,7 +156,7 @@ function ZoneButton() {
           {(
             [
               ['native', nativeName, '소리 엔진이 오디오 장치로 직접 · 64비트', Speaker],
-              ['browser', '이 브라우저', '브라우저가 받아서 재생 · OS 믹서', Monitor],
+              ['browser', plainName, plainHint, Monitor],
             ] as const
           ).map(([k, label, hint, Icon]) => (
             <button

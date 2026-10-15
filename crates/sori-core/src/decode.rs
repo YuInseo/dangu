@@ -9,7 +9,8 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 use std::path::Path;
 
 use anyhow::{Context, anyhow, bail};
-use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
+use symphonia::core::codecs::audio::well_known::CODEC_ID_OPUS;
+use symphonia::core::codecs::audio::{AudioCodecParameters, AudioDecoder, AudioDecoderOptions};
 use symphonia::core::errors::Error as SymError;
 use symphonia::core::formats::probe::Hint;
 use symphonia::core::formats::{FormatOptions, FormatReader, SeekMode, SeekTo, TrackType};
@@ -19,6 +20,7 @@ use symphonia::core::units::Time;
 
 use crate::dsd::{self, DsdInfo};
 use crate::dsp::fir::{Decimator, kaiser_beta, kaiser_taps, lowpass};
+use crate::opus::OpusDec;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Spec {
@@ -71,13 +73,46 @@ pub fn decode_all(path: &Path) -> anyhow::Result<(Spec, Vec<f64>)> {
     Ok((src.spec().clone(), out))
 }
 
+/// Opus를 시크할 때 앞에서부터 풀어 버리는 길이(48kHz 프레임, 250ms)
+const OPUS_PREROLL: u64 = 12_000;
+
+/// symphonia의 디코더, 또는 symphonia가 풀지 못하는 Opus를 위한 우리 디코더.
+enum Dec {
+    Sym(Box<dyn AudioDecoder>),
+    Opus(Box<OpusDec>),
+}
+
+impl Dec {
+    fn new(params: &AudioCodecParameters) -> anyhow::Result<Dec> {
+        if params.codec == CODEC_ID_OPUS {
+            let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(2);
+            return Ok(Dec::Opus(Box::new(OpusDec::new(channels, params.extra_data.as_deref())?)));
+        }
+        let d = symphonia::default::get_codecs()
+            .make_audio_decoder(params, &AudioDecoderOptions::default())
+            .map_err(|e| anyhow!("이 코덱은 풀 수 없습니다: {e}"))?;
+        Ok(Dec::Sym(d))
+    }
+
+    fn reset(&mut self) {
+        match self {
+            Dec::Sym(d) => d.reset(),
+            Dec::Opus(d) => d.reset(),
+        }
+    }
+}
+
 pub struct SymphoniaSource {
     format: Box<dyn FormatReader>,
-    decoder: Box<dyn AudioDecoder>,
+    decoder: Dec,
     track_id: u32,
     spec: Spec,
     /// 시크한 뒤 버려야 할 프레임 수.
     skip: u64,
+    /// 컨테이너의 시간축에서 소리가 시작하는 곳(Opus의 pre-skip). 이만큼 앞을 버리고, 시크도 이만큼 민다.
+    delay: u64,
+    /// 처음 패킷을 아직 못 봤다(컨테이너가 앞을 이미 잘라 주는지 거기서 안다).
+    first_packet: bool,
     scratch: Vec<f64>,
     /// 네트워크 원본이면 읽어도 되는지 묻는 곳
     gate: Option<Box<dyn Fn() -> bool + Send>>,
@@ -101,11 +136,16 @@ impl SymphoniaSource {
             .map_err(|e| anyhow!("형식을 알 수 없습니다: {e}"))?;
         let track = format.default_track(TrackType::Audio).ok_or_else(|| anyhow!("오디오 트랙이 없습니다"))?;
         let params = track.codec_params.as_ref().and_then(|p| p.audio()).ok_or_else(|| anyhow!("오디오 코덱 정보가 없습니다"))?;
-        let decoder = symphonia::default::get_codecs()
-            .make_audio_decoder(params, &AudioDecoderOptions::default())
-            .map_err(|e| anyhow!("이 코덱은 풀 수 없습니다: {e}"))?;
-        let rate = params.sample_rate.ok_or_else(|| anyhow!("샘플레이트를 모릅니다"))?;
-        let channels = params.channels.as_ref().map(|c| c.count()).unwrap_or(2).max(1);
+        let decoder = Dec::new(params)?;
+        // Opus는 무엇으로 담았든 48kHz로 풀린다.
+        let rate = match decoder {
+            Dec::Opus(_) => 48_000,
+            Dec::Sym(_) => params.sample_rate.ok_or_else(|| anyhow!("샘플레이트를 모릅니다"))?,
+        };
+        let channels = match &decoder {
+            Dec::Opus(d) => d.channels(),
+            Dec::Sym(_) => params.channels.as_ref().map(|c| c.count()).unwrap_or(2).max(1),
+        };
         let spec = Spec {
             rate,
             channels,
@@ -114,7 +154,14 @@ impl SymphoniaSource {
             dsd_rate: None,
         };
         let track_id = track.id;
-        Ok(SymphoniaSource { format, decoder, track_id, spec, skip: 0, scratch: Vec::new(), gate: None })
+        // Opus의 pre-skip: Ogg는 패킷을 자르지 않고 트랙에만 적어 두고, WebM은 그마저 없어
+        // Opus 헤더에 적힌 값을 쓴다. 여기서 버린다.
+        let delay = match &decoder {
+            Dec::Opus(d) => track.delay.map(u64::from).or(d.pre_skip()).unwrap_or(0),
+            Dec::Sym(_) => 0,
+        };
+        let spec = Spec { frames: spec.frames.map(|n| n.saturating_sub(delay)), ..spec };
+        Ok(SymphoniaSource { format, decoder, track_id, spec, skip: delay, delay, first_packet: true, scratch: Vec::new(), gate: None })
     }
 
     /// 네트워크 원본: `ready`가 false면 재생 스레드가 읽지 않고 기다린다.
@@ -126,7 +173,7 @@ impl SymphoniaSource {
     fn rebuild_decoder(&mut self) -> anyhow::Result<()> {
         let track = self.format.tracks().iter().find(|t| t.id == self.track_id).ok_or_else(|| anyhow!("트랙이 사라졌습니다"))?;
         let params = track.codec_params.as_ref().and_then(|p| p.audio()).ok_or_else(|| anyhow!("코덱 정보가 없습니다"))?;
-        self.decoder = symphonia::default::get_codecs().make_audio_decoder(params, &AudioDecoderOptions::default())?;
+        self.decoder = Dec::new(params)?;
         Ok(())
     }
 }
@@ -159,19 +206,43 @@ impl PcmSource for SymphoniaSource {
             if packet.track_id != self.track_id {
                 continue;
             }
-            let buf = match self.decoder.decode(&packet) {
-                Ok(b) => b,
-                // 깨진 패킷 하나는 건너뛴다. 소리가 아주 잠깐 비어도 멈추는 것보다 낫다.
-                Err(SymError::DecodeError(_)) => continue,
-                Err(e) => return Err(anyhow!("디코딩 실패: {e}")),
+            let (frames, ch) = match &mut self.decoder {
+                Dec::Sym(dec) => {
+                    let buf = match dec.decode(&packet) {
+                        Ok(b) => b,
+                        // 깨진 패킷 하나는 건너뛴다. 소리가 아주 잠깐 비어도 멈추는 것보다 낫다.
+                        Err(SymError::DecodeError(_)) => continue,
+                        Err(e) => return Err(anyhow!("디코딩 실패: {e}")),
+                    };
+                    let ch = buf.num_planes().max(1);
+                    let frames = buf.frames();
+                    if frames == 0 {
+                        continue;
+                    }
+                    self.scratch.resize(frames * ch, 0.0);
+                    buf.copy_to_slice_interleaved(&mut self.scratch[..]);
+                    (frames, ch)
+                }
+                Dec::Opus(dec) => {
+                    self.scratch.clear();
+                    let Ok(n) = dec.decode(&packet.data, &mut self.scratch) else { continue };
+                    let ch = dec.channels();
+                    // 컨테이너가 알려 준 앞(pre-skip)과 끝(패딩)을 잘라 원래 길이로.
+                    let start = (packet.trim_start.get() as usize).min(n);
+                    // 컨테이너가 앞을 이미 잘라 준다면 따로 버리지 않는다(두 번 자르지 않게).
+                    if std::mem::take(&mut self.first_packet) && start > 0 {
+                        self.skip = self.skip.saturating_sub(start as u64);
+                    }
+                    let end = (packet.trim_end.get() as usize).min(n - start);
+                    let frames = n - start - end;
+                    if frames == 0 {
+                        continue;
+                    }
+                    self.scratch.truncate((start + frames) * ch);
+                    self.scratch.drain(..start * ch);
+                    (frames, ch)
+                }
             };
-            let ch = buf.num_planes().max(1);
-            let frames = buf.frames();
-            if frames == 0 {
-                continue;
-            }
-            self.scratch.resize(frames * ch, 0.0);
-            buf.copy_to_slice_interleaved(&mut self.scratch[..]);
             let skip = (self.skip as usize).min(frames);
             self.skip -= skip as u64;
             if skip == frames {
@@ -193,14 +264,24 @@ impl PcmSource for SymphoniaSource {
     }
 
     fn seek(&mut self, frame: u64) -> anyhow::Result<u64> {
+        self.first_packet = false;
         let rate = self.spec.rate;
         let time_base = self.format.tracks().iter().find(|t| t.id == self.track_id).and_then(|t| t.time_base);
         // 타임스탬프 단위가 1/샘플레이트면 프레임 번호를 그대로 쓴다. 초로 바꾸면 반올림 때문에 한 프레임 어긋난다.
         let exact = time_base.is_some_and(|tb| tb.numer.get() == 1 && tb.denom.get() == rate);
+        // 샘플 단위 시간축(Ogg)은 pre-skip을 포함하고, 시간 단위(WebM)는 이미 뺀 값이다.
+        let shift = if exact { self.delay } else { 0 };
+        let target = frame + shift;
+        // Opus는 앞 패킷들로 상태(에너지 예측)를 쌓으므로, 조금 앞에서부터 풀어 버린다(RFC 7845 4.6은
+        // 80ms 이상). 넉넉히 잡아 시크한 자리부터 제 소리가 난다.
+        let from = match self.decoder {
+            Dec::Opus(_) => target.saturating_sub(OPUS_PREROLL),
+            Dec::Sym(_) => target,
+        };
         let to = if exact {
-            SeekTo::Timestamp { ts: symphonia::core::units::Timestamp::new(frame as i64), track_id: self.track_id }
+            SeekTo::Timestamp { ts: symphonia::core::units::Timestamp::new(from as i64), track_id: self.track_id }
         } else {
-            let time = Time::try_from_secs_f64(frame as f64 / rate as f64).ok_or_else(|| anyhow!("시간이 범위를 벗어났습니다"))?;
+            let time = Time::try_from_secs_f64(from as f64 / rate as f64).ok_or_else(|| anyhow!("시간이 범위를 벗어났습니다"))?;
             SeekTo::Time { time, track_id: Some(self.track_id) }
         };
         let seeked = self.format.seek(SeekMode::Accurate, to).map_err(|e| anyhow!("시크 실패: {e}"))?;
@@ -212,9 +293,10 @@ impl PcmSource for SymphoniaSource {
             }
             _ => seeked.actual_ts.get().max(0) as u64,
         };
-        // 패킷 경계에서 시작하므로 원하는 프레임까지 버린다.
-        self.skip = frame.saturating_sub(actual);
-        Ok(frame.max(actual))
+        // 패킷 경계에서 시작하므로 원하는 프레임까지 버린다. 시간 단위 시간축에서 맨 앞으로 돌아갔으면
+        // 첫 패킷의 pre-skip도 버린다.
+        self.skip = target.saturating_sub(actual) + if !exact && actual == 0 { self.delay } else { 0 };
+        Ok(frame.max(actual.saturating_sub(shift)))
     }
 }
 

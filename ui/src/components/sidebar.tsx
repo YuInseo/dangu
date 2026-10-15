@@ -2,8 +2,10 @@
 
 import Link from '@/compat/link';
 import { usePathname } from '@/compat/navigation';
+import { useApi } from '@/api';
+import type { PlaylistSummary } from '@/lib/collections';
 import type { LibrarySummary, ScanStatus } from '@/lib/library/types';
-import { Disc3, House, Library, MicVocal, Radio, Search, Settings, SlidersHorizontal, Tags } from './icons';
+import { Disc3, Heart, House, Library, LibraryBig, ListMusic, MicVocal, Radio, Search, Settings, SlidersHorizontal, Tags } from './icons';
 import { Logo } from './logo';
 import { SidebarScan } from './scan-status';
 
@@ -38,6 +40,19 @@ export function Sidebar({ status, summary }: { status: ScanStatus; summary: Libr
       </div>
 
       <div className="side-group">
+        <div className="side-label">보관함</div>
+        <Link href="/favorites" className={`side-link${active(pathname, '/favorites') ? ' is-active' : ''}`}>
+          <Heart size={18} />
+          좋아요
+        </Link>
+        <Link href="/playlists" className={`side-link${pathname === '/playlists' ? ' is-active' : ''}`}>
+          <ListMusic size={18} />
+          플레이리스트
+        </Link>
+        <SidePlaylists pathname={pathname} />
+      </div>
+
+      <div className="side-group">
         <div className="side-label">오디오</div>
         <Link href="/dsp" className={`side-link${active(pathname, '/dsp') ? ' is-active' : ''}`}>
           <SlidersHorizontal size={18} />
@@ -66,20 +81,36 @@ export function Sidebar({ status, summary }: { status: ScanStatus; summary: Libr
   );
 }
 
+/** 최근에 고친 플레이리스트 몇 개를 바로 갈 수 있게 */
+function SidePlaylists({ pathname }: { pathname: string }) {
+  const { data } = useApi<PlaylistSummary[]>('/api/playlists');
+  if (!data?.length) return null;
+  return (
+    <div className="side-sub">
+      {data.slice(0, 8).map((p) => (
+        <Link key={p.id} href={`/playlists/${p.id}`} className={`side-sub-link${pathname === `/playlists/${p.id}` ? ' is-active' : ''}`} title={p.name}>
+          {p.name}
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+/** 휴대폰 아래쪽 탭. 아티스트·곡·장르·좋아요·플레이리스트는 보관함 안에 있다. */
 const MOBILE = [
-  { href: '/', label: '홈', icon: House },
-  { href: '/albums', label: '앨범', icon: Disc3 },
-  { href: '/artists', label: '아티스트', icon: MicVocal },
-  { href: '/live', label: '라이브', icon: Radio },
-  { href: '/search', label: '검색', icon: Search },
+  { href: '/', label: '홈', icon: House, also: [] as string[] },
+  { href: '/albums', label: '앨범', icon: Disc3, also: [] },
+  { href: '/collection', label: '보관함', icon: LibraryBig, also: ['/favorites', '/playlists', '/artists', '/tracks', '/genres'] },
+  { href: '/live', label: '라이브', icon: Radio, also: [] },
+  { href: '/search', label: '검색', icon: Search, also: [] },
 ];
 
 export function MobileNav() {
   const pathname = usePathname();
   return (
     <nav className="mobile-nav" aria-label="탐색">
-      {MOBILE.map(({ href, label, icon: Icon }) => (
-        <Link key={href} href={href} className={`mobile-link${active(pathname, href) ? ' is-active' : ''}`}>
+      {MOBILE.map(({ href, label, icon: Icon, also }) => (
+        <Link key={href} href={href} className={`mobile-link${active(pathname, href) || also.some((a) => active(pathname, a)) ? ' is-active' : ''}`}>
           <Icon size={21} />
           <span>{label}</span>
         </Link>

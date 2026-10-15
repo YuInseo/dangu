@@ -6,6 +6,7 @@
 
 pub mod analysis;
 pub mod collate;
+pub mod collections;
 pub mod config;
 pub mod covers;
 pub mod decode;
@@ -16,6 +17,7 @@ pub mod ids;
 pub mod library;
 pub mod live;
 pub mod model;
+pub mod opus;
 pub mod player;
 pub mod quality;
 pub mod scan;

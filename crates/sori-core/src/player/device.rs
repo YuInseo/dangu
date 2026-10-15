@@ -1,8 +1,11 @@
 //! 실제 오디오 장치(cpal). 윈도우는 WASAPI, 안드로이드는 AAudio, 리눅스는 ALSA.
 //!
-//! 장치가 받는 형식 가운데 정밀한 것(f64 > f32 > i32 > i24 > i16)을 고른다. 정수 형식이면
-//! 마지막 단계에서 TPDF 디더를 넣는다. 16/24비트 원본을 손대지 않고 틀 때는 격자 위의
-//! 값이라 디더가 들어가지 않는다(비트퍼펙트).
+//! 형식은 32비트 실수(f32)를 먼저 고른다. 윈도우 공유 모드와 안드로이드의 믹서가 안에서 쓰는
+//! 형식이라 바꾸는 단계가 없고, 16/24비트 원본은 f32 안에 그대로 들어가 비트퍼펙트다. f32가 없으면
+//! 정수 형식(i32 > i24 > i16)을 쓰고 마지막 단계에서 TPDF 디더를 넣는다.
+//!
+//! 장치가 "된다"고 알려 준 형식도 실제로는 열리지 않을 수 있다(윈도우가 f64를 거부하는 등). 그래서
+//! 후보를 하나씩 실제로 열어 보고, 다 안 되면 장치의 기본 형식으로 연다.
 
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
@@ -49,13 +52,36 @@ pub fn list_devices() -> Vec<String> {
 
 fn rank(f: SampleFormat) -> u8 {
     match f {
-        SampleFormat::F64 => 6,
-        SampleFormat::F32 => 5,
+        SampleFormat::F32 => 6,
         SampleFormat::I32 => 4,
         SampleFormat::I24 => 3,
         SampleFormat::I16 => 2,
+        // 믹서가 f64를 받는 장치는 드물고, 받는다고 해도 얻는 것이 없다.
+        SampleFormat::F64 => 1,
         _ => 0,
     }
+}
+
+/// 이 설정으로 장치가 실제로 열리는지(스트림을 만들어 보고 바로 닫는다).
+fn opens(dev: &cpal::Device, c: &cpal::SupportedStreamConfig) -> bool {
+    let res = dev.build_output_stream_raw(
+        c.config(),
+        c.sample_format(),
+        |data: &mut cpal::Data, _: &cpal::OutputCallbackInfo| data.bytes_mut().fill(0),
+        |_| {},
+        None,
+    );
+    match res {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::info!(format = ?c.sample_format(), rate = c.sample_rate(), "장치가 이 형식을 받지 않습니다: {e}");
+            false
+        }
+    }
+}
+
+fn same(a: &cpal::SupportedStreamConfig, b: &cpal::SupportedStreamConfig) -> bool {
+    a.sample_format() == b.sample_format() && a.sample_rate() == b.sample_rate() && a.channels() == b.channels()
 }
 
 fn api_name() -> &'static str {
@@ -93,22 +119,25 @@ impl Output for DeviceOutput {
         let dev = self.device()?;
         let def = dev.default_output_config().context("장치 형식을 알 수 없습니다")?;
         let channels = def.channels();
-        // 같은 채널 수의 형식 가운데 원하는 샘플레이트를 받고 가장 정밀한 것.
+        // 같은 채널 수에서 원하는 샘플레이트를 받는 형식들(좋은 것부터), 그리고 장치 기본 형식.
         let want_rate = rate.unwrap_or(def.sample_rate());
-        let mut best: Option<cpal::SupportedStreamConfig> = None;
+        let mut candidates: Vec<cpal::SupportedStreamConfig> = Vec::new();
         if let Ok(ranges) = dev.supported_output_configs() {
             for r in ranges {
                 if r.channels() != channels || rank(r.sample_format()) == 0 {
                     continue;
                 }
                 if let Some(c) = r.try_with_sample_rate(want_rate)
-                    && best.as_ref().is_none_or(|b| rank(c.sample_format()) > rank(b.sample_format()))
+                    && !candidates.iter().any(|x| same(x, &c))
                 {
-                    best = Some(c);
+                    candidates.push(c);
                 }
             }
         }
-        let chosen = best.unwrap_or(def);
+        candidates.sort_by_key(|c| std::cmp::Reverse(rank(c.sample_format())));
+        // 기본 형식보다 못한 것은 볼 필요가 없다.
+        candidates.retain(|c| rank(c.sample_format()) > rank(def.sample_format()) || same(c, &def));
+        let chosen = candidates.into_iter().find(|c| same(c, &def) || opens(&dev, c)).unwrap_or(def);
         let format = chosen.sample_format();
         let config: StreamConfig = chosen.config();
         let rate = config.sample_rate;

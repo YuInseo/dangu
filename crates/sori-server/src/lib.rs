@@ -2,10 +2,12 @@
 
 pub mod api;
 pub mod auth;
+pub mod collections;
 pub mod dsp;
 pub mod embed;
 pub mod link;
 pub mod live;
+pub mod logs;
 pub mod media;
 pub mod player;
 pub mod wav;
@@ -40,12 +42,15 @@ pub struct App {
     pub live: Arc<sori_core::live::Archive>,
     /// 다른 기기와 잇기(선택): LAN 공유, 찾기, 기억한 주소
     pub link: Arc<link::Link>,
+    /// 좋아요와 플레이리스트
+    pub collections: Arc<sori_core::collections::Collections>,
 }
 
 impl App {
     pub fn new(store: Arc<Store>, password: String) -> App {
         let irs = Arc::new(sori_core::dsp::ir::IrStore::new(&store.config.data_dir));
         let link = Arc::new(link::Link::open(&store.config.data_dir));
+        let collections = Arc::new(sori_core::collections::Collections::open(&store.config.data_dir));
         App {
             store,
             password: Arc::new(password),
@@ -55,6 +60,7 @@ impl App {
             clips: Arc::new(Default::default()),
             live: Arc::new(sori_core::live::Archive::from_env()),
             link,
+            collections,
         }
     }
 
@@ -82,6 +88,8 @@ pub fn router(app: App) -> Router {
         .merge(dsp::routes())
         .merge(live::routes())
         .merge(link::routes())
+        .merge(collections::routes())
+        .merge(logs::routes())
         .merge(auth::routes())
         .fallback(embed::serve)
         // 오디오는 이미 압축돼 있거나(FLAC, MP3) 받는 쪽이 길이를 알아야 하므로(Range) 압축하지 않는다.

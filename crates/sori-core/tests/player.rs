@@ -398,3 +398,51 @@ fn repeat_one_loops_without_a_gap() {
     assert!(got[a.len()..a.len() * 2] == a[..], "둘째 바퀴가 첫 바퀴 바로 다음 샘플에 붙어야 한다");
     assert!(!ended(&p.state().events), "되풀이 중에는 끝나지 않는다");
 }
+
+/// 열려도 소리를 가져가지 않는 장치(안드로이드에서 출력이 시작하지 않는 때): 다시 열어 처음부터 튼다.
+#[test]
+fn a_silent_output_is_reopened() {
+    if common::samples().is_none() {
+        return;
+    }
+    let t = tracks("하늘 사중주/아침의 차"); // FLAC 16/44.1
+    let mut out = NullOutput::new(44_100, false);
+    out.dead_opens = 1;
+    let (captured, opens) = (out.captured.clone(), out.opens.clone());
+    let resolver = Arc::new(|it: &PlayItem| -> anyhow::Result<Opened> {
+        let PlaySource::Library { id } = &it.source else { anyhow::bail!("x") };
+        Ok(Opened { source: decode::open(std::path::Path::new(id))?, loudness: None })
+    });
+    let p = Player::new(Box::new(move || Box::new(out)), resolver);
+    p.load(item(&t[0]), true, 0.0, false);
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(p.state().status, Status::Loading, "장치가 가져가지 않는 동안은 여는 중");
+    wait_for(&p, ended);
+    assert!(opens.load(std::sync::atomic::Ordering::Relaxed) >= 2, "장치를 다시 열었다");
+    let (_, a) = decode::decode_all(&t[0]).unwrap();
+    let got = captured.lock().clone();
+    assert_eq!(got.len(), a.len(), "다시 연 장치에서 처음부터 끝까지");
+    assert!(got == a, "빠지거나 겹친 곳 없이");
+    assert!(!p.state().events.iter().any(|(_, e)| matches!(e, Event::Error { .. })));
+}
+
+/// 다시 열어도 소리를 가져가지 않으면 장치 탓이라고 알린다(화면은 다른 재생 방법으로 바꾼다).
+#[test]
+fn a_dead_output_is_reported() {
+    if common::samples().is_none() {
+        return;
+    }
+    let t = tracks("하늘 사중주/아침의 차");
+    let mut out = NullOutput::new(44_100, false);
+    out.dead_opens = 99;
+    let resolver = Arc::new(|it: &PlayItem| -> anyhow::Result<Opened> {
+        let PlaySource::Library { id } = &it.source else { anyhow::bail!("x") };
+        Ok(Opened { source: decode::open(std::path::Path::new(id))?, loudness: None })
+    });
+    let p = Player::new(Box::new(move || Box::new(out)), resolver);
+    p.load(item(&t[0]), true, 0.0, false);
+    wait_for(&p, |e| e.iter().any(|(_, e)| matches!(e, Event::Error { output: true, .. })));
+    let st = p.state();
+    assert_eq!(st.status, Status::Error);
+    assert!(st.error.unwrap_or_default().contains("응답하지 않습니다"));
+}

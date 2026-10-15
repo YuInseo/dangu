@@ -76,11 +76,15 @@ impl Host for AppHost {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let _ = tracing_subscriber::fmt()
-        .with_env_filter(
+    // 기록은 표준 출력과, 설정(정보) 화면이 보여 주는 최근 기록에 남는다(휴대폰은 표준 출력이 없다).
+    use tracing_subscriber::prelude::*;
+    let _ = tracing_subscriber::registry()
+        .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| "info,symphonia=error,symphonia_core=error,symphonia_bundle_mp3=error".into()),
         )
+        .with(tracing_subscriber::fmt::layer())
+        .with(sori_server::logs::layer())
         .try_init();
 
     tauri::Builder::default()

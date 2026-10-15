@@ -293,6 +293,7 @@ async fn events(State(app): State<App>) -> Sse<impl Stream<Item = Result<Event, 
         loop {
             let snap = json!({
                 "generation": app.store.generation(),
+                "collections": app.collections.generation(),
                 "status": app.store.scan_status(),
                 "analysis": app.store.analysis_status(),
             })

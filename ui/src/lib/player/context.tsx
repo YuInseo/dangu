@@ -408,7 +408,15 @@ export function PlayerProvider({
       loadReq.current = { autoplay: true, at: 0 };
       dispatch({ type: 'jump', index: n });
     };
-    engine.onError = (message) => {
+    engine.onError = (message, output) => {
+      // 이 기기의 오디오 장치가 소리를 내지 못한다: 기본 재생(이 화면이 직접 트는 것)으로 바꿔 이어 튼다.
+      if (output && engine.kind === 'native') {
+        toast(`${message} · 기본 재생으로 바꿔 이어 틉니다`, 'error');
+        if (stateRef.current.items.length) loadReq.current = { autoplay: true, at: engine.currentTime };
+        writeJSON('sori.zone', 'browser');
+        setZoneState('browser');
+        return;
+      }
       toast(message, 'error');
       const s = stateRef.current;
       const uid = s.items[s.index]?.uid;

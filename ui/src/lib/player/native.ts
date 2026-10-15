@@ -40,7 +40,7 @@ interface ServerState {
   resampling: [number, number] | null;
   underruns: number;
   seq: number;
-  events: [number, { type: 'advanced' | 'ended' | 'error'; uid?: string | null; message?: string }][];
+  events: [number, { type: 'advanced' | 'ended' | 'error'; uid?: string | null; message?: string; output?: boolean }][];
 }
 
 /** 라이브 곡: 공연 ID에는 `/`가 없으니 키(`live:<공연>/<파일>`)의 첫 `/`에서 나눈다(예전에 저장한 대기열). */
@@ -62,11 +62,20 @@ function toPlayItem(item: QueueItem, dsp: DspPlan | null) {
   };
 }
 
-async function post(path: string, body: unknown) {
+/** 엔진에 명령을 보낸다. 엔진이 받지 않았으면 그 까닭을 돌려준다. */
+async function post(path: string, body: unknown): Promise<string | null> {
   try {
-    await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (res.ok) return null;
+    const text = await res.text().catch(() => '');
+    try {
+      return (JSON.parse(text) as { error?: string }).error ?? `${res.status}`;
+    } catch {
+      return text.trim().slice(0, 200) || `${res.status}`;
+    }
   } catch {
     // 서버가 잠깐 없을 수 있다. 상태는 SSE가 다시 맞춘다.
+    return null;
   }
 }
 
@@ -75,7 +84,7 @@ export class NativeEngine implements PlaybackEngine {
   readonly zone = 'native';
   canTranscode = true;
   onEnded: (() => void) | null = null;
-  onError: ((message: string) => void) | null = null;
+  onError: ((message: string, output?: boolean) => void) | null = null;
   onAdvanced: ((uid: string) => void) | null = null;
   dspFor: ((item: QueueItem) => DspPlan | null) | null = null;
 
@@ -162,7 +171,7 @@ export class NativeEngine implements PlaybackEngine {
         this.onAdvanced?.(ev.uid);
       }
       else if (ev.type === 'ended') this.onEnded?.();
-      else if (ev.type === 'error') this.onError?.(ev.message ?? '재생하지 못했습니다');
+      else if (ev.type === 'error') this.onError?.(ev.message ?? '재생하지 못했습니다', ev.output === true);
     }
     this.output = st.output;
     this.source = st.source;
@@ -190,7 +199,15 @@ export class NativeEngine implements PlaybackEngine {
     const plan = this.plan(item);
     this.current = item;
     this.sent.set(item.uid, plan?.q);
-    void post('/api/player/load', { item: toPlayItem(item, plan), autoplay: opts.autoplay, at, force: at > 0 });
+    void post('/api/player/load', { item: toPlayItem(item, plan), autoplay: opts.autoplay, at: Number.isFinite(at) ? at : 0, force: at > 0 }).then(
+      (err) => {
+        // 엔진이 명령을 받지 않았다: 여는 중으로 멈춰 있지 않게 알린다.
+        if (!err || this.current?.uid !== item.uid) return;
+        const message = `엔진이 곡을 받지 않았습니다: ${err}`;
+        this.update({ status: 'error', error: message });
+        this.onError?.(message, false);
+      },
+    );
     this.update({ dsp: plan?.req ?? null, sid: plan ? this.sidOf(item) : null });
     if (this.snap.uid !== item.uid) {
       this.time = at;

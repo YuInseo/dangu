@@ -3,11 +3,13 @@
 import Link from '@/compat/link';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { libraryId, openPlaylistPicker, setLiked, useLiked } from '@/lib/collections';
 import { usePlayer } from '@/lib/player/context';
 import type { PlayableTrack } from '@/lib/player/types';
-import { Disc3, Ellipsis, ListEnd, ListPlus, MicVocal } from './icons';
+import { CirclePlus, Disc3, Ellipsis, Heart, ListEnd, ListPlus, MicVocal } from './icons';
+import { useToast } from './toast';
 
-/** 곡 옆의 "⋯". 다음에 재생, 대기열에 추가, 앨범·아티스트로 가기. */
+/** 곡 옆의 "⋯". 다음에 재생, 대기열에 추가, 좋아요, 플레이리스트에 추가, 앨범·아티스트로 가기. */
 export function TrackMenuButton({ track, label = '더 보기' }: { track: PlayableTrack; label?: string }) {
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   return (
@@ -31,6 +33,9 @@ export function TrackMenuButton({ track, label = '더 보기' }: { track: Playab
 
 function TrackMenu({ track, anchor, onClose }: { track: PlayableTrack; anchor: DOMRect; onClose: () => void }) {
   const { playNext, enqueue } = usePlayer();
+  const id = libraryId(track);
+  const liked = useLiked('tracks', id);
+  const toast = useToast();
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ top: anchor.bottom + 4, left: anchor.right - 220 });
 
@@ -80,6 +85,26 @@ function TrackMenu({ track, anchor, onClose }: { track: PlayableTrack; anchor: D
       <button type="button" role="menuitem" className="menu-item" onClick={act(() => enqueue([track]))}>
         <ListEnd size={17} /> 대기열 끝에 추가
       </button>
+      {id && (
+        <>
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            onClick={act(() => setLiked('tracks', id, !liked).catch(() => toast('좋아요를 저장하지 못했습니다', 'error')))}
+          >
+            <Heart size={17} fill={liked ? 'currentColor' : 'none'} className={liked ? 'menu-liked' : undefined} /> {liked ? '좋아요 취소' : '좋아요'}
+          </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            onClick={act(() => openPlaylistPicker({ ids: [id], label: `${track.title} — ${track.artist}` }))}
+          >
+            <CirclePlus size={17} /> 플레이리스트에 추가
+          </button>
+        </>
+      )}
       {track.albumHref && (
         <Link href={track.albumHref} role="menuitem" className="menu-item" onClick={onClose}>
           <Disc3 size={17} /> {track.source === 'live' ? '공연으로 이동' : '앨범으로 이동'}

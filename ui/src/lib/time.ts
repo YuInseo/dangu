@@ -34,3 +34,15 @@ export function bytes(n: number): string {
 export function count(n: number): string {
   return n.toLocaleString('ko-KR');
 }
+
+/** 지난 때 → "방금", "5분 전", "3시간 전", "어제", "4일 전", "2025. 3. 1." */
+export function ago(ms: number, now = Date.now()): string {
+  const s = Math.max(0, (now - ms) / 1000);
+  if (s < 60) return '방금';
+  if (s < 3600) return `${Math.floor(s / 60)}분 전`;
+  if (s < 86400) return `${Math.floor(s / 3600)}시간 전`;
+  const d = Math.floor(s / 86400);
+  if (d === 1) return '어제';
+  if (d < 30) return `${d}일 전`;
+  return new Date(ms).toLocaleDateString('ko-KR');
+}

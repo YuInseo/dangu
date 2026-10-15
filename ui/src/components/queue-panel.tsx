@@ -1,11 +1,12 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { libraryIds, openPlaylistPicker } from '@/lib/collections';
 import { usePlayer, useQueue, useUi } from '@/lib/player/context';
 import type { QueueItem } from '@/lib/player/types';
 import { clock, span } from '@/lib/time';
 import { Cover } from './cover';
-import { GripVertical, Trash2, X } from './icons';
+import { GripVertical, Save, Trash2, X } from './icons';
 import { Equalizer } from './track-table';
 import { useEngineState } from '@/lib/player/context';
 
@@ -99,6 +100,7 @@ export function QueuePanel() {
   }, [open, setQueue]);
 
   const upcoming = items.slice(index + 1);
+  const saveable = libraryIds(items.map((it) => it.track));
   const remaining = upcoming.reduce((s, i) => s + i.track.duration, 0);
 
   const drop = (to: number) => {
@@ -115,6 +117,23 @@ export function QueuePanel() {
           {upcoming.length > 0 && (
             <button type="button" className="text-btn" onClick={clearUpcoming}>
               다음 곡 비우기
+            </button>
+          )}
+          {saveable.length > 0 && (
+            <button
+              type="button"
+              className="icon-btn"
+              onClick={() =>
+                openPlaylistPicker({
+                  ids: saveable,
+                  label: `대기열 ${saveable.length}곡`,
+                  suggest: `대기열 ${new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric' })}`,
+                })
+              }
+              aria-label="플레이리스트로 저장"
+              title="플레이리스트로 저장"
+            >
+              <Save size={17} />
             </button>
           )}
           {items.length > 0 && (

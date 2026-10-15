@@ -8,6 +8,7 @@ import { useLibraryInfo } from '@/library';
 import { usePlayer, useUi } from '@/lib/player/context';
 import { NowPlaying } from './now-playing';
 import { PlayerBar } from './player-bar';
+import { PlaylistPicker } from './playlist-picker';
 import { QueuePanel } from './queue-panel';
 import { MobileNav, Sidebar } from './sidebar';
 import { Topbar } from './topbar';
@@ -117,6 +118,7 @@ export function Shell({ children, status, summary }: { children: ReactNode; stat
       <PlayerBar />
       <NowPlaying />
       <MobileNav />
+      <PlaylistPicker />
     </div>
   );
 }

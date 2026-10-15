@@ -1089,7 +1089,7 @@ a.tag:hover {
 
 .trow {
   display: grid;
-  grid-template-columns: 36px minmax(0, 1fr) minmax(0, auto) 56px 36px;
+  grid-template-columns: 36px minmax(0, 1fr) minmax(0, auto) 56px 72px;
   align-items: center;
   gap: 14px;
   min-height: 54px;
@@ -1109,7 +1109,7 @@ a.tag:hover {
 }
 
 .trow-list {
-  grid-template-columns: 46px minmax(0, 1.5fr) minmax(0, 1fr) 96px 56px 36px;
+  grid-template-columns: 46px minmax(0, 1.5fr) minmax(0, 1fr) 96px 56px 72px;
   padding-left: 6px;
 }
 
@@ -2827,7 +2827,7 @@ kbd {
   }
 
   .trow-list {
-    grid-template-columns: 46px minmax(0, 1.4fr) minmax(0, 1fr) 56px 36px;
+    grid-template-columns: 46px minmax(0, 1.4fr) minmax(0, 1fr) 56px 72px;
   }
 
   .trow-list .trow-fmt {
@@ -3075,7 +3075,7 @@ kbd {
   }
 
   .trow {
-    grid-template-columns: 28px minmax(0, 1fr) 46px 32px;
+    grid-template-columns: 28px minmax(0, 1fr) 46px 64px;
     gap: 10px;
     padding-left: 6px;
   }
@@ -3085,7 +3085,7 @@ kbd {
   }
 
   .trow-list {
-    grid-template-columns: 44px minmax(0, 1fr) 46px 32px;
+    grid-template-columns: 44px minmax(0, 1fr) 46px 64px;
   }
 
   .trow-albumcol {
@@ -4704,4 +4704,678 @@ button.zone-btn {
 .dir-suggest-count {
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
+}
+
+/* ------------------------------------------------------------------ 좋아요 · 플레이리스트 · 보관함 */
+
+.like-btn.is-liked {
+  color: var(--accent-strong);
+}
+
+.like-btn:active:not(:disabled) svg {
+  transform: scale(0.82);
+}
+
+.like-btn svg {
+  transition: transform 0.12s;
+}
+
+.menu-item svg.menu-liked {
+  color: var(--accent-strong);
+}
+
+.trow-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.trow-like {
+  opacity: 0;
+}
+
+.trow:hover .trow-like,
+.trow:focus-within .trow-like,
+.trow-like.is-liked,
+.trow-like:focus-visible {
+  opacity: 1;
+}
+
+.player-like {
+  flex: none;
+}
+
+.np-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.np-title-row .np-title {
+  flex: 1;
+  min-width: 0;
+}
+
+.np-title-actions {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-top: 4px;
+}
+
+.np-title-actions .icon-btn {
+  width: 44px;
+  height: 44px;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.np-title-actions .like-btn.is-liked {
+  color: var(--accent-strong);
+}
+
+.detail-gap {
+  height: 22px;
+}
+
+.detail-note {
+  margin-top: 6px;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.fav-art {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: 8px;
+  color: #fff;
+  background:
+    radial-gradient(110% 80% at 85% 12%, rgba(255, 140, 190, 0.75), transparent 60%),
+    linear-gradient(140deg, #4a33c9, #8b3fae 55%, #c2457e);
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.5);
+}
+
+.fav-art svg {
+  width: 34%;
+  height: 34%;
+  filter: drop-shadow(0 6px 18px rgba(0, 0, 0, 0.3));
+}
+
+.fav-art-sm {
+  border-radius: 6px;
+  box-shadow: none;
+}
+
+.fav-art-sm svg {
+  width: 42%;
+  height: 42%;
+}
+
+.pl-mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  aspect-ratio: 1;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: #1b1b1f;
+}
+
+.pl-mosaic .cover {
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
+.card-art .pl-mosaic {
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.38);
+  transition:
+    transform 0.25s cubic-bezier(0.2, 0.8, 0.2, 1),
+    box-shadow 0.25s;
+}
+
+.card:hover .card-art .pl-mosaic {
+  transform: translateY(-3px);
+  box-shadow: 0 16px 34px rgba(0, 0, 0, 0.5);
+}
+
+.detail-art .pl-mosaic {
+  border-radius: 8px;
+  box-shadow: 0 28px 70px rgba(0, 0, 0, 0.55);
+}
+
+.coll-empty {
+  padding: 56px 16px;
+  text-align: center;
+  color: var(--text-2);
+}
+
+.coll-empty-title {
+  font-size: 17px;
+  font-weight: 680;
+  color: var(--text);
+}
+
+.coll-empty p {
+  margin: 8px auto 0;
+  max-width: 420px;
+  line-height: 1.6;
+  font-size: 14px;
+}
+
+/* 플레이리스트에 추가 창 */
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    opacity: 0.4;
+    transform: translateY(40px);
+  }
+}
+
+.sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 75;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.55);
+  animation: fade-in 0.15s ease-out;
+}
+
+.sheet {
+  width: min(420px, 100%);
+  max-height: min(560px, 82vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--bg-pop);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.6);
+  animation: pop 0.15s ease-out;
+}
+
+.sheet-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 12px 12px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.sheet-head-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.sheet-title {
+  font-size: 16px;
+  font-weight: 720;
+}
+
+.sheet-sub {
+  margin-top: 2px;
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sheet-body {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+}
+
+.pl-pick {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 8px;
+  border-radius: 10px;
+  text-align: left;
+  transition: background 0.12s;
+}
+
+.pl-pick:hover:not(:disabled),
+.pl-pick:focus-visible {
+  background: var(--bg-hover);
+}
+
+.pl-pick-art {
+  width: 48px;
+  flex: none;
+}
+
+.pl-pick-plus {
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+}
+
+.pl-pick-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.pl-pick-name {
+  font-weight: 620;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-pick-sub {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+
+.pl-new {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+}
+
+.pl-new-inline {
+  padding: 0;
+  width: min(480px, 100%);
+}
+
+.pl-new-input {
+  flex: 1;
+  min-width: 0;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line-strong);
+  color: var(--text);
+  outline: none;
+}
+
+.pl-new-input:focus {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.09);
+}
+
+/* 플레이리스트 편집 */
+
+.pl-edit-head {
+  padding: 22px 0 26px;
+}
+
+.pl-edit-name {
+  display: block;
+  width: min(720px, 100%);
+  margin: 8px 0 20px;
+  padding: 6px 0;
+  font-size: clamp(26px, 3vw, 40px);
+  font-weight: 780;
+  letter-spacing: -0.03em;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid var(--line-strong);
+  border-radius: 0;
+  color: var(--text);
+  outline: none;
+}
+
+.pl-edit-name:focus {
+  border-bottom-color: var(--accent);
+}
+
+.btn-danger {
+  color: #ffb9ad;
+}
+
+.btn-danger.is-armed {
+  background: #5c1d17;
+  border-color: #a33a2e;
+  color: #ffe0da;
+}
+
+.pl-edit-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.pl-erow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 6px 6px 6px 2px;
+  border-radius: 8px;
+  transition: background 0.12s;
+}
+
+.pl-erow:hover {
+  background: var(--bg-hover);
+}
+
+.pl-erow.is-dragging {
+  opacity: 0.4;
+}
+
+.pl-erow.is-over {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.pl-erow-grip {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  flex: none;
+  color: var(--text-3);
+  cursor: grab;
+}
+
+.pl-erow-art {
+  width: 42px;
+  flex: none;
+}
+
+.pl-erow-gone {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 4px;
+  border: 1px dashed var(--line-strong);
+  background: repeating-linear-gradient(45deg, rgba(255, 255, 255, 0.05) 0 6px, transparent 6px 12px);
+}
+
+.pl-erow-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.pl-erow-title {
+  font-weight: 560;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-erow.is-missing .pl-erow-title {
+  color: var(--text-3);
+}
+
+.pl-erow-sub {
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pl-erow-actions {
+  display: flex;
+  flex: none;
+}
+
+/* 보관함 */
+
+.coll-browse {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 38px;
+}
+
+.coll-browse-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 58px;
+  padding: 0 16px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  font-weight: 640;
+  transition: background 0.15s;
+}
+
+.coll-browse-item:hover {
+  background: rgba(255, 255, 255, 0.09);
+}
+
+.coll-browse-item svg {
+  flex: none;
+  color: var(--accent-strong);
+}
+
+.coll-browse-label {
+  flex: 1;
+  min-width: 0;
+}
+
+.coll-browse-n {
+  font-size: 13px;
+  font-weight: 560;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.coll-head {
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+}
+
+.coll-head .pl-new-inline {
+  flex: 1 1 320px;
+}
+
+.coll-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -8px;
+}
+
+.coll-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px;
+  border-radius: 10px;
+  transition: background 0.12s;
+}
+
+.coll-row:hover {
+  background: var(--bg-hover);
+}
+
+.coll-row-art {
+  width: 58px;
+  flex: none;
+}
+
+.coll-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.coll-row-name {
+  font-size: 15px;
+  font-weight: 650;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coll-row-sub {
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coll-row-go {
+  flex: none;
+  color: var(--text-3);
+}
+
+.side-sub {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+}
+
+.side-sub-link {
+  display: block;
+  height: 30px;
+  line-height: 30px;
+  padding: 0 12px 0 42px;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.side-sub-link:hover {
+  color: var(--text);
+  background: var(--bg-hover);
+}
+
+.side-sub-link.is-active {
+  color: var(--text);
+}
+
+@media (max-width: 1000px) {
+  .side-sub {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .trow-actions .icon-btn {
+    width: 32px;
+    height: 32px;
+  }
+
+  .trow-like:not(.is-liked) {
+    visibility: hidden;
+  }
+
+  .player-text {
+    flex: 1;
+  }
+
+  .np-title-row {
+    gap: 8px;
+  }
+
+  .np-title-actions {
+    margin-top: 0;
+  }
+
+  .sheet-backdrop {
+    place-items: end stretch;
+    padding: 0;
+  }
+
+  .sheet {
+    width: 100%;
+    max-height: 78vh;
+    border-radius: 18px 18px 0 0;
+    border-bottom: 0;
+    padding-bottom: var(--safe-bottom);
+    animation: sheet-up 0.22s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+
+  .coll-browse {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 30px;
+  }
+
+  .pl-erow-grip {
+    display: none;
+  }
+
+  .pl-erow-actions .icon-btn {
+    width: 34px;
+    height: 34px;
+  }
+
+  .pl-edit-head .actions .btn {
+    height: 38px;
+    padding: 0 16px;
+  }
+
+  /* 재생·셔플은 첫 줄에 반씩, 작은 단추들은 둘째 줄에 */
+  .play-actions > .btn {
+    flex: 1 1 calc(50% - 5px);
+  }
+}
+
+/* 지금 재생 중 화면의 "소리 낼 곳": 휴대폰에서도 이름까지 보인다. */
+.np-bottom .zone-name {
+  display: inline;
+}
+
+.np-bottom .zone-menu {
+  right: auto;
+  left: 0;
+  width: min(300px, calc(100vw - 48px));
+}
+
+/* 설정 · 정보: 최근 기록 */
+.log-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.log-box {
+  margin-top: 10px;
+  max-height: 360px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--line);
+  font-family: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, Consolas, monospace;
+  font-size: 11.5px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.log-line {
+  color: var(--text-2);
+}
+
+.log-warn {
+  color: #f5c84b;
+}
+
+.log-error {
+  color: #ff8f7f;
+}
+
+.log-time {
+  color: var(--text-3);
 }

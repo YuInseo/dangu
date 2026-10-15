@@ -67,7 +67,7 @@ export function AlbumPage() {
               </Link>
             ))}
           </div>
-          <PlayButtons tracks={tracks} />
+          <PlayButtons tracks={tracks} albumId={album.id} label={album.title} />
         </div>
       </header>
 

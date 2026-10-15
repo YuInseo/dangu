@@ -48,7 +48,7 @@ export function ArtistPage() {
           <div className="detail-meta">
             {[albums.length ? `앨범 ${albums.length}장` : null, `${all.length}곡`, span(duration)].filter(Boolean).join(' · ')}
           </div>
-          <PlayButtons tracks={all} />
+          <PlayButtons tracks={all} label={artist.name} />
         </div>
       </header>
 
