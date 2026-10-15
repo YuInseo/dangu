@@ -446,3 +446,31 @@ fn a_dead_output_is_reported() {
     assert_eq!(st.status, Status::Error);
     assert!(st.error.unwrap_or_default().contains("응답하지 않습니다"));
 }
+
+/// 풀어도 소리가 하나도 나오지 않는 곡: 오래 "여는 중"에 두지 않고 알린다.
+#[test]
+fn a_track_that_never_sounds_is_reported() {
+    struct Mute(Spec);
+    impl PcmSource for Mute {
+        fn spec(&self) -> &Spec {
+            &self.0
+        }
+        fn read(&mut self, _out: &mut Vec<f64>) -> anyhow::Result<usize> {
+            std::thread::sleep(Duration::from_millis(1));
+            Ok(1) // 읽었다고 하지만 아무것도 내놓지 않는다
+        }
+        fn seek(&mut self, frame: u64) -> anyhow::Result<u64> {
+            Ok(frame)
+        }
+    }
+    let out = NullOutput::new(44_100, false);
+    let resolver = Arc::new(|_: &PlayItem| -> anyhow::Result<Opened> {
+        Ok(Opened { source: Box::new(Mute(Spec { rate: 44_100, channels: 2, frames: None, bits: None, dsd_rate: None })), loudness: None })
+    });
+    let p = Player::new(Box::new(move || Box::new(out)), resolver);
+    p.load(PlayItem { uid: "m".into(), source: PlaySource::Library { id: "m".into() }, dsp: None, meta: None }, true, 0.0, false);
+    let t = Instant::now();
+    wait_for(&p, |e| e.iter().any(|(_, e)| matches!(e, Event::Error { output: true, .. })));
+    assert!(t.elapsed() >= Duration::from_secs(9), "너무 일찍 포기했다");
+    assert_eq!(p.state().status, Status::Error);
+}

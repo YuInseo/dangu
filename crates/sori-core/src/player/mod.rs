@@ -402,6 +402,8 @@ const CHUNK_SECONDS: f64 = 0.02;
 const STALL: Duration = Duration::from_secs(3);
 /// 그래도 안 되면 몇 번까지 다시 열어 볼지
 const MAX_RECOVERIES: u32 = 1;
+/// 내 기기의 곡을 틀겠다고 하고 이만큼 지나도 소리가 나가지 않으면 알린다(곡을 풀지 못하는 등).
+const START_TIMEOUT: Duration = Duration::from_secs(10);
 
 struct Render {
     output: Box<dyn Output>,
@@ -457,6 +459,8 @@ struct Render {
     watch_since: Instant,
     /// 연달아 장치를 다시 연 횟수(소리를 가져가면 0으로)
     recoveries: u32,
+    /// 여는 중(Loading)이 시작된 때
+    loading_since: Option<Instant>,
 }
 
 impl Render {
@@ -501,6 +505,7 @@ impl Render {
             watch_read: 0,
             watch_since: Instant::now(),
             recoveries: 0,
+            loading_since: None,
         }
     }
 
@@ -617,6 +622,7 @@ impl Render {
     /// (안드로이드에서 출력이 시작하지 않는 때) 장치가 오류를 알리면(이어폰·블루투스로 바뀌며 끊기는 때)
     /// 장치를 다시 열고 들리던 자리부터 잇는다. 다시 열어도 안 되면 오류를 낸다.
     fn watchdog(&mut self) {
+        self.start_watchdog();
         let Some(shared) = self.shared.clone() else { return };
         let failed = shared.failed.load(Ordering::Relaxed);
         let read = shared.read.load(Ordering::Acquire);
@@ -633,6 +639,27 @@ impl Render {
         }
         self.watch_since = Instant::now();
         self.recover_output(failed);
+    }
+
+    /// 내 기기의 곡인데 오래 "여는 중"이면(소리를 하나도 만들지 못한다) 알린다. 네트워크 곡은
+    /// 받는 쪽이 따로 기다리고 포기한다.
+    fn start_watchdog(&mut self) {
+        let loading = self.state.lock().status == Status::Loading;
+        let local = self.job.is_none() && self.current.as_ref().is_some_and(|d| !d.source.remote());
+        if !(loading && self.want_play && local) {
+            self.loading_since = None;
+            return;
+        }
+        let since = *self.loading_since.get_or_insert_with(Instant::now);
+        if since.elapsed() < START_TIMEOUT {
+            return;
+        }
+        self.loading_since = None;
+        let uid = self.current.as_ref().map(|d| d.item.uid.clone());
+        if let Some(s) = &self.shared {
+            s.paused.store(true, Ordering::Relaxed);
+        }
+        self.output_failed(uid, format!("재생을 시작하지 못했습니다: {}초 동안 소리가 나가지 않았습니다", START_TIMEOUT.as_secs()));
     }
 
     fn recover_output(&mut self, failed: bool) {
