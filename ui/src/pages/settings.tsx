@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Outlet } from 'react-router';
-import { fetchJson, refreshData, useTitle } from '@/api';
+import { fetchJson, refreshData, useApi, useTitle } from '@/api';
 import { Check, FolderOpen } from '@/components/icons';
 import { ConnectCard, ShareCard } from '@/components/link-client';
 import { GeneralPrefs, PlayPrefs } from '@/components/prefs-client';
@@ -109,6 +109,41 @@ function MusicDirRow({ current, canPick }: { current: string; canPick: boolean }
           <Check size={15} /> 바꾸기
         </button>
       </form>
+      <DirSuggestions
+        current={current}
+        disabled={busy}
+        onPick={(dir) => {
+          setValue(dir);
+          void save(dir);
+        }}
+      />
+    </div>
+  );
+}
+
+/** 음악이 있을 만한 폴더(곡 수와 함께). 휴대폰에는 폴더 고르기 창이 없어서 눌러서 고른다. */
+function DirSuggestions({ current, disabled, onPick }: { current: string; disabled: boolean; onPick: (dir: string) => void }) {
+  const { data } = useApi<{ path: string; name: string; count: number }[]>('/api/settings/music-dirs');
+  if (!data?.length) return null;
+  return (
+    <div className="dir-suggest">
+      <div className="pref-hint">음악이 있는 폴더</div>
+      <div className="dir-suggest-list">
+        {data.map((d) => (
+          <button
+            key={d.path}
+            type="button"
+            className={`chip${d.path === current ? ' is-active' : ''}`}
+            disabled={disabled || d.path === current}
+            title={d.path}
+            onClick={() => onPick(d.path)}
+          >
+            <FolderOpen size={14} />
+            {d.name}
+            <span className="dir-suggest-count">{d.count >= 999 ? '999+' : d.count}곡</span>
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

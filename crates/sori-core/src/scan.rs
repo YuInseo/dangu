@@ -96,6 +96,58 @@ pub fn list_audio_files(root: &Path) -> Vec<FileEntry> {
     out
 }
 
+/// 음악을 찾을 때 들어가지 않는 폴더(앱 데이터, 휴지통 …)
+fn skip_dir(name: &std::ffi::OsStr) -> bool {
+    ["Android", "AppData", "Library", "node_modules", "$RECYCLE.BIN", "System Volume Information"].iter().any(|s| name == *s)
+}
+
+/// 폴더 안의 곡 수를 `cap`까지 센다(`deadline`이 지나면 거기까지). 음악 폴더를 고를 때 보여 준다.
+pub fn count_audio(dir: &Path, cap: usize, deadline: std::time::Instant) -> usize {
+    let walker = WalkDir::new(dir)
+        .max_depth(8)
+        .into_iter()
+        .filter_entry(|e| e.depth() == 0 || !(hidden(e.file_name()) || (e.depth() == 1 && skip_dir(e.file_name()))));
+    let mut n = 0;
+    for entry in walker.flatten() {
+        if n >= cap || std::time::Instant::now() >= deadline {
+            break;
+        }
+        if entry.file_type().is_file() && is_audio_ext(&ext_of(&entry.file_name().to_string_lossy())) {
+            n += 1;
+        }
+    }
+    n
+}
+
+/// 음악이 있을 만한 폴더들: `roots` 바로 아래의 폴더마다 곡 수를 세어, 곡이 있는 것만 많은 순서로.
+/// 저장공간 전체(루트 자체)도 함께 낸다. 휴대폰에는 폴더 고르기 창이 없어서 이것으로 고른다.
+pub fn suggest_music_dirs(roots: &[PathBuf], cap: usize, budget: std::time::Duration) -> Vec<(PathBuf, usize)> {
+    let deadline = std::time::Instant::now() + budget;
+    let mut out = Vec::new();
+    for root in roots {
+        let Ok(rd) = std::fs::read_dir(root) else { continue };
+        let mut subs: Vec<PathBuf> = rd
+            .flatten()
+            .filter(|e| e.file_type().is_ok_and(|t| t.is_dir()) && !hidden(&e.file_name()) && !skip_dir(&e.file_name()))
+            .map(|e| e.path())
+            .collect();
+        subs.sort();
+        let mut total = 0;
+        for d in subs {
+            let n = count_audio(&d, cap, deadline);
+            total += n;
+            if n > 0 {
+                out.push((d, n));
+            }
+        }
+        if total > 0 {
+            out.push((root.clone(), total.min(cap)));
+        }
+    }
+    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    out
+}
+
 fn is_disc_dir(name: &str) -> Option<u32> {
     // /^(cd|disc|disk|디스크)\s*[-_.]?\s*(\d+)\b/i
     let lower = name.to_lowercase();
@@ -461,5 +513,33 @@ mod tests {
         assert_eq!(parse_db("-6.53 dB"), Some(-6.53));
         assert_eq!(parse_db("+1.2dB"), Some(1.2));
         assert_eq!(parse_db("0.988"), Some(0.988));
+    }
+}
+
+#[cfg(test)]
+mod suggest_tests {
+    use super::*;
+
+    #[test]
+    fn suggests_folders_with_music() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        for (p, body) in [
+            ("Music/a/1.flac", ""),
+            ("Music/a/2.mp3", ""),
+            ("Download/x.mp3", ""),
+            ("Download/doc.pdf", ""),
+            ("DCIM/p.jpg", ""),
+            (".hidden/z.flac", ""),
+            ("Android/data/q.mp3", ""),
+        ] {
+            let f = root.join(p);
+            std::fs::create_dir_all(f.parent().unwrap()).unwrap();
+            std::fs::write(f, body).unwrap();
+        }
+        let got = suggest_music_dirs(&[root.to_path_buf()], 999, std::time::Duration::from_secs(5));
+        let names: Vec<(String, usize)> =
+            got.iter().map(|(p, n)| (p.strip_prefix(root).unwrap().to_string_lossy().to_string(), *n)).collect();
+        assert_eq!(names, [("".to_string(), 3), ("Music".to_string(), 2), ("Download".to_string(), 1)]);
     }
 }

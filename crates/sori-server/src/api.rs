@@ -237,6 +237,42 @@ async fn set_music_dir(State(app): State<App>, Json(b): Json<MusicDirBody>) -> R
     }
 }
 
+/// 음악이 있을 만한 폴더와 곡 수. 휴대폰에는 폴더 고르기 창이 없어서 이것으로 고른다.
+async fn music_dir_suggestions() -> Json<serde_json::Value> {
+    let found = tokio::task::spawn_blocking(|| {
+        let mut roots: Vec<std::path::PathBuf> = Vec::new();
+        if cfg!(target_os = "android") {
+            // 내장 저장공간과 SD 카드(/storage/XXXX-XXXX)
+            roots.push("/storage/emulated/0".into());
+            if let Ok(rd) = std::fs::read_dir("/storage") {
+                roots.extend(rd.flatten().map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n != "emulated" && n != "self")));
+            }
+        } else if cfg!(windows)
+            && let Some(home) = std::env::var_os("USERPROFILE")
+        {
+            roots.push(home.into());
+        }
+        let found = sori_core::scan::suggest_music_dirs(&roots, 999, std::time::Duration::from_secs(4));
+        // 사람이 읽는 이름: 저장공간 전체, SD 카드 안의 폴더는 앞에 "SD 카드"
+        let label = |p: &std::path::Path| {
+            let root = roots.iter().position(|r| p == r.as_path());
+            let under = roots.iter().position(|r| p.starts_with(r));
+            let name = p.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+            match (root, under) {
+                (Some(0), _) if cfg!(windows) => "내 폴더 전체".to_string(),
+                (Some(0), _) => "내장 저장공간 전체".to_string(),
+                (Some(_), _) => "SD 카드 전체".to_string(),
+                (None, Some(i)) if i > 0 => format!("SD 카드 · {name}"),
+                _ => name,
+            }
+        };
+        found.into_iter().take(12).map(|(p, n)| json!({ "path": p.to_string_lossy(), "name": label(&p), "count": n })).collect::<Vec<_>>()
+    })
+    .await
+    .unwrap_or_default();
+    Json(json!(found))
+}
+
 /// 앱이면 폴더 고르기 창을 띄우고, 고른 폴더로 바꾼다.
 async fn pick_music_dir(State(app): State<App>) -> Response {
     let Some(host) = app.host.clone() else {
@@ -288,6 +324,7 @@ pub fn routes() -> Router<App> {
         .route("/api/waveform/{id}", get(waveform))
         .route("/api/settings/music-dir", post(set_music_dir))
         .route("/api/settings/pick-music-dir", post(pick_music_dir))
+        .route("/api/settings/music-dirs", get(music_dir_suggestions))
         .route("/api/events", get(events))
 }
 
