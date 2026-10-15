@@ -1737,8 +1737,10 @@ kbd {
 .login {
   min-height: 100dvh;
   display: grid;
+  /* 좁은 화면에서 카드가 글 길이만큼 넓어지지 않게 */
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
-  padding: 24px;
+  padding: 24px 16px;
   background: radial-gradient(50% 50% at 50% 30%, rgba(139, 124, 248, 0.16), transparent 70%), var(--bg);
 }
 
@@ -1754,6 +1756,11 @@ kbd {
   border: 1px solid var(--line-strong);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.5);
   text-align: center;
+  overflow-wrap: anywhere;
+}
+.login-card .filter {
+  width: 100%;
+  min-width: 0;
 }
 
 .login-card h1 {
@@ -4535,4 +4542,136 @@ button.zone-btn {
   color: var(--accent-ink);
   background: var(--accent-strong);
   vertical-align: 2px;
+}
+
+/* -- 연결(선택): 같은 와이파이에 열기, 다른 소리에 연결 ------------------------------ */
+.link-card {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  margin-bottom: 18px;
+  overflow: hidden;
+}
+.link-card .pref-row {
+  padding: 14px 18px;
+  border-bottom-color: var(--line);
+}
+.link-card .pref-row-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+}
+.link-card > :last-child,
+.link-card > .link-list:last-child > .link-item:last-child {
+  border-bottom: 0;
+}
+.link-card .pref-group {
+  margin: 0;
+  padding: 16px 18px 6px;
+  border-top: 1px solid var(--line);
+}
+.link-empty {
+  padding: 12px 18px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--line);
+}
+.link-urls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.link-url {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 15px;
+  padding: 7px 11px;
+  border-radius: 9px;
+  background: var(--bg-pop);
+  user-select: all;
+}
+.link-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.link-name .filter {
+  width: 200px;
+  max-width: 100%;
+}
+.link-pin-wrap {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.link-pin {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  user-select: all;
+}
+.link-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.link-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--line);
+}
+.link-item-icon {
+  flex: none;
+  color: var(--text-3);
+}
+.link-item-text {
+  flex: 1;
+  min-width: 0;
+}
+.link-item-text .muted {
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.link-item-name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+/* 다른 기기의 소리에 연결해 왔을 때 맨 위 띠 */
+.via-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 13px;
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg));
+  border-bottom: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+.via-bar-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.via-bar-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
 }

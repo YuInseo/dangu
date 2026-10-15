@@ -4,6 +4,7 @@ pub mod api;
 pub mod auth;
 pub mod dsp;
 pub mod embed;
+pub mod link;
 pub mod live;
 pub mod media;
 pub mod player;
@@ -37,11 +38,14 @@ pub struct App {
     pub clips: Arc<sori_core::dsp::chain::Clips>,
     /// 라이브 아카이브(archive.org)
     pub live: Arc<sori_core::live::Archive>,
+    /// 다른 기기와 잇기(선택): LAN 공유, 찾기, 기억한 주소
+    pub link: Arc<link::Link>,
 }
 
 impl App {
     pub fn new(store: Arc<Store>, password: String) -> App {
         let irs = Arc::new(sori_core::dsp::ir::IrStore::new(&store.config.data_dir));
+        let link = Arc::new(link::Link::open(&store.config.data_dir));
         App {
             store,
             password: Arc::new(password),
@@ -50,6 +54,7 @@ impl App {
             irs,
             clips: Arc::new(Default::default()),
             live: Arc::new(sori_core::live::Archive::from_env()),
+            link,
         }
     }
 
@@ -76,6 +81,7 @@ pub fn router(app: App) -> Router {
         .merge(player::routes())
         .merge(dsp::routes())
         .merge(live::routes())
+        .merge(link::routes())
         .merge(auth::routes())
         .fallback(embed::serve)
         // 오디오는 이미 압축돼 있거나(FLAC, MP3) 받는 쪽이 길이를 알아야 하므로(Range) 압축하지 않는다.
@@ -89,6 +95,8 @@ pub async fn serve(app: App, addr: SocketAddr, ready: Option<tokio::sync::onesho
     let listener = tokio::net::TcpListener::bind(addr).await?;
     let local = listener.local_addr()?;
     tracing::info!("소리가 http://{local} 에서 기다립니다");
+    // 같은 와이파이에 열기(선택): 서버 실행 파일은 처음부터 열려 있고, 앱은 설정대로.
+    link::init(&app, local).await;
     if let Some(tx) = ready {
         let _ = tx.send(local);
     }

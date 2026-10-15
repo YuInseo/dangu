@@ -7,6 +7,8 @@ import { Progress, ProgressLine, PlayPause, Transport, Volume } from './controls
 import { Cover } from './cover';
 import { Check, ListMusic, Maximize2, Monitor, SkipForward, Speaker } from './icons';
 import { useDsp } from '@/lib/dsp/store';
+import { nativeZoneName } from '@/lib/link';
+import { useLibraryInfo } from '@/library';
 import { SignalBadge } from './signal-path';
 
 export function PlayerBar() {
@@ -109,7 +111,9 @@ function ZoneButton() {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const on = config.enabled || config.leveling.mode !== 'off';
-  const name = zone === 'native' ? '이 기기' : '이 브라우저';
+  const deviceName = useLibraryInfo().deviceName;
+  const nativeName = nativeZoneName(deviceName);
+  const name = zone === 'native' ? nativeName : '이 브라우저';
 
   useEffect(() => {
     if (!open) return;
@@ -146,7 +150,7 @@ function ZoneButton() {
           <div className="zone-menu-title">소리 낼 곳</div>
           {(
             [
-              ['native', '이 기기', '소리 엔진이 오디오 장치로 직접 · 64비트', Speaker],
+              ['native', nativeName, '소리 엔진이 오디오 장치로 직접 · 64비트', Speaker],
               ['browser', '이 브라우저', '브라우저가 받아서 재생 · OS 믹서', Monitor],
             ] as const
           ).map(([k, label, hint, Icon]) => (

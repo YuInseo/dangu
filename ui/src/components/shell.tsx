@@ -1,7 +1,10 @@
 'use client';
 
 import { Suspense, useEffect, type ReactNode } from 'react';
+import { ArrowLeft, Link2 } from '@/components/icons';
 import type { LibrarySummary, ScanStatus } from '@/lib/library/types';
+import { forgetVia, viaHome } from '@/lib/link';
+import { useLibraryInfo } from '@/library';
 import { usePlayer, useUi } from '@/lib/player/context';
 import { NowPlaying } from './now-playing';
 import { PlayerBar } from './player-bar';
@@ -74,12 +77,37 @@ function useShortcuts() {
   }, [p, ui]);
 }
 
+/** 다른 기기의 소리에 연결해 왔으면, 지금 어디에 있는지와 돌아가는 길. */
+function ViaBar() {
+  const info = useLibraryInfo();
+  const home = viaHome();
+  if (!home) return null;
+  return (
+    <div className="via-bar" role="status">
+      <Link2 size={15} />
+      <span className="via-bar-text">
+        <strong>{info.deviceName ?? '다른 기기'}</strong>의 소리에 연결됨
+      </span>
+      <a
+        className="via-bar-back"
+        href={home}
+        onClick={() => {
+          forgetVia();
+        }}
+      >
+        <ArrowLeft size={15} /> 이 기기로
+      </a>
+    </div>
+  );
+}
+
 export function Shell({ children, status, summary }: { children: ReactNode; status: ScanStatus; summary: LibrarySummary }) {
   useShortcuts();
   return (
     <div className="app">
       <Sidebar status={status} summary={summary} />
       <main className="main">
+        <ViaBar />
         <Suspense fallback={<div className="topbar" />}>
           <Topbar />
         </Suspense>

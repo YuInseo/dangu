@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Outlet } from 'react-router';
 import { fetchJson, refreshData, useTitle } from '@/api';
 import { Check, FolderOpen } from '@/components/icons';
+import { ConnectCard, ShareCard } from '@/components/link-client';
 import { GeneralPrefs, PlayPrefs } from '@/components/prefs-client';
 import { AnalysisCard, FormatSupport, RescanCard, ZoneCard } from '@/components/settings-client';
 import { SettingsNav } from '@/components/settings-nav';
@@ -171,6 +172,23 @@ export function AudioSettings() {
       <Cap label="EBU R128 분석" hint="통합 라우드니스, 트루 피크, 라우드니스 범위. 볼륨 레벨링이 이 값을 씁니다." />
       <h3 className="pref-group">이 브라우저가 여는 형식</h3>
       <FormatSupport ffmpeg />
+    </section>
+  );
+}
+
+export function ConnectSettings() {
+  useTitle('설정 · 연결');
+  return (
+    <section>
+      <h2 className="settings-h2">연결</h2>
+      <p className="settings-lede">
+        이 기기는 혼자서도 다 됩니다. PC나 서버는 없어도 됩니다. 원할 때만 같은 와이파이의 다른 기기에 이 기기를 열거나, PC·서버의 소리에
+        연결합니다.
+      </p>
+      <h3 className="pref-group">이 기기 열기</h3>
+      <ShareCard />
+      <h3 className="pref-group">다른 소리에 연결</h3>
+      <ConnectCard />
     </section>
   );
 }

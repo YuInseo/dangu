@@ -74,6 +74,7 @@ async fn library(State(app): State<App>) -> Json<Value> {
         "auth": !app.password.is_empty(),
         "platform": std::env::consts::OS,
         "host": app.host.as_ref().map(|h| h.name()),
+        "deviceName": app.link.name(),
     }))
 }
 

@@ -6,7 +6,9 @@ import type { AnalysisStatus, ScanStatus } from '@/lib/library/types';
 import { usePlayer, useZone, type ZoneKind } from '@/lib/player/context';
 import { NativeEngine, type OutputInfo } from '@/lib/player/native';
 import { canPlayNatively } from '@/lib/player/engine';
+import { nativeZoneName } from '@/lib/link';
 import { khz } from '@/lib/quality';
+import { useLibraryInfo } from '@/library';
 import { Check, CircleAlert, LoaderCircle, Monitor, RefreshCw, Speaker, X } from './icons';
 import { scanText, useScanStatus } from './scan-status';
 
@@ -151,6 +153,7 @@ export function AnalysisCard({ initial }: { initial: AnalysisStatus }) {
 
 /** 이 브라우저 = 하나의 존. 룬의 "Audio → 장치" 화면에 해당한다. */
 export function ZoneCard() {
+  const deviceName = useLibraryInfo().deviceName;
   const { engine, setZone } = usePlayer();
   const { zone, nativeAvailable } = useZone();
   const [rate, setRate] = useState<number | null>(null);
@@ -184,7 +187,7 @@ export function ZoneCard() {
   if (nativeAvailable) {
     rows.push({
       key: 'native',
-      name: '이 기기',
+      name: nativeZoneName(deviceName),
       detail: native
         ? `${native.device} · ${native.api} · ${khz(native.rate)}kHz · 소리 엔진이 64비트로 직접`
         : '소리 엔진이 이 기기의 오디오 장치로 직접 냅니다 · 64비트',

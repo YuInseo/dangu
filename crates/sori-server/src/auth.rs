@@ -59,8 +59,12 @@ pub async fn gate(State(app): State<App>, req: Request, next: Next) -> Response 
         return next.run(req).await;
     }
     let path = req.uri().path().to_string();
-    let open =
-        path == "/login" || path == "/api/login" || path.starts_with("/assets/") || path == "/icon.svg" || path == "/manifest.webmanifest";
+    let open = path == "/login"
+        || path == "/api/login"
+        || path == "/api/hello"
+        || path.starts_with("/assets/")
+        || path == "/icon.svg"
+        || path == "/manifest.webmanifest";
     let ok = cookie(req.headers(), SESSION_COOKIE).is_some_and(|v| same(v.as_bytes(), session_token(password).as_bytes()));
     if open || ok {
         return next.run(req).await;

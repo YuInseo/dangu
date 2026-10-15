@@ -8,6 +8,7 @@ import { Shell } from '@/components/shell';
 import { ToastProvider } from '@/components/toast';
 import { DspProvider } from '@/lib/dsp/store';
 import { PlayerProvider } from '@/lib/player/context';
+import { rememberVia } from '@/lib/link';
 import { LibraryProvider, useLibraryInfo } from '@/library';
 import { AlbumPage } from '@/pages/album';
 import { AlbumsPage } from '@/pages/albums';
@@ -22,7 +23,7 @@ import { LiveShowPage } from '@/pages/live-show';
 import { LoginPage } from '@/pages/login';
 import { NotFound } from '@/pages/not-found';
 import { SearchPage } from '@/pages/search';
-import { AboutSettings, AudioSettings, GeneralSettings, LibrarySettings, PlaySettings, SettingsLayout } from '@/pages/settings';
+import { AboutSettings, AudioSettings, ConnectSettings, GeneralSettings, LibrarySettings, PlaySettings, SettingsLayout } from '@/pages/settings';
 import { TracksPage } from '@/pages/tracks';
 
 function Main() {
@@ -74,6 +75,7 @@ const router = createBrowserRouter([
           { path: 'play', element: <PlaySettings /> },
           { path: 'library', element: <LibrarySettings /> },
           { path: 'audio', element: <AudioSettings /> },
+          { path: 'connect', element: <ConnectSettings /> },
           { path: 'about', element: <AboutSettings /> },
         ],
       },
@@ -81,6 +83,9 @@ const router = createBrowserRouter([
     ],
   },
 ]);
+
+// 다른 기기의 소리에서 연결해 왔으면 돌아갈 곳을 기억한다.
+rememberVia();
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

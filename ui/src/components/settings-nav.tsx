@@ -8,6 +8,7 @@ const ITEMS = [
   { href: '/settings/play', label: '재생 동작' },
   { href: '/settings/library', label: '라이브러리' },
   { href: '/settings/audio', label: '오디오' },
+  { href: '/settings/connect', label: '연결' },
   { href: '/settings/about', label: '정보' },
 ];
 

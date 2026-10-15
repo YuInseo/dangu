@@ -17,6 +17,8 @@ export interface LibraryInfo {
   platform: string;
   /** 앱 안에서 돌고 있으면 "windows", "android" … 브라우저용 서버면 null. */
   host: string | null;
+  /** 사람이 알아보는 그 기기의 이름(휴대폰 모델, PC 이름) */
+  deviceName?: string;
 }
 
 const Ctx = createContext<LibraryInfo | null>(null);
