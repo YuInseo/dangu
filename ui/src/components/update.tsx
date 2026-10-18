@@ -30,7 +30,9 @@ export function UpdateBanner() {
         type="button"
         className="btn btn-primary btn-sm"
         disabled={busy}
-        onClick={() => startInstall(setStatus).catch((e: unknown) => toast(e instanceof Error ? e.message : '업데이트하지 못했습니다', 'error'))}
+        onClick={() =>
+          startInstall(setStatus).catch((e: unknown) => toast(e instanceof Error ? e.message : '업데이트하지 못했습니다', 'error'))
+        }
       >
         업데이트
       </button>
@@ -66,7 +68,8 @@ export function UpdateCard() {
     try {
       const s = await updateApi.check();
       setStatus(s);
-      if (!s.available) toast('최신 버전입니다');
+      if (s.error) toast(s.error, 'error');
+      else if (!s.available) toast(s.latest ? `최신 버전입니다(올라온 가장 새 빌드: ${when(s.latest.time)})` : '최신 버전입니다');
     } catch (e) {
       toast(e instanceof Error ? e.message : '확인하지 못했습니다', 'error');
     } finally {
@@ -93,7 +96,11 @@ export function UpdateCard() {
                   type="button"
                   className="btn btn-primary btn-sm"
                   disabled={busy}
-                  onClick={() => startInstall(setStatus).catch((e: unknown) => toast(e instanceof Error ? e.message : '업데이트하지 못했습니다', 'error'))}
+                  onClick={() =>
+                    startInstall(setStatus).catch((e: unknown) =>
+                      toast(e instanceof Error ? e.message : '업데이트하지 못했습니다', 'error'),
+                    )
+                  }
                 >
                   업데이트
                 </button>
@@ -103,8 +110,8 @@ export function UpdateCard() {
               </button>
             </div>
             <label className="update-auto">
-              <input type="checkbox" checked={status.auto} onChange={(e) => updateApi.setAuto(e.target.checked).then(setStatus)} />
-              새 버전을 자동으로 확인하고 미리 받아 두기
+              <input type="checkbox" checked={status.auto} onChange={(e) => updateApi.setAuto(e.target.checked).then(setStatus)} />새 버전을
+              자동으로 확인하고 미리 받아 두기
             </label>
           </div>
         </div>
@@ -125,5 +132,15 @@ function UpdateLine({ status, progress }: { status: UpdateStatus; progress: stri
     );
   }
   if (status.error) return <div className="warn">{status.error}</div>;
-  return <div className="muted">{status.checkedAt ? `최신 버전입니다 · ${new Date(status.checkedAt).toLocaleTimeString('ko-KR')} 확인` : '아직 확인하지 않았습니다'}</div>;
+  return (
+    <div className="muted">
+      {status.checkedAt ? `최신 버전입니다 · ${new Date(status.checkedAt).toLocaleTimeString('ko-KR')} 확인` : '아직 확인하지 않았습니다'}
+      {/* 지금 깔린 것이 서버의 가장 새 빌드와 같은지 눈으로 보이게 */}
+      {status.latest && (
+        <div>
+          올라온 가장 새 빌드: {shortBuild(status.latest.build)} · {when(status.latest.time)}
+        </div>
+      )}
+    </div>
+  );
 }
