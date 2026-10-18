@@ -15,6 +15,8 @@ use sori_server::App;
 const KEY: &str = "AIzaSyTEST_key_0123456789abcdefghijklm";
 const VIDEO: &str = "ArmDp-zijuc";
 const CHANNEL: &str = "UCMki_UkHb4qSc0qyEcOHHJw";
+/// 올린 사람이 유튜브 밖 재생을 막은 영상
+const NO_EMBED: &str = "noEmbedVid0";
 
 const FEED: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <feed xmlns:yt="http://www.youtube.com/xml/schemas/2015" xmlns:media="http://search.yahoo.com/mrss/" xmlns="http://www.w3.org/2005/Atom">
@@ -72,7 +74,16 @@ fn api(path: &str, q: &HashMap<String, String>) -> (u16, String) {
                 return ok(json!({ "items": [video_json(VIDEO)], "nextPageToken": "POP2" }));
             }
             let ids = q.get("id").cloned().unwrap_or_default();
-            ok(json!({ "items": ids.split(',').filter(|i| !i.is_empty() && *i != "goneVIDEO00").map(video_json).collect::<Vec<_>>() }))
+            let items: Vec<Value> = ids
+                .split(',')
+                .filter(|i| !i.is_empty() && *i != "goneVIDEO00")
+                .map(|i| {
+                    let mut v = video_json(i);
+                    v["status"]["embeddable"] = json!(i != NO_EMBED);
+                    v
+                })
+                .collect();
+            ok(json!({ "items": items }))
         }
         "search" => ok(json!({
             "nextPageToken": "S2",
@@ -122,6 +133,8 @@ fn web(path: &str, q: &HashMap<String, String>) -> (u16, String) {
             let url = q.get("url").cloned().unwrap_or_default();
             if url.ends_with(VIDEO) {
                 (200, json!({ "title": "Super Shy", "author_name": "HYBE LABELS", "author_url": format!("https://www.youtube.com/channel/{CHANNEL}") }).to_string())
+            } else if url.ends_with(NO_EMBED) {
+                (401, "Unauthorized".into())
             } else {
                 (404, "Not Found".into())
             }
@@ -233,6 +246,8 @@ fn youtube_with_and_without_a_key() {
     assert_eq!(v["subscribed"], false);
     assert_eq!(get(&format!("{base}/api/youtube/video/nosuchvide0")).0, 404);
     assert_eq!(get(&format!("{base}/api/youtube/video/..%2Fx")).0, 400, "이상한 ID는 묻지도 않는다");
+    let (s, v) = get(&format!("{base}/api/youtube/video/{NO_EMBED}"));
+    assert_eq!((s, &v["video"]["embeddable"], &v["limited"]), (200, &json!(false), &json!(true)), "막힌 영상은 막혔다고 알린다: {v}");
     assert_eq!(calls.load(Ordering::SeqCst), 0, "키 없이 Data API를 부르지 않는다");
 
     // 구독과 구독 피드(RSS)
@@ -274,6 +289,8 @@ fn youtube_with_and_without_a_key() {
     assert_eq!(v["channel"]["subscribers"], 75_000_000);
     assert_eq!(v["subscribed"], true);
     assert_eq!(get(&format!("{base}/api/youtube/video/goneVIDEO00")).0, 404, "지워진 영상");
+    let (_, v) = get(&format!("{base}/api/youtube/video/{NO_EMBED}"));
+    assert_eq!((&v["video"]["embeddable"], &v["video"]["title"]), (&json!(false), &json!("NewJeans 'Super Shy' Official MV")));
 
     let (s, c) = get(&format!("{base}/api/youtube/comments/{VIDEO}?order=time"));
     assert_eq!(s, 200, "{c}");

@@ -111,6 +111,11 @@ export function YtThumb({ v }: { v: YtVideo }) {
         <span className="yt-badge">{len}</span>
       ) : null}
       {v.short && <span className="yt-badge yt-badge-short">Shorts</span>}
+      {v.embeddable === false && (
+        <span className="yt-badge yt-badge-ext" title="올린 사람이 유튜브 밖 재생을 꺼 둔 영상">
+          <ExternalLink size={11} /> 유튜브에서만
+        </span>
+      )}
     </div>
   );
 }

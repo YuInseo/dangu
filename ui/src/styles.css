@@ -5702,6 +5702,15 @@ button.zone-btn {
   left: 8px;
 }
 
+/* 올린 사람이 유튜브 밖 재생을 꺼 둔 영상 */
+.yt-badge-ext {
+  top: 8px;
+  right: auto;
+  bottom: auto;
+  left: 8px;
+  font-weight: 600;
+}
+
 .yt-video-text {
   padding-top: 10px;
   min-width: 0;
@@ -5919,27 +5928,75 @@ button.zone-btn {
   border: 0;
 }
 
-.yt-player-note {
+/* 틀 수 없을 때: 플레이어를 걷어 낸 자리에 흐린 썸네일과 까닭, 유튜브로 가는 단추 */
+.yt-player-fail {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+
+.yt-player-fail img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  filter: blur(4px) brightness(0.3) saturate(1.15);
+  transform: scale(1.08);
+}
+
+.yt-player-fail-body {
+  position: relative;
   display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 12px;
-  margin-top: 10px;
-  padding: 10px 12px 10px 14px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--line);
-  color: var(--text-2);
-  font-size: 13.5px;
-  line-height: 1.5;
+  gap: 4px;
+  max-width: 460px;
+  padding: 14px 22px;
+  text-align: center;
+  color: #fff;
 }
 
-.yt-player-note p {
-  flex: 1;
+.yt-player-fail-icon {
+  margin-bottom: 4px;
+  opacity: 0.8;
+}
+
+.yt-player-fail-body strong {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.35;
+}
+
+.yt-player-fail-body p {
   margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: rgba(255, 255, 255, 0.7);
 }
 
-.yt-player-note .btn {
-  flex: none;
+.yt-player-fail-code {
+  font-size: 11.5px;
+  color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums;
+}
+
+.yt-player-fail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.btn.yt-player-fail-btn,
+.btn.yt-player-fail-btn:hover:not(:disabled) {
+  background: #fff;
+  border-color: #fff;
+  color: #0f0f0f;
 }
 
 .yt-watch-error {
@@ -6308,6 +6365,12 @@ a.yt-pill:hover {
     z-index: 12;
     margin: 0 calc(var(--gutter) * -1);
     border-radius: 0;
+  }
+
+  /* 틀 수 없는 영상의 안내는 붙여 두지 않는다 */
+  .yt-player.is-failed {
+    position: relative;
+    top: auto;
   }
 
   .yt-watch-title {

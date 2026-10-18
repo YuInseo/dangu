@@ -395,10 +395,9 @@ impl YouTube {
             match status {
                 200 => {}
                 401 | 403 => {
-                    return Err(ApiError {
-                        status: 403, message: "이 영상은 다른 앱에서 틀 수 없게 막혀 있습니다".into()
-                    }
-                    .into());
+                    // 올린 사람이 유튜브 밖에서 틀지 못하게 막았다. 제목도 주지 않으니 막혔다는 것만 알린다.
+                    let video = Video { id: id.clone(), embeddable: Some(false), ..Default::default() };
+                    return Ok(VideoDetail { video, channel: None, limited: true });
                 }
                 404 | 400 => {
                     return Err(ApiError { status: 404, message: "영상을 찾을 수 없습니다(지워졌거나 비공개)".into() }.into());

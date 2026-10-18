@@ -110,6 +110,31 @@ export function needsKey(e: unknown) {
   return e instanceof ApiError && e.status === 412;
 }
 
+export interface YtFailure {
+  title: string;
+  detail?: string;
+  /** 공식 플레이어의 오류 번호 */
+  code?: number;
+}
+
+/** 영상 정보에서 이미 아는 것: 올린 사람이 유튜브 밖 재생을 꺼 두었다 */
+export const EMBED_OFF: YtFailure = {
+  title: '앱 안에서 재생할 수 없는 영상입니다',
+  detail: '올린 사람이 유튜브 밖에서의 재생을 꺼 두었습니다.',
+};
+
+/** 공식 플레이어의 오류 번호 → 사람이 읽는 말 */
+export function playerFailure(code: number): YtFailure {
+  // 101·150: 올린 사람이나 음원 권리자가 유튜브 밖 재생을 막았다(음악 모음·공식 뮤직비디오에 흔하다).
+  // 유튜브가 "봇이 아닌지 로그인해 확인"을 요구할 때도 같은 번호가 온다.
+  if (code === 101 || code === 150)
+    return { title: EMBED_OFF.title, detail: '올린 사람이나 음원 권리자가 유튜브 밖 재생을 막아 두었습니다.', code };
+  if (code === 100) return { title: '영상을 찾을 수 없습니다', detail: '지워졌거나 비공개로 바뀌었습니다.', code };
+  if (code === 153) return { title: '유튜브 플레이어가 이 앱을 확인하지 못했습니다', code };
+  if (code === 2) return { title: '영상 주소가 이상합니다', code };
+  return { title: '이 기기에서 재생할 수 없는 영상입니다', code };
+}
+
 const json = (method: string, body?: unknown): RequestInit =>
   body === undefined ? { method } : { method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) };
 

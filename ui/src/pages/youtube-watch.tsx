@@ -36,7 +36,7 @@ export function YouTubeWatchPage() {
   return (
     <div className="yt-watch">
       <div className="yt-watch-main">
-        <YtPlayer key={id} id={id} list={list} start={t} ref={player} />
+        <YtPlayer key={id} id={id} list={list} start={t} blocked={v?.embeddable === false} thumb={v?.thumb} ref={player} />
         {error && !data && (
           <div className="notice notice-error yt-watch-error">
             <div>
@@ -48,7 +48,7 @@ export function YouTubeWatchPage() {
         {!data && !error && <Loading />}
         {v && (
           <>
-            <h1 className="yt-watch-title">{v.title}</h1>
+            {v.title && <h1 className="yt-watch-title">{v.title}</h1>}
             <div className="yt-watch-bar">
               {ch ? (
                 <Link href={`/youtube/channel/${ch.id}`} className="yt-watch-channel">
@@ -58,12 +58,12 @@ export function YouTubeWatchPage() {
                     {ch.subscribers != null && <span className="yt-video-meta">{subsText(ch.subscribers)}</span>}
                   </span>
                 </Link>
-              ) : (
+              ) : v.channelTitle ? (
                 <span className="yt-watch-channel">
                   <Avatar name={v.channelTitle} size={40} />
                   <strong>{v.channelTitle}</strong>
                 </span>
-              )}
+              ) : null}
               {ch && <SubscribeButton channel={{ id: ch.id, title: ch.title, thumb: ch.thumb }} />}
               <div className="yt-watch-pills">
                 {v.likes != null && (

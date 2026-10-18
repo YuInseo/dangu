@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { agoIso, compact, internalHref, length, linkify, subsText, viewsText } from '../src/lib/youtube';
+import { agoIso, compact, EMBED_OFF, internalHref, length, linkify, playerFailure, subsText, viewsText } from '../src/lib/youtube';
 
 test('수는 한국식으로 줄인다', () => {
   assert.equal(compact(999), '999');
@@ -41,4 +41,13 @@ test('설명의 주소와 시각', () => {
   assert.equal(internalHref('https://youtu.be/ArmDp-zijuc'), '/youtube/watch/ArmDp-zijuc');
   assert.equal(internalHref('https://www.youtube.com/channel/UCMki_UkHb4qSc0qyEcOHHJw'), '/youtube/channel/UCMki_UkHb4qSc0qyEcOHHJw');
   assert.equal(internalHref('https://example.com'), null);
+});
+
+test('틀지 못한 까닭', () => {
+  assert.equal(playerFailure(150).title, EMBED_OFF.title);
+  assert.match(playerFailure(150).detail ?? '', /음원 권리자/);
+  assert.equal(playerFailure(101).code, 101);
+  assert.equal(playerFailure(100).title, '영상을 찾을 수 없습니다');
+  assert.deepEqual(playerFailure(5), { title: '이 기기에서 재생할 수 없는 영상입니다', code: 5 });
+  assert.equal(EMBED_OFF.code, undefined, '영상 정보로 미리 안 것에는 번호가 없다');
 });
