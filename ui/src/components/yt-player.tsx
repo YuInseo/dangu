@@ -48,11 +48,13 @@ function loadApi(): Promise<YtApi> {
 
 /** 플레이어 오류 번호 → 사람이 읽는 말 */
 function playerError(code: number): string {
-  if (code === 101 || code === 150) return '올린 사람이 다른 앱에서 틀지 못하게 막아 둔 영상입니다';
-  if (code === 153) return '유튜브 플레이어가 이 앱의 주소를 확인하지 못했습니다(153)';
-  if (code === 100) return '영상을 찾을 수 없습니다(지워졌거나 비공개)';
-  if (code === 2) return '영상 주소가 이상합니다';
-  return '이 영상을 틀 수 없습니다';
+  // 101·150: 올린 사람이 다른 곳에서 틀지 못하게 막았거나, 유튜브가 로그인을 요구한다("봇이 아닌지 확인").
+  if (code === 101 || code === 150)
+    return `유튜브가 이 영상을 앱 안에서 틀지 못하게 했습니다(오류 ${code}). 올린 사람이 막아 두었거나 유튜브가 로그인을 요구하는 경우입니다.`;
+  if (code === 153) return '유튜브 플레이어가 이 앱의 주소를 확인하지 못했습니다(오류 153).';
+  if (code === 100) return '영상을 찾을 수 없습니다(지워졌거나 비공개).';
+  if (code === 2) return '영상 주소가 이상합니다.';
+  return `이 기기에서 틀 수 없는 영상입니다(오류 ${code}).`;
 }
 
 export interface YtPlayerHandle {
@@ -139,17 +141,20 @@ export function YtPlayer({ id, list, start, ref }: { id: string; list?: string; 
     [],
   );
 
+  // 틀 수 없을 때 유튜브 플레이어도 그 자리에 까닭을 보이므로, 우리 안내는 덮지 않고 그 아래에 둔다.
   return (
-    <div className="yt-player">
-      <div ref={host} className="yt-player-frame" />
+    <>
+      <div className="yt-player">
+        <div ref={host} className="yt-player-frame" />
+      </div>
       {failed && (
-        <div className="yt-player-failed" role="alert">
+        <div className="yt-player-note" role="alert">
           <p>{failed}</p>
           <a className="btn btn-sm" href={`https://www.youtube.com/watch?v=${id}`} target="_blank" rel="noreferrer">
             유튜브에서 보기
           </a>
         </div>
       )}
-    </div>
+    </>
   );
 }

@@ -5919,18 +5919,27 @@ button.zone-btn {
   border: 0;
 }
 
-.yt-player-failed {
-  position: absolute;
-  inset: 0;
+.yt-player-note {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: 12px;
-  padding: 20px;
-  text-align: center;
-  background: rgba(0, 0, 0, 0.88);
+  margin-top: 10px;
+  padding: 10px 12px 10px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
   color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+.yt-player-note p {
+  flex: 1;
+  margin: 0;
+}
+
+.yt-player-note .btn {
+  flex: none;
 }
 
 .yt-watch-error {
