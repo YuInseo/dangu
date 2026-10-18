@@ -113,22 +113,19 @@ sleep 3
 tap_label "Night Drive Mix" 4 && shot playlist
 # 월드 탭: 처음은 유튜브(키 없음: 구독 피드 안내와 키 넣는 법)
 tap_label "월드" 6 last && shot world-youtube
-# 키 없이 링크로 연 영상: 진짜 유튜브 공식 플레이어가 앱의 웹뷰 안에서 뜨는지("Me at the zoo")
-if tap_label "유튜브 검색" 2 || tap_label "유튜브 검색 또는 링크 붙여 넣기" 2; then
-  adb shell input text "https://youtu.be/jNQXAC9IVRw"
-  adb shell input keyevent 66
-  sleep 12
-  shot youtube-watch
-  curl -s --max-time 20 "http://127.0.0.1:4380/api/youtube/video/jNQXAC9IVRw" | head -c 600 || true
-  echo
-  adb shell input keyevent 4
-  sleep 3
-fi
 # 구독(키 없이): 채널을 구독하면 구독 피드에 새 영상이 모인다(유튜브 공식 채널).
 curl -s --max-time 10 -X POST -H 'content-type: application/json' -d '{"id":"UCBR8-60-B28hp2BmDPdntcQ","title":"YouTube"}' http://127.0.0.1:4380/api/youtube/subscriptions || true
 echo
-curl -s --max-time 30 "http://127.0.0.1:4380/api/youtube/feed" | head -c 600 || true
-echo
+first=$(curl -s --max-time 30 "http://127.0.0.1:4380/api/youtube/feed" | python3 -c "import json,sys; print(json.load(sys.stdin)['items'][0]['title'])" || true)
+echo "피드의 첫 영상: $first"
+# 탭을 다시 열면 구독을 새로 읽고 피드가 뜬다. 첫 영상을 눌러 진짜 유튜브 공식 플레이어가 앱의 웹뷰 안에서 뜨는지.
+tap_label "밴드" 4 && tap_label "유튜브" 10 && shot youtube-feed
+if [ -n "$first" ] && tap_label "$first" 15; then
+  shot youtube-watch
+  adb logcat -d | grep -iE "youtube|iframe|embed|153" | tail -20 || true
+  adb shell input keyevent 4
+  sleep 3
+fi
 tap_label "밴드" 8 && shot live
 
 # 라이브 아카이브: 공연마다 내려받기를 허락했는지(진짜 archive.org). 그레이트풀 데드의 사운드보드

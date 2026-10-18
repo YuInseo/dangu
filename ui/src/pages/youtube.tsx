@@ -71,6 +71,10 @@ function useAutoMore(enabled: boolean, more: () => void) {
 
 export function YouTubePage() {
   useTitle('유튜브');
+  // 다른 화면·기기에서 구독을 바꿨을 수 있으니 열 때마다 새로 묻는다(이 기기 안의 일이라 가볍다).
+  useEffect(() => {
+    void refreshYt();
+  }, []);
   const status = useYtStatus();
   const subs = useSubscriptions();
   const [tab, setTab] = useState<'feed' | 'popular' | null>(null);
