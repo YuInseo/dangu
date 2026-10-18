@@ -18,8 +18,8 @@ pub use client::YouTube;
 pub const API: &str = "https://www.googleapis.com/youtube/v3";
 pub const WEB: &str = "https://www.youtube.com";
 
-#[derive(Clone, Debug, Default, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
 pub struct Video {
     pub id: String,
     pub title: String,
@@ -123,6 +123,30 @@ pub enum SearchItem {
     Video(Video),
     Channel(Channel),
     Playlist(Playlist),
+}
+
+/// 새 것부터(올린 때가 같으면 ID 순). 같은 영상은 처음 것 하나만 둔다.
+pub fn newest_first(items: &mut Vec<Video>) {
+    items.sort_by(|a, b| b.published.cmp(&a.published).then_with(|| a.id.cmp(&b.id)));
+    let mut seen = std::collections::HashSet::new();
+    items.retain(|v| seen.insert(v.id.clone()));
+}
+
+/// `newest_first`로 둔 목록에서 이 영상 바로 다음을 가리키는 표(다음 쪽 요청에 넣는다)
+pub fn feed_cursor(v: &Video) -> String {
+    format!("{}~{}", v.published.as_deref().unwrap_or(""), v.id)
+}
+
+/// 표 다음의 첫 자리. 그사이 목록이 새로 읽혀 새 영상이 끼었거나 표의 영상이 빠졌어도 순서대로 이어진다.
+pub fn after_cursor(items: &[Video], cursor: &str) -> usize {
+    let (published, id) = cursor.rsplit_once('~').unwrap_or((cursor, ""));
+    items
+        .iter()
+        .position(|v| {
+            let p = v.published.as_deref().unwrap_or("");
+            p < published || (p == published && v.id.as_str() > id)
+        })
+        .unwrap_or(items.len())
 }
 
 /// 쪽으로 나뉜 목록. `next`를 다음 쪽 요청에 그대로 넣는다.

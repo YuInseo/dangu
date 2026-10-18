@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { agoIso, compact, EMBED_OFF, internalHref, length, linkify, playerFailure, subsText, viewsText } from '../src/lib/youtube';
+import { agoIso, compact, EMBED_OFF, internalHref, length, linkify, playerFailure, subsKey, subsText, viewsText } from '../src/lib/youtube';
 
 test('수는 한국식으로 줄인다', () => {
   assert.equal(compact(999), '999');
@@ -50,4 +50,12 @@ test('틀지 못한 까닭', () => {
   assert.equal(playerFailure(100).title, '영상을 찾을 수 없습니다');
   assert.deepEqual(playerFailure(5), { title: '이 기기에서 재생할 수 없는 영상입니다', code: 5 });
   assert.equal(EMBED_OFF.code, undefined, '영상 정보로 미리 안 것에는 번호가 없다');
+});
+
+test('구독이 바뀌면 피드의 표도 바뀐다', () => {
+  const s = (id: string) => ({ id, title: id, addedAt: 0 });
+  const ab = subsKey([s('UCa'), s('UCb')]);
+  assert.equal(subsKey([s('UCb'), s('UCa')]), ab, '순서는 상관없다');
+  assert.notEqual(subsKey([s('UCa'), s('UCc')]), ab);
+  assert.notEqual(subsKey([s('UCa')]), ab);
 });

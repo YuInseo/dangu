@@ -5584,6 +5584,14 @@ button.zone-btn {
   flex: none;
 }
 
+/* 종류와 정렬 사이 */
+.yt-chips-gap {
+  flex: none;
+  width: 1px;
+  margin: 6px 4px;
+  background: var(--line-strong);
+}
+
 .yt-note {
   font-size: 13px;
   margin: 10px 0;
@@ -5666,6 +5674,90 @@ button.zone-btn {
 .yt-thumb-empty {
   width: 100%;
   height: 100%;
+}
+
+/* 썸네일은 그림이 오면 부드럽게 나타난다(그 전엔 자리만) */
+.yt-thumb img.yt-fade {
+  opacity: 0;
+  transition:
+    opacity 0.35s ease,
+    transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.yt-thumb img.yt-fade.is-shown {
+  opacity: 1;
+}
+
+/* 불러오는 동안의 자리: 카드 모양이 은은하게 반짝인다 */
+.is-skeleton {
+  pointer-events: none;
+}
+
+.is-skeleton .yt-thumb,
+.sk-line {
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0.05) 30%, rgba(255, 255, 255, 0.11) 50%, rgba(255, 255, 255, 0.05) 70%);
+  background-size: 300% 100%;
+  animation: sk-shimmer 1.5s ease-in-out infinite;
+}
+
+.sk-line {
+  height: 14px;
+  width: 88%;
+  border-radius: 7px;
+  margin-top: 4px;
+}
+
+.sk-line + .sk-line {
+  margin-top: 9px;
+}
+
+.sk-short {
+  width: 52%;
+  height: 12px;
+}
+
+@keyframes sk-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .is-skeleton .yt-thumb,
+  .sk-line {
+    animation: none;
+  }
+}
+
+/* 돌아왔을 때 맨 위에 새 영상이 있으면 */
+.yt-fresh {
+  position: fixed;
+  top: calc(var(--topbar-h) + 12px);
+  left: calc(var(--sidebar-w) + (100vw - var(--sidebar-w)) / 2);
+  transform: translateX(-50%);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 18px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 13.5px;
+  font-weight: 700;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  animation: fresh-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes fresh-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -8px);
+  }
 }
 
 .yt-thumb-list::after {

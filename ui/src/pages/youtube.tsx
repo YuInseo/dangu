@@ -1,17 +1,21 @@
 import { useEffect, useRef, useState } from 'react';
 import Link from '@/compat/link';
-import { useSearchParams } from '@/compat/navigation';
-import { ApiError, fetchJson, useTitle } from '@/api';
-import { Bell, CircleAlert, FileAudio, LoaderCircle, Trash2, Upload } from '@/components/icons';
+import { useRouter, useSearchParams } from '@/compat/navigation';
+import { ApiError, useTitle } from '@/api';
+import { Bell, CircleAlert, FileAudio, Trash2, Upload } from '@/components/icons';
 import { useToast } from '@/components/toast';
 import {
   Avatar,
   ChannelItem,
+  FreshPill,
   KeySetup,
+  ListEnd,
   PlaylistCard,
+  skeletonsFor,
   SubscriptionStrip,
   VideoCard,
   VideoGrid,
+  VideoSkeletons,
   WorldTabs,
   YtSearchBox,
 } from '@/components/yt';
@@ -19,11 +23,12 @@ import {
   needsKey,
   refreshYt,
   setSubscribed,
+  subsKey,
   usePaged,
   useSubscriptions,
   useYtStatus,
   yt,
-  type YtFeed,
+  type YtOrder,
   type YtSearchItem,
   type YtVideo,
 } from '@/lib/youtube';
@@ -42,30 +47,6 @@ function Problem({ error }: { error: unknown }) {
   );
 }
 
-function More({ show, loading, onClick }: { show: boolean; loading: boolean; onClick: () => void }) {
-  if (!show) return null;
-  return (
-    <div className="yt-more">
-      <button type="button" className="btn" disabled={loading} onClick={onClick}>
-        {loading ? <LoaderCircle size={16} className="spin" /> : null} 더 보기
-      </button>
-    </div>
-  );
-}
-
-/** 넓은 화면에서 끝에 닿으면 저절로 다음 쪽 */
-function useAutoMore(enabled: boolean, more: () => void) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el || !enabled) return;
-    const io = new IntersectionObserver((e) => e[0]?.isIntersecting && more(), { rootMargin: '600px' });
-    io.observe(el);
-    return () => io.disconnect();
-  }, [enabled, more]);
-  return ref;
-}
-
 // ---------------------------------------------------------------------------
 // 홈: 구독 피드 · 인기 음악
 
@@ -77,8 +58,11 @@ export function YouTubePage() {
   }, []);
   const status = useYtStatus();
   const subs = useSubscriptions();
-  const [tab, setTab] = useState<'feed' | 'popular' | null>(null);
-  const shown = tab ?? (subs && subs.length === 0 && status?.hasKey ? 'popular' : 'feed');
+  const router = useRouter();
+  // 고른 칸은 주소에 둔다(영상을 보고 뒤로 오면 그 칸, 그 자리 그대로)
+  const tab = useSearchParams().get('tab');
+  const shown = tab === 'popular' || tab === 'feed' ? tab : subs && subs.length === 0 && status?.hasKey ? 'popular' : 'feed';
+  const pick = (t: 'feed' | 'popular') => router.replace(`/youtube?tab=${t}`);
 
   return (
     <>
@@ -87,10 +71,10 @@ export function YouTubePage() {
       </WorldTabs>
       <SubscriptionStrip />
       <div className="chips yt-chips">
-        <button type="button" className={`chip${shown === 'feed' ? ' is-active' : ''}`} onClick={() => setTab('feed')}>
+        <button type="button" className={`chip${shown === 'feed' ? ' is-active' : ''}`} onClick={() => pick('feed')}>
           구독
         </button>
-        <button type="button" className={`chip${shown === 'popular' ? ' is-active' : ''}`} onClick={() => setTab('popular')}>
+        <button type="button" className={`chip${shown === 'popular' ? ' is-active' : ''}`} onClick={() => pick('popular')}>
           인기 음악
         </button>
         <Link href="/youtube/subscriptions" className="chip">
@@ -110,37 +94,14 @@ export function YouTubePage() {
   );
 }
 
+/** 구독한 채널의 새 영상, 새 것부터. 돌아오면 그 자리 그대로 보이고 뒤에서 새 영상을 확인한다. */
 function Feed() {
   const subs = useSubscriptions();
-  const [pages, setPages] = useState<YtVideo[]>([]);
-  const [next, setNext] = useState<number | undefined>(0);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<unknown>(null);
-  const [failed, setFailed] = useState<string[]>([]);
-  const count = subs?.length ?? 0;
+  const v = subs ? subsKey(subs) : undefined;
+  const p = usePaged<YtVideo>(subs?.length ? yt.feedUrl(undefined, v) : null, (t) => yt.feedUrl(t, v), { revalidate: 0 });
+  const failed = (p.head?.failed as string[] | undefined) ?? [];
 
-  const load = async (page: number) => {
-    setLoading(true);
-    try {
-      const f = await fetchJson<YtFeed>(yt.feedUrl(page));
-      setPages((p) => (page === 0 ? f.items : [...p, ...f.items]));
-      setNext(f.next);
-      setFailed(f.failed ?? []);
-      setError(null);
-    } catch (e) {
-      setError(e);
-    } finally {
-      setLoading(false);
-    }
-  };
-  useEffect(() => {
-    if (count) void load(0);
-    else setPages([]);
-    // 구독을 더하거나 빼면 처음부터
-  }, [count]);
-  const sentinel = useAutoMore(next != null && !loading && pages.length > 0, () => next != null && void load(next));
-
-  if (!subs) return <Loading />;
+  if (!subs) return <VideoGrid videos={[]} skeletons={6} />;
   if (!subs.length) {
     return (
       <div className="yt-empty">
@@ -158,27 +119,24 @@ function Feed() {
   }
   return (
     <>
-      {error ? <Problem error={error} /> : null}
-      {!pages.length && loading && <Loading />}
-      <VideoGrid videos={pages} />
+      {p.fresh && <FreshPill onClick={p.showFresh} />}
+      {p.error && !p.items.length ? <Problem error={p.error} /> : null}
+      <VideoGrid videos={p.items} skeletons={skeletonsFor(p)} />
       {failed.length > 0 && <p className="muted yt-note">채널 {failed.length}곳의 새 영상을 읽지 못했습니다.</p>}
-      <div ref={sentinel} />
-      <More show={next != null} loading={loading} onClick={() => next != null && void load(next)} />
+      <ListEnd p={p} />
     </>
   );
 }
 
+/** 지역의 인기 음악 차트, 새 것부터 */
 function Popular() {
-  const first = yt.popularUrl();
-  const p = usePaged<YtVideo>(first, (t) => yt.popularUrl(t));
-  const sentinel = useAutoMore(!!p.next && !p.loading, () => void p.more());
+  const p = usePaged<YtVideo>(yt.popularUrl(), (t) => yt.popularUrl(t), { revalidate: 30 * 60_000 });
   if (p.error && !p.items.length) return <Problem error={p.error} />;
-  if (!p.items.length) return <Loading />;
   return (
     <>
-      <VideoGrid videos={p.items} />
-      <div ref={sentinel} />
-      <More show={!!p.next} loading={p.loading} onClick={() => void p.more()} />
+      {p.fresh && <FreshPill onClick={p.showFresh} />}
+      <VideoGrid videos={p.items} skeletons={skeletonsFor(p)} />
+      <ListEnd p={p} />
     </>
   );
 }
@@ -193,13 +151,30 @@ const KINDS = [
   ['playlist', '재생목록'],
 ] as const;
 
+const ORDERS: [YtOrder, string][] = [
+  ['date', '최신순'],
+  ['relevance', '관련순'],
+];
+
 export function YouTubeSearchPage() {
   const sp = useSearchParams();
+  const router = useRouter();
   const q = (sp.get('q') ?? '').trim();
-  const [kind, setKind] = useState('');
+  const kind = sp.get('type') ?? '';
+  // 새 것부터가 기본
+  const order: YtOrder = sp.get('order') === 'relevance' ? 'relevance' : 'date';
+  const go = (k: string, o: YtOrder) => {
+    const next = new URLSearchParams({ q });
+    if (k) next.set('type', k);
+    if (o !== 'date') next.set('order', o);
+    router.replace(`/youtube/search?${next}`);
+  };
   useTitle(q ? `${q} — 유튜브` : '유튜브 검색');
-  const p = usePaged<YtSearchItem>(q ? yt.searchUrl(q, undefined, kind || undefined) : null, (t) => yt.searchUrl(q, t, kind || undefined));
-  const sentinel = useAutoMore(!!p.next && !p.loading, () => void p.more());
+  const p = usePaged<YtSearchItem>(
+    q ? yt.searchUrl(q, undefined, kind || undefined, order) : null,
+    (t) => yt.searchUrl(q, t, kind || undefined, order),
+    { revalidate: 30 * 60_000 },
+  );
   return (
     <>
       <WorldTabs active="youtube">
@@ -207,24 +182,28 @@ export function YouTubeSearchPage() {
       </WorldTabs>
       <div className="chips yt-chips">
         {KINDS.map(([k, label]) => (
-          <button key={k} type="button" className={`chip${kind === k ? ' is-active' : ''}`} onClick={() => setKind(k)}>
+          <button key={k} type="button" className={`chip${kind === k ? ' is-active' : ''}`} onClick={() => go(k, order)}>
+            {label}
+          </button>
+        ))}
+        <span className="yt-chips-gap" aria-hidden="true" />
+        {ORDERS.map(([o, label]) => (
+          <button key={o} type="button" className={`chip${order === o ? ' is-active' : ''}`} onClick={() => go(kind, o)}>
             {label}
           </button>
         ))}
       </div>
       {p.error && !p.items.length ? <Problem error={p.error} /> : null}
-      {!p.error && q && !p.items.length && p.loading && <Loading />}
       {!p.loading && !p.error && q && !p.items.length && <p className="muted pad">찾은 것이 없습니다.</p>}
-      <SearchResults items={p.items} />
-      <div ref={sentinel} />
-      <More show={!!p.next} loading={p.loading} onClick={() => void p.more()} />
+      <SearchResults items={p.items} skeletons={skeletonsFor(p)} />
+      <ListEnd p={p} />
     </>
   );
 }
 
-export function SearchResults({ items }: { items: YtSearchItem[] }) {
+export function SearchResults({ items, skeletons = 0 }: { items: YtSearchItem[]; skeletons?: number }) {
   return (
-    <div className="yt-results">
+    <div className="yt-results" aria-busy={skeletons > 0 || undefined}>
       {items.map((it) =>
         it.kind === 'channel' ? (
           <ChannelItem key={`c:${it.id}`} c={it} />
@@ -234,6 +213,7 @@ export function SearchResults({ items }: { items: YtSearchItem[] }) {
           <VideoCard key={`v:${it.id}`} v={it} />
         ),
       )}
+      <VideoSkeletons count={skeletons} />
     </div>
   );
 }

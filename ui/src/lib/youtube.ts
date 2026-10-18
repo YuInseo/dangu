@@ -2,7 +2,7 @@
  * 유튜브. 보는 것은 유튜브 공식 플레이어(IFrame)가 하고, 소리 서버는 검색·영상 정보·댓글·채널(API 키)과
  * 구독·구독 피드(키 없이 채널 RSS)를 대신 묻는다. 영상이나 소리를 받거나 저장하지 않는다.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, fetchJson } from '@/api';
 
 export interface YtVideo {
@@ -66,6 +66,8 @@ export interface YtPage<T> {
   total?: number;
 }
 
+export type YtOrder = 'date' | 'relevance';
+
 export interface YtVideoDetail {
   video: YtVideo;
   channel?: YtChannel;
@@ -95,8 +97,10 @@ export interface YtSubscription {
 
 export interface YtFeed {
   items: YtVideo[];
-  next?: number;
+  next?: string;
   failed?: string[];
+  /** 묵은 목록을 주고 뒤에서 새로 읽는 중 */
+  refreshing?: boolean;
 }
 
 export interface YtStatus {
@@ -157,7 +161,9 @@ export const yt = {
   setKey: (key: string) => fetchJson<YtStatus>('/api/youtube/key', json('POST', { key })),
   clearKey: () => fetchJson<YtStatus>('/api/youtube/key', json('DELETE')),
   popularUrl: (page?: string) => `/api/youtube/popular${q({ region: region(), page })}`,
-  searchUrl: (text: string, page?: string, type?: string) => `/api/youtube/search${q({ q: text, page, type, region: region() })}`,
+  /** `order`: 'date'(새 것부터, 기본) 또는 'relevance'(관련순) */
+  searchUrl: (text: string, page?: string, type?: string, order: YtOrder = 'date') =>
+    `/api/youtube/search${q({ q: text, page, type, order, region: region() })}`,
   videoUrl: (id: string) => `/api/youtube/video/${encodeURIComponent(id)}`,
   commentsUrl: (id: string, order: 'relevance' | 'time', page?: string) =>
     `/api/youtube/comments/${encodeURIComponent(id)}${q({ order, page })}`,
@@ -166,7 +172,8 @@ export const yt = {
   channelVideosUrl: (id: string, page?: string) => `/api/youtube/channel/${encodeURIComponent(id)}/videos${q({ page })}`,
   channelPlaylistsUrl: (id: string, page?: string) => `/api/youtube/channel/${encodeURIComponent(id)}/playlists${q({ page })}`,
   playlistUrl: (id: string, page?: string) => `/api/youtube/playlist/${encodeURIComponent(id)}${q({ page })}`,
-  feedUrl: (page?: number) => `/api/youtube/feed${page ? `?page=${page}` : ''}`,
+  /** `v`: 구독이 바뀌면 달라지는 표(기억해 둔 목록과 가르려고) */
+  feedUrl: (page?: string, v?: string) => `/api/youtube/feed${q({ v, page })}`,
   resolve: (url: string) =>
     fetchJson<{ kind: 'video' | 'channel' | 'playlist' | 'handle'; id: string }>('/api/youtube/resolve', json('POST', { url })),
   subscriptions: () => fetchJson<YtSubscription[]>('/api/youtube/subscriptions'),
@@ -229,6 +236,13 @@ export function useSubscriptions(): YtSubscription[] | null {
   return subs;
 }
 
+/** 구독한 채널들의 표. 구독이 바뀌면 달라진다. */
+export function subsKey(list: YtSubscription[]): string {
+  let h = 0;
+  for (const id of list.map((x) => x.id).sort()) for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) | 0;
+  return `${list.length}.${(h >>> 0).toString(36)}`;
+}
+
 export function isSubscribed(id: string | undefined) {
   return !!id && !!subs?.some((s) => s.id === id);
 }
@@ -251,48 +265,168 @@ export async function setSubscribed(c: { id: string; title: string; thumb?: stri
   }
 }
 
-/** 다음 쪽을 이어 붙이는 목록 */
-export function usePaged<T>(first: string | null, nextUrl: (token: string) => string) {
-  const [items, setItems] = useState<T[]>([]);
-  const [next, setNext] = useState<string | undefined>();
-  const [error, setError] = useState<unknown>(null);
-  const [loading, setLoading] = useState(false);
-  const [total, setTotal] = useState<number | undefined>();
+/** 이 세션 동안 기억한 목록. 뒤로 돌아오면 그 자리 그대로(스크롤도) 보인다. */
+interface Kept {
+  items: unknown[];
+  next?: string;
+  total?: number;
+  head?: Record<string, unknown>;
+  /** 첫 쪽을 받은 때 */
+  at: number;
+}
+
+const kept = new Map<string, Kept>();
+
+function keep(url: string, k: Kept) {
+  kept.delete(url);
+  kept.set(url, k);
+  if (kept.size > 40) kept.delete(kept.keys().next().value!);
+}
+
+export interface PagedOptions<T> {
+  /** 기억한 목록이 이만큼(밀리초) 묵었으면 첫 쪽을 다시 물어 새 것을 본다. 0이면 열 때마다. 없으면 묻지 않는다. */
+  revalidate?: number;
+  /** 이미 받은 첫 쪽(채널·재생목록 화면은 정보와 함께 받는다) */
+  seed?: YtPage<T>;
+  /** 응답에서 쪽을 꺼낸다(재생목록은 { playlist, videos }) */
+  pick?: (raw: unknown) => YtPage<T>;
+}
+
+interface PagedState<T> {
+  url: string | null;
+  items: T[];
+  next?: string;
+  total?: number;
+  /** 첫 쪽에 함께 온 것(구독 피드의 failed 같은) */
+  head?: Record<string, unknown>;
+  at: number;
+  loading: boolean;
+  error: unknown;
+  moreError: unknown;
+  /** 다시 물었더니 맨 위가 달라졌다. 아래를 보는 중이라 바로 바꾸지 않고 기다린다. */
+  fresh?: YtPage<T>;
+}
+
+function headOf(raw: unknown): Record<string, unknown> | undefined {
+  if (!raw || typeof raw !== 'object') return undefined;
+  const rest: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(raw)) if (k !== 'items' && k !== 'next' && k !== 'total') rest[k] = v;
+  return Object.keys(rest).length ? rest : undefined;
+}
+
+/**
+ * 다음 쪽을 이어 붙이는 목록. 받은 것은 이 세션 동안 기억해서 뒤로 돌아오면 곧바로 그대로 보이고,
+ * `revalidate`면 첫 쪽을 다시 물어 맨 위에 새 것이 있는지 본다(맨 위를 보고 있으면 바로 바꾸고, 아래를
+ * 보고 있으면 `fresh`로 알린다). 이어 붙일 때 이미 있는 것은 뺀다.
+ */
+export function usePaged<T extends { id: string }>(first: string | null, nextUrl: (token: string) => string, opts: PagedOptions<T> = {}) {
+  const begin = (url: string | null): PagedState<T> => {
+    const k = url ? kept.get(url) : undefined;
+    const base = { url, loading: false, error: null, moreError: null };
+    if (k) return { ...base, items: k.items as T[], next: k.next, total: k.total, head: k.head, at: k.at };
+    if (url && opts.seed) return { ...base, items: opts.seed.items, next: opts.seed.next, total: opts.seed.total, at: Date.now() };
+    return { ...base, items: [], at: 0, loading: !!url };
+  };
+  const [s, setS] = useState(() => begin(first));
+  let cur = s;
+  if (s.url !== first) {
+    // 주소가 바뀌었다(다른 검색어·정렬): 그 주소의 기억으로, 없으면 빈 것으로 곧바로
+    cur = begin(first);
+    setS(cur);
+  }
+
+  const latest = useRef({ s: cur, nextUrl, pick: opts.pick });
   useEffect(() => {
-    setItems([]);
-    setNext(undefined);
-    setError(null);
+    latest.current = { s, nextUrl, pick: opts.pick };
+  });
+  const read = useCallback((raw: unknown): YtPage<T> => {
+    const pick = latest.current.pick;
+    return pick ? pick(raw) : (raw as YtPage<T>);
+  }, []);
+
+  useEffect(() => {
+    if (s.url && s.at) keep(s.url, { items: s.items, next: s.next, total: s.total, head: s.head, at: s.at });
+  }, [s.url, s.items, s.next, s.total, s.head, s.at]);
+
+  const had = cur.at;
+  const revalidate = opts.revalidate;
+  useEffect(() => {
     if (!first) return;
+    if (had && (revalidate == null || Date.now() - had < revalidate)) return;
     let live = true;
-    setLoading(true);
-    fetchJson<YtPage<T>>(first)
-      .then((p) => {
-        if (!live) return;
-        setItems(p.items);
-        setNext(p.next);
-        setTotal(p.total);
-      })
-      .catch((e) => live && setError(e))
-      .finally(() => live && setLoading(false));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const load = (tries: number) => {
+      fetchJson<unknown>(first)
+        .then((raw) => {
+          if (!live) return;
+          const p = read(raw);
+          setS((c) => {
+            if (c.url !== first) return c;
+            const done = { ...c, head: headOf(raw), at: Date.now(), loading: false, error: null };
+            if (!c.items.length) return { ...done, items: p.items, next: p.next, total: p.total, fresh: undefined };
+            if (c.items[0]?.id === p.items[0]?.id) return done;
+            if (window.scrollY < 200) return { ...done, items: p.items, next: p.next, total: p.total, fresh: undefined };
+            return { ...done, fresh: p };
+          });
+          // 서버가 뒤에서 새로 읽는 중이면 조금 뒤 한 번 더 묻는다
+          if ((raw as { refreshing?: boolean }).refreshing && tries > 0) timer = setTimeout(() => load(tries - 1), 4000);
+        })
+        .catch((e: unknown) => {
+          if (live) setS((c) => (c.url === first ? { ...c, loading: false, error: c.items.length ? c.error : e } : c));
+        });
+    };
+    load(3);
     return () => {
       live = false;
+      clearTimeout(timer);
     };
+    // 첫 쪽은 주소가 바뀔 때만
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [first]);
+
+  const busy = useRef(false);
   const more = useCallback(async () => {
-    if (!next || loading) return;
-    setLoading(true);
+    const { s: c, nextUrl: urlOf } = latest.current;
+    if (!c.url || !c.next || busy.current) return;
+    busy.current = true;
+    const url = c.url;
+    setS((x) => (x.url === url ? { ...x, loading: true, moreError: null } : x));
     try {
-      const p = await fetchJson<YtPage<T>>(nextUrl(next));
-      setItems((a) => [...a, ...p.items]);
-      setNext(p.next);
+      const p = read(await fetchJson<unknown>(urlOf(c.next)));
+      setS((x) => {
+        if (x.url !== url) return x;
+        const seen = new Set(x.items.map((i) => i.id));
+        const added = p.items.filter((i) => !seen.has(i.id));
+        // 새 것이 하나도 없는 쪽이 오면 거기서 멈춘다(같은 쪽을 끝없이 묻지 않게)
+        return { ...x, items: [...x.items, ...added], next: added.length ? p.next : undefined, loading: false };
+      });
     } catch (e) {
-      setError(e);
+      setS((x) => (x.url === url ? { ...x, loading: false, moreError: e } : x));
     } finally {
-      setLoading(false);
+      busy.current = false;
     }
-  }, [next, loading, nextUrl]);
-  return { items, next, more, error, loading, total };
+  }, [read]);
+
+  const showFresh = useCallback(() => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setS((x) => (x.fresh ? { ...x, items: x.fresh.items, next: x.fresh.next, total: x.fresh.total, fresh: undefined } : x));
+  }, []);
+
+  return {
+    items: cur.items,
+    next: cur.next,
+    total: cur.total,
+    head: cur.head,
+    loading: cur.loading,
+    error: cur.error,
+    moreError: cur.moreError,
+    more,
+    fresh: !!cur.fresh,
+    showFresh,
+  };
 }
+
+export type Paged<T extends { id: string }> = ReturnType<typeof usePaged<T>>;
 
 // ---------------------------------------------------------------------------
 // 글자

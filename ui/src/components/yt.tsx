@@ -1,6 +1,6 @@
 'use client';
 
-import { Fragment, useEffect, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from '@/compat/link';
 import { useRouter } from '@/compat/navigation';
 import { readJSON, writeJSON } from '@/lib/player/storage';
@@ -22,7 +22,7 @@ import {
   type YtPlaylist,
   type YtVideo,
 } from '@/lib/youtube';
-import { Bell, Check, ExternalLink, KeyRound, Link2, ListVideo, Search } from './icons';
+import { ArrowUp, Bell, Check, ExternalLink, KeyRound, Link2, ListVideo, RotateCcw, Search } from './icons';
 import { useToast } from './toast';
 
 // ---------------------------------------------------------------------------
@@ -100,9 +100,21 @@ function thumbOf(v: YtVideo) {
 
 export function YtThumb({ v }: { v: YtVideo }) {
   const len = length(v.duration);
+  // 그림이 오면 부드럽게(오기 전에는 자리만)
+  const [shown, setShown] = useState(false);
   return (
     <div className="yt-thumb">
-      <img src={thumbOf(v)} alt="" loading="lazy" referrerPolicy="no-referrer" />
+      <img
+        src={thumbOf(v)}
+        alt=""
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        className={`yt-fade${shown ? ' is-shown' : ''}`}
+        ref={(el) => {
+          if (!shown && el?.complete && el.naturalWidth) setShown(true);
+        }}
+        onLoad={() => setShown(true)}
+      />
       {v.live === 'live' ? (
         <span className="yt-badge yt-badge-live">LIVE</span>
       ) : v.live === 'upcoming' ? (
@@ -141,13 +153,72 @@ export function VideoCard({ v, channel = true }: { v: YtVideo; channel?: boolean
   );
 }
 
-export function VideoGrid({ videos, channel = true }: { videos: YtVideo[]; channel?: boolean }) {
+/** 불러오는 동안의 자리(영상 카드 모양) */
+export function VideoSkeletons({ count }: { count: number }) {
+  return Array.from({ length: count }, (_, i) => (
+    <div key={`sk${i}`} className="yt-video is-skeleton" aria-hidden="true">
+      <div className="yt-thumb" />
+      <div className="yt-video-text">
+        <div className="sk-line" />
+        <div className="sk-line sk-short" />
+      </div>
+    </div>
+  ));
+}
+
+/** `skeletons`: 끝에 붙일 자리 수(불러오는 중) */
+export function VideoGrid({ videos, channel = true, skeletons = 0 }: { videos: YtVideo[]; channel?: boolean; skeletons?: number }) {
   return (
-    <div className="yt-grid">
+    <div className="yt-grid" aria-busy={skeletons > 0 || undefined}>
       {videos.map((v) => (
         <VideoCard key={v.id} v={v} channel={channel} />
       ))}
+      <VideoSkeletons count={skeletons} />
     </div>
+  );
+}
+
+/** 처음엔 화면을 채울 만큼, 다음 쪽은 한 줄만큼 자리를 둔다 */
+export function skeletonsFor(p: { loading: boolean; items: unknown[] }) {
+  return p.loading ? (p.items.length ? 3 : 6) : 0;
+}
+
+/** 끝에 다다르기 조금 전에 저절로 다음 쪽 */
+export function useAutoMore(enabled: boolean, more: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !enabled) return;
+    const io = new IntersectionObserver((e) => e[0]?.isIntersecting && more(), { rootMargin: '900px 0px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [enabled, more]);
+  return ref;
+}
+
+/** 목록의 끝: 닿으면 다음 쪽을 이어 붙이고, 실패하면 다시 시도 단추 */
+export function ListEnd({ p }: { p: { items: unknown[]; next?: string; loading: boolean; moreError: unknown; more: () => void } }) {
+  const ref = useAutoMore(!!p.next && !p.loading && !p.moreError && p.items.length > 0, p.more);
+  return (
+    <>
+      <div ref={ref} className="yt-list-end" />
+      {p.moreError ? (
+        <div className="yt-more">
+          <button type="button" className="btn btn-sm" onClick={() => p.more()}>
+            <RotateCcw size={15} /> 다시 시도
+          </button>
+        </div>
+      ) : null}
+    </>
+  );
+}
+
+/** 돌아왔을 때 맨 위에 새 영상이 있으면. 누르면 위로 올라가 새 목록으로 */
+export function FreshPill({ onClick }: { onClick: () => void }) {
+  return (
+    <button type="button" className="yt-fresh" onClick={onClick}>
+      <ArrowUp size={15} /> 새 영상
+    </button>
   );
 }
 

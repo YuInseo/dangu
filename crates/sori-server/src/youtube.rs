@@ -119,7 +119,8 @@ async fn search(State(app): State<App>, Query(q): Query<PageQuery>) -> Response 
         return error(StatusCode::BAD_REQUEST, "찾을 말을 넣어 주세요");
     }
     let yt = app.youtube.clone();
-    ask(move || yt.search(&text, q.kind.as_deref().unwrap_or(""), q.page().as_deref(), &q.region())).await
+    let order = q.order.clone().unwrap_or_else(|| "date".into());
+    ask(move || yt.search(&text, q.kind.as_deref().unwrap_or(""), q.page().as_deref(), &q.region(), &order)).await
 }
 
 async fn video(State(app): State<App>, Path(id): Path<String>) -> Response {
@@ -240,14 +241,17 @@ async fn import(State(app): State<App>, body: String) -> Response {
 
 #[derive(Deserialize)]
 struct FeedQuery {
-    page: Option<usize>,
+    /// 앞 쪽의 `next`
+    page: Option<String>,
+    per: Option<usize>,
 }
 
-/// 구독한 채널의 새 영상(날짜순). 키 없이 된다.
+/// 구독한 채널의 새 영상(새 것부터). 키 없이 된다.
 async fn feed(State(app): State<App>, Query(q): Query<FeedQuery>) -> Response {
     let yt = app.youtube.clone();
-    let page = q.page.unwrap_or(0).min(100);
-    ask(move || Ok(Arc::new(yt.subscription_feed(page, 30)))).await
+    let cursor = q.page.filter(|c| !c.is_empty() && c.len() < 200);
+    let per = q.per.unwrap_or(30);
+    ask(move || Ok(Arc::new(yt.subscription_feed(cursor.as_deref(), per)))).await
 }
 
 #[cfg(test)]

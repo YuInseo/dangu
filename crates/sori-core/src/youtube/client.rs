@@ -2,10 +2,11 @@
 //! 구독(youtube.json).
 
 use std::any::Any;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::anyhow;
@@ -16,6 +17,12 @@ use serde_json::Value;
 use super::*;
 
 const FILE: &str = "youtube.json";
+/// 구독 피드를 합친 것(앱을 다시 켜면 곧바로 보인다)
+const FEED_FILE: &str = "youtube-feed.json";
+/// 구독 피드가 이만큼 묵으면 뒤에서 새로 읽는다.
+const FEED_STALE: Duration = Duration::from_secs(15 * 60);
+/// 구독 피드에 남겨 두는 영상 수
+const FEED_KEEP: usize = 1500;
 
 /// 키가 있어야 하는 일을 키 없이 불렀다.
 #[derive(Debug)]
@@ -88,13 +95,34 @@ pub struct PlaylistDetail {
 pub struct SubscriptionFeed {
     pub items: Vec<Video>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<usize>,
+    pub next: Option<String>,
     /// 피드를 읽지 못한 채널
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub failed: Vec<String>,
+    /// 묵은 목록을 주고 뒤에서 새로 읽는 중(조금 뒤 다시 물으면 새 영상이 있을 수 있다)
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub refreshing: bool,
+}
+
+/// 구독한 채널들의 새 영상을 합친 것
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+struct Merged {
+    /// 마지막으로 모두 새로 읽은 때(유닉스 밀리초)
+    at: i64,
+    /// 이 목록이 아는 채널
+    channels: Vec<String>,
+    items: Vec<Video>,
+    failed: Vec<String>,
 }
 
 type CacheEntry = (Instant, Arc<dyn Any + Send + Sync>);
+
+/// 쉬던 연결이 저쪽에서 끊겼다(새 연결이면 된다)
+fn dropped(e: &std::io::Error) -> bool {
+    use std::io::ErrorKind::*;
+    matches!(e.kind(), UnexpectedEof | ConnectionReset | ConnectionAborted | BrokenPipe)
+}
 
 pub struct YouTube {
     api: String,
@@ -105,6 +133,10 @@ pub struct YouTube {
     env_key: Option<String>,
     saved: Mutex<Saved>,
     cache: Mutex<HashMap<String, CacheEntry>>,
+    feed_file: PathBuf,
+    /// 구독 피드. 처음 물을 때 디스크에서 읽는다.
+    merged: Mutex<Option<Merged>>,
+    refreshing: AtomicBool,
 }
 
 impl YouTube {
@@ -137,6 +169,9 @@ impl YouTube {
             env_key: None,
             saved: Mutex::new(saved),
             cache: Mutex::new(HashMap::new()),
+            feed_file: data_dir.join(FEED_FILE),
+            merged: Mutex::new(None),
+            refreshing: AtomicBool::new(false),
         }
     }
 
@@ -224,11 +259,22 @@ impl YouTube {
         format!("{base}/{path}?{}", q.finish())
     }
 
+    /// GET. 쉬던 연결이 저쪽에서 끊겨 있었으면(휴대폰이 망을 바꿨다 등) 곧바로 실패하므로, 그때만 새 연결로 다시.
+    fn send(&self, url: &str) -> anyhow::Result<ureq::http::Response<ureq::Body>> {
+        let mut tries = 0;
+        loop {
+            match self.agent.get(url).call() {
+                Err(ureq::Error::Io(e)) if tries < 2 && dropped(&e) => tries += 1,
+                r => return r.map_err(|e| anyhow!("유튜브에 닿지 못했습니다: {e}")),
+            }
+        }
+    }
+
     fn call(&self, key: &str, path: &str, params: &[(&str, &str)]) -> anyhow::Result<Value> {
         let mut all: Vec<(&str, &str)> = params.to_vec();
         all.push(("key", key));
         let url = Self::url(&self.api, path, &all);
-        let mut res = self.agent.get(&url).call().map_err(|e| anyhow!("유튜브에 닿지 못했습니다: {e}"))?;
+        let mut res = self.send(&url)?;
         let status = res.status().as_u16();
         let body = res.body_mut().with_config().limit(16 << 20).read_to_vec()?;
         let json: Value = serde_json::from_slice(&body).unwrap_or(Value::Null);
@@ -245,7 +291,7 @@ impl YouTube {
 
     fn get_web(&self, path: &str, params: &[(&str, &str)]) -> anyhow::Result<(u16, String)> {
         let url = Self::url(&self.web, path, params);
-        let mut res = self.agent.get(&url).call().map_err(|e| anyhow!("유튜브에 닿지 못했습니다: {e}"))?;
+        let mut res = self.send(&url)?;
         let status = res.status().as_u16();
         let body = res.body_mut().with_config().limit(8 << 20).read_to_string()?;
         Ok((status, body))
@@ -299,28 +345,63 @@ impl YouTube {
         Ok(videos)
     }
 
-    /// 지역의 인기 음악(카테고리 10)
+    /// 지역의 인기 음악(카테고리 10). 차트를 모두(최대 200, 4 할당량) 받아 새 것부터 둔다.
+    /// `page_token`은 앞 쪽의 `next`.
     pub fn popular(&self, region: &str, page_token: Option<&str>) -> anyhow::Result<Arc<Page<Video>>> {
         let region =
             if region.len() == 2 && region.bytes().all(|b| b.is_ascii_alphabetic()) { region.to_ascii_uppercase() } else { "KR".into() };
-        let token = page_token.unwrap_or("").to_string();
-        self.cached(format!("pop:{region}:{token}"), Duration::from_secs(30 * 60), || {
-            let mut p = vec![
-                ("part", "snippet,contentDetails,statistics,status"),
-                ("chart", "mostPopular"),
-                ("videoCategoryId", "10"),
-                ("regionCode", region.as_str()),
-                ("maxResults", "24"),
-            ];
-            if !token.is_empty() {
-                p.push(("pageToken", token.as_str()));
+        let chart = self.cached(format!("pop:{region}"), Duration::from_secs(30 * 60), || {
+            let mut items = Vec::new();
+            let mut token = String::new();
+            for _ in 0..4 {
+                let mut p = vec![
+                    ("part", "snippet,contentDetails,statistics,status"),
+                    ("chart", "mostPopular"),
+                    ("videoCategoryId", "10"),
+                    ("regionCode", region.as_str()),
+                    ("maxResults", "50"),
+                ];
+                if !token.is_empty() {
+                    p.push(("pageToken", token.as_str()));
+                }
+                let got = match self.get("videos", &p) {
+                    Ok(j) => page(&j, parse_video),
+                    // 뒤쪽을 못 받았으면 받은 데까지
+                    Err(e) if !items.is_empty() => {
+                        tracing::info!("인기 음악 뒤쪽을 받지 못했습니다: {e:#}");
+                        break;
+                    }
+                    Err(e) => return Err(e),
+                };
+                items.extend(got.items);
+                match got.next {
+                    Some(t) if !t.is_empty() => token = t,
+                    _ => break,
+                }
             }
-            Ok(page(&self.get("videos", &p)?, parse_video))
-        })
+            newest_first(&mut items);
+            Ok(items)
+        })?;
+        let start = page_token.and_then(|p| p.parse::<usize>().ok()).unwrap_or(0).min(chart.len());
+        let end = (start + 24).min(chart.len());
+        Ok(Arc::new(Page {
+            items: chart[start..end].to_vec(),
+            next: (end < chart.len()).then(|| end.to_string()),
+            total: Some(chart.len() as u64),
+        }))
     }
 
-    /// 검색(100 할당량). `kind`는 "video", "channel", "playlist" 또는 빈 것(모두).
-    pub fn search(&self, q: &str, kind: &str, page_token: Option<&str>, region: &str) -> anyhow::Result<Arc<Page<SearchItem>>> {
+    /// 검색(100 할당량). `kind`는 "video", "channel", "playlist" 또는 빈 것(모두). `order`는 "date"(새 것부터, 기본)
+    /// 또는 "relevance"(관련순).
+    pub fn search(
+        &self,
+        q: &str,
+        kind: &str,
+        page_token: Option<&str>,
+        region: &str,
+        order: &str,
+    ) -> anyhow::Result<Arc<Page<SearchItem>>> {
+        let order = if order == "relevance" { "relevance" } else { "date" };
         let q = q.trim().to_string();
         let kind = match kind {
             "video" | "channel" | "playlist" => kind.to_string(),
@@ -328,11 +409,12 @@ impl YouTube {
         };
         let token = page_token.unwrap_or("").to_string();
         let region = if region.len() == 2 { region.to_ascii_uppercase() } else { "KR".into() };
-        self.cached(format!("s:{kind}:{region}:{token}:{q}"), Duration::from_secs(30 * 60), || {
+        self.cached(format!("s:{kind}:{region}:{order}:{token}:{q}"), Duration::from_secs(30 * 60), || {
             let mut p = vec![
                 ("part", "snippet"),
                 ("q", q.as_str()),
                 ("type", kind.as_str()),
+                ("order", order),
                 ("maxResults", "20"),
                 ("regionCode", region.as_str()),
             ];
@@ -563,17 +645,18 @@ impl YouTube {
         if !is_channel_id(channel_id) {
             return Err(bad("채널 주소가 이상합니다"));
         }
-        let cid = channel_id.to_string();
-        self.cached(format!("f:{cid}"), Duration::from_secs(15 * 60), || {
-            let (status, body) = self.get_web("feeds/videos.xml", &[("channel_id", cid.as_str())])?;
-            if status == 404 {
-                return Err(ApiError { status: 404, message: "채널을 찾을 수 없습니다".into() }.into());
-            }
-            if status != 200 {
-                return Err(ApiError { status, message: format!("채널 피드를 읽지 못했습니다({status})") }.into());
-            }
-            parse_feed(&cid, &body).ok_or_else(|| anyhow!("채널 피드를 읽지 못했습니다"))
-        })
+        self.cached(format!("f:{channel_id}"), Duration::from_secs(15 * 60), || self.fetch_feed(channel_id))
+    }
+
+    fn fetch_feed(&self, channel_id: &str) -> anyhow::Result<Feed> {
+        let (status, body) = self.get_web("feeds/videos.xml", &[("channel_id", channel_id)])?;
+        if status == 404 {
+            return Err(ApiError { status: 404, message: "채널을 찾을 수 없습니다".into() }.into());
+        }
+        if status != 200 {
+            return Err(ApiError { status, message: format!("채널 피드를 읽지 못했습니다({status})") }.into());
+        }
+        parse_feed(channel_id, &body).ok_or_else(|| anyhow!("채널 피드를 읽지 못했습니다"))
     }
 
     // -----------------------------------------------------------------------
@@ -643,39 +726,126 @@ impl YouTube {
         added
     }
 
-    /// 구독한 채널들의 새 영상을 날짜순으로 합친다(채널마다 RSS, 키 없이). 한 쪽에 `per`개.
-    pub fn subscription_feed(&self, page: usize, per: usize) -> SubscriptionFeed {
-        let subs = self.subscriptions();
-        let results: Mutex<Vec<(String, anyhow::Result<Arc<Feed>>)>> = Mutex::new(Vec::new());
-        let next = std::sync::atomic::AtomicUsize::new(0);
+    /// 구독한 채널들의 새 영상, 새 것부터(채널마다 RSS, 키 없이). `cursor`는 앞 쪽의 `next`.
+    ///
+    /// 마지막으로 합친 목록을 곧바로 준다(앱을 다시 켜도 디스크에서). 목록이 묵었으면 뒤에서 모두 새로
+    /// 읽는다(`refreshing`). 새로 구독한 채널만은 그 자리에서 읽어 더하고, 끊은 채널은 뺀다.
+    pub fn subscription_feed(self: &Arc<Self>, cursor: Option<&str>, per: usize) -> SubscriptionFeed {
+        let subs: Vec<String> = self.subscriptions().into_iter().map(|s| s.id).collect();
+        let (items, failed, stale) = {
+            let mut guard = self.merged.lock();
+            let m = guard.get_or_insert_with(|| self.load_merged());
+            let missing: Vec<String> = subs.iter().filter(|c| !m.channels.contains(c)).cloned().collect();
+            if !missing.is_empty() {
+                let (feeds, failed) = self.read_feeds(&missing);
+                if m.channels.is_empty() {
+                    m.at = crate::model::now_ms();
+                }
+                for f in feeds {
+                    m.items.extend(f.videos);
+                }
+                m.failed.retain(|c| !missing.contains(c));
+                m.failed.extend(failed);
+                m.channels.extend(missing);
+                newest_first(&mut m.items);
+                m.items.truncate(FEED_KEEP);
+                self.save_merged(m);
+            }
+            let subscribed: HashSet<&str> = subs.iter().map(String::as_str).collect();
+            let items: Vec<Video> =
+                m.items.iter().filter(|v| v.channel_id.as_deref().is_some_and(|c| subscribed.contains(c))).cloned().collect();
+            let failed: Vec<String> = m.failed.iter().filter(|c| subscribed.contains(c.as_str())).cloned().collect();
+            let stale = crate::model::now_ms().saturating_sub(m.at) > FEED_STALE.as_millis() as i64;
+            (items, failed, stale)
+        };
+        let refreshing = if stale && !subs.is_empty() { self.refresh_in_background() } else { self.refreshing.load(Ordering::Acquire) };
+        let per = per.clamp(1, 100);
+        let start = cursor.map_or(0, |c| after_cursor(&items, c));
+        let end = (start + per).min(items.len());
+        let next = (end < items.len()).then(|| feed_cursor(&items[end - 1]));
+        SubscriptionFeed { items: items[start..end].to_vec(), next, failed, refreshing }
+    }
+
+    /// 구독 피드를 뒤에서 새로 읽기 시작한다(이미 읽는 중이면 그대로). 읽는 중이면 true.
+    fn refresh_in_background(self: &Arc<Self>) -> bool {
+        if self.refreshing.swap(true, Ordering::AcqRel) {
+            return true;
+        }
+        let me = self.clone();
+        let spawned = std::thread::Builder::new().name("sori-yt-feed".into()).spawn(move || {
+            /// 끝나면(실패해도) 다음 새로 읽기를 막지 않게
+            struct Done<'a>(&'a AtomicBool);
+            impl Drop for Done<'_> {
+                fn drop(&mut self) {
+                    self.0.store(false, Ordering::Release);
+                }
+            }
+            let _done = Done(&me.refreshing);
+            me.refresh_feed();
+        });
+        if spawned.is_err() {
+            self.refreshing.store(false, Ordering::Release);
+        }
+        spawned.is_ok()
+    }
+
+    /// 구독한 채널을 모두 새로 읽어 합친다. 이번에 못 읽은 채널은 앞의 영상을 그대로 둔다.
+    fn refresh_feed(&self) {
+        let subs: Vec<String> = self.subscriptions().into_iter().map(|s| s.id).collect();
+        let (feeds, failed) = self.read_feeds(&subs);
+        let mut guard = self.merged.lock();
+        let old = guard.take().unwrap_or_default();
+        let kept: HashSet<&str> = failed.iter().map(String::as_str).collect();
+        let mut items: Vec<Video> = old.items.into_iter().filter(|v| v.channel_id.as_deref().is_some_and(|c| kept.contains(c))).collect();
+        for f in feeds {
+            items.extend(f.videos);
+        }
+        newest_first(&mut items);
+        items.truncate(FEED_KEEP);
+        let m = Merged { at: crate::model::now_ms(), channels: subs, items, failed };
+        self.save_merged(&m);
+        *guard = Some(m);
+    }
+
+    /// 채널 피드들을 여덟 개씩 함께 읽는다(캐시 없이). 읽은 피드와 못 읽은 채널.
+    fn read_feeds(&self, ids: &[String]) -> (Vec<Feed>, Vec<String>) {
+        let results: Mutex<Vec<(String, anyhow::Result<Feed>)>> = Mutex::new(Vec::new());
+        let next = AtomicUsize::new(0);
         std::thread::scope(|scope| {
-            for _ in 0..8.min(subs.len()) {
+            for _ in 0..8.min(ids.len()) {
                 scope.spawn(|| {
                     loop {
-                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        let Some(s) = subs.get(i) else { break };
-                        let r = self.feed(&s.id);
-                        results.lock().push((s.id.clone(), r));
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(id) = ids.get(i) else { break };
+                        let r = self.fetch_feed(id);
+                        results.lock().push((id.clone(), r));
                     }
                 });
             }
         });
-        let mut items: Vec<Video> = Vec::new();
+        let mut feeds = Vec::new();
         let mut failed = Vec::new();
         for (id, r) in results.into_inner() {
             match r {
-                Ok(f) => items.extend(f.videos.iter().cloned()),
+                Ok(f) => feeds.push(f),
                 Err(e) => {
                     tracing::info!(channel = id, "구독 피드를 읽지 못했습니다: {e:#}");
                     failed.push(id);
                 }
             }
         }
-        items.sort_by(|a, b| b.published.cmp(&a.published).then_with(|| a.id.cmp(&b.id)));
-        items.dedup_by(|a, b| a.id == b.id);
-        let per = per.clamp(1, 100);
-        let start = page * per;
-        let more = items.len() > start + per;
-        SubscriptionFeed { items: items.into_iter().skip(start).take(per).collect(), next: more.then_some(page + 1), failed }
+        (feeds, failed)
+    }
+
+    fn load_merged(&self) -> Merged {
+        std::fs::read(&self.feed_file).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default()
+    }
+
+    fn save_merged(&self, m: &Merged) {
+        if let Ok(bytes) = serde_json::to_vec(m)
+            && let Err(e) = crate::config::write_atomic(&self.feed_file, &bytes)
+        {
+            tracing::warn!("구독 피드를 적지 못했습니다: {e}");
+        }
     }
 }

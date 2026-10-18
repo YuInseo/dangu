@@ -320,3 +320,57 @@ fn takeout_subscriptions() {
     // 한국어 머리말
     assert_eq!(parse_takeout_csv("채널 ID,채널 URL,채널 제목\nUCMki_UkHb4qSc0qyEcOHHJw,x,하이브").len(), 1);
 }
+
+#[test]
+fn newest_first_and_cursor() {
+    let v = |id: &str, p: &str| Video { id: id.into(), published: Some(p.into()), ..Default::default() };
+    let ids = |items: &[Video]| items.iter().map(|x| x.id.clone()).collect::<Vec<_>>();
+    let mut items = vec![
+        v("b", "2024-01-01T00:00:00+00:00"),
+        v("a", "2025-05-05T00:00:00+00:00"),
+        v("c", "2024-01-01T00:00:00+00:00"),
+        v("a", "2025-05-05T00:00:00+00:00"),
+    ];
+    newest_first(&mut items);
+    assert_eq!(ids(&items), ["a", "b", "c"], "새 것부터, 같은 영상은 하나");
+    let after_b = feed_cursor(&items[1]);
+    assert_eq!(after_cursor(&items, &after_b), 2);
+    assert_eq!(after_cursor(&items, &feed_cursor(&items[2])), 3, "끝");
+
+    // 그사이 새 영상이 끼어도, 표의 영상이 빠져도 b 다음은 c
+    let mut grown = items.clone();
+    grown.push(v("z", "2026-01-01T00:00:00+00:00"));
+    newest_first(&mut grown);
+    assert_eq!(grown[after_cursor(&grown, &after_b)].id, "c");
+    let shrunk: Vec<Video> = items.iter().filter(|x| x.id != "b").cloned().collect();
+    assert_eq!(shrunk[after_cursor(&shrunk, &after_b)].id, "c");
+}
+
+/// 응답하고 조금 뒤 연결을 닫는(그러면서 `Connection: close`를 말하지 않는) 서버. 곧바로 다음 요청을 보내면
+/// 쉬던 연결이 아직 열려 보여 다시 쓰다가 끊긴다(연결 유지의 경합).
+#[test]
+fn reconnects_when_a_kept_connection_was_dropped() {
+    use std::io::{BufRead, BufReader, Write};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    std::thread::spawn(move || {
+        for s in l.incoming().flatten() {
+            let mut r = BufReader::new(s.try_clone().unwrap());
+            let mut line = String::new();
+            while r.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+                line.clear();
+            }
+            let body = r#"{"title":"Super Shy","author_name":"HYBE LABELS"}"#;
+            let mut s = s;
+            let _ = write!(s, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len());
+            // 그리고 조금 뒤 닫는다
+            std::thread::sleep(std::time::Duration::from_millis(150));
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let yt = YouTube::with_bases(dir.path(), "http://127.0.0.1:9/youtube/v3", &base);
+    for id in ["ArmDp-zijuc", "js1CtxSY38I", "pSUydWEqKwE"] {
+        let v = yt.video(id).unwrap_or_else(|e| panic!("{id}: {e:#}"));
+        assert_eq!(v.video.title, "Super Shy");
+    }
+}

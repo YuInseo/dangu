@@ -43,9 +43,10 @@ const FEED: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 </feed>"#;
 
 fn video_json(id: &str) -> Value {
+    let published = if id == "newerVIDEO1" { "2024-03-01T00:00:00Z" } else { "2023-07-07T04:00:12Z" };
     json!({
       "id": id,
-      "snippet": { "publishedAt": "2023-07-07T04:00:12Z", "channelId": CHANNEL, "title": "NewJeans 'Super Shy' Official MV", "description": "Get Up",
+      "snippet": { "publishedAt": published, "channelId": CHANNEL, "title": "NewJeans 'Super Shy' Official MV", "description": "Get Up",
                    "thumbnails": { "high": { "url": format!("https://i.ytimg.com/vi/{id}/hqdefault.jpg") } }, "channelTitle": "HYBE LABELS", "liveBroadcastContent": "none" },
       "contentDetails": { "duration": "PT3M21S" },
       "statistics": { "viewCount": "290123456", "likeCount": "3456789", "commentCount": "123456" },
@@ -71,6 +72,10 @@ fn api(path: &str, q: &HashMap<String, String>) -> (u16, String) {
     match path {
         "videos" => {
             if q.get("chart").is_some() {
+                // 차트의 둘째 쪽에 더 새 영상
+                if q.get("pageToken").map(String::as_str) == Some("POP2") {
+                    return ok(json!({ "items": [video_json("newerVIDEO1")] }));
+                }
                 return ok(json!({ "items": [video_json(VIDEO)], "nextPageToken": "POP2" }));
             }
             let ids = q.get("id").cloned().unwrap_or_default();
@@ -86,7 +91,7 @@ fn api(path: &str, q: &HashMap<String, String>) -> (u16, String) {
             ok(json!({ "items": items }))
         }
         "search" => ok(json!({
-            "nextPageToken": "S2",
+            "nextPageToken": format!("S2-{}", q.get("order").map(String::as_str).unwrap_or("none")),
             "pageInfo": { "totalResults": 1000 },
             "items": [
                 { "id": { "kind": "youtube#channel", "channelId": CHANNEL }, "snippet": { "title": "HYBE LABELS" } },
@@ -257,6 +262,12 @@ fn youtube_with_and_without_a_key() {
     let (_, f) = get(&format!("{base}/api/youtube/feed"));
     let ids: Vec<&str> = f["items"].as_array().unwrap().iter().map(|v| v["id"].as_str().unwrap()).collect();
     assert_eq!(ids, ["newerVIDEO1", VIDEO], "새 것부터");
+    // 쪽은 표(올린 때~ID)로 넘긴다
+    let (_, f1) = get(&format!("{base}/api/youtube/feed?per=1"));
+    assert_eq!(f1["items"][0]["id"], "newerVIDEO1");
+    let cursor: String = form_urlencoded::byte_serialize(f1["next"].as_str().unwrap().as_bytes()).collect();
+    let (_, f2) = get(&format!("{base}/api/youtube/feed?per=1&page={cursor}"));
+    assert_eq!((f2["items"][0]["id"].as_str(), f2["next"].as_str()), (Some(VIDEO), None), "{f2}");
     let (s, ch) = get(&format!("{base}/api/youtube/channel/{CHANNEL}"));
     assert_eq!((s, &ch["limited"], &ch["subscribed"]), (200, &json!(true), &json!(true)), "{ch}");
     assert_eq!(ch["channel"]["title"], "HYBE LABELS");
@@ -276,7 +287,7 @@ fn youtube_with_and_without_a_key() {
     // 키로: 검색(채널·영상, 제목 엔티티 풀고 길이·조회수·구독자 채움)
     let (s, r) = get(&format!("{base}/api/youtube/search?q=newjeans"));
     assert_eq!(s, 200, "{r}");
-    assert_eq!(r["next"], "S2");
+    assert_eq!(r["next"], "S2-date", "검색은 새 것부터가 기본");
     assert_eq!(r["items"][0]["kind"], "channel");
     assert_eq!(r["items"][0]["subscribers"], 75_000_000);
     assert_eq!(r["items"][1]["kind"], "video");
@@ -316,8 +327,12 @@ fn youtube_with_and_without_a_key() {
     let (_, pl) = get(&format!("{base}/api/youtube/playlist/PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG"));
     assert_eq!(pl["playlist"]["title"], "Hits");
     assert_eq!(pl["videos"]["items"][0]["id"], VIDEO);
+    let (_, r) = get(&format!("{base}/api/youtube/search?q=newjeans&order=relevance"));
+    assert_eq!(r["next"], "S2-relevance");
     let (_, pop) = get(&format!("{base}/api/youtube/popular?region=kr"));
-    assert_eq!(pop["items"][0]["id"], VIDEO);
+    let ids: Vec<&str> = pop["items"].as_array().unwrap().iter().map(|v| v["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["newerVIDEO1", VIDEO], "차트를 모두 받아 새 것부터: {pop}");
+    assert_eq!((&pop["total"], &pop["next"]), (&json!(2), &Value::Null));
 
     // 링크
     let resolve = |url: &str| send("POST", &format!("{base}/api/youtube/resolve"), Some(json!({ "url": url }).to_string()));
@@ -340,6 +355,31 @@ fn youtube_with_and_without_a_key() {
     let (_, f) = get(&format!("{base}/api/youtube/feed"));
     assert_eq!(f["items"].as_array().map(Vec::len), Some(2));
     assert_eq!(f["failed"], json!(["UCuAXFkgsw1L7xaCfnd5JJOw"]));
+
+    // 유튜브에 닿지 않아도, 다시 켜면 마지막 구독 피드가 곧바로 보인다
+    let offline = start(app("http://127.0.0.1:9", &dir));
+    let (s, f) = get(&format!("{offline}/api/youtube/feed"));
+    assert_eq!((s, f["items"].as_array().map(Vec::len)), (200, Some(2)), "{f}");
+
+    // 묵은 피드는 곧바로 주고 뒤에서 새로 읽는다. 다시 물으면 새 목록.
+    let snap = dir.path().join("data/youtube-feed.json");
+    let mut m: Value = serde_json::from_slice(&std::fs::read(&snap).unwrap()).unwrap();
+    m["at"] = json!(0);
+    m["items"] = json!([{ "id": "staleVIDEO0", "title": "old", "channelId": CHANNEL, "channelTitle": "HYBE LABELS",
+                          "published": "2020-01-01T00:00:00+00:00" }]);
+    std::fs::write(&snap, m.to_string()).unwrap();
+    let fresh = start(app(&yt, &dir));
+    let (_, mut f) = get(&format!("{fresh}/api/youtube/feed"));
+    assert_eq!((f["items"][0]["id"].as_str(), &f["refreshing"]), (Some("staleVIDEO0"), &json!(true)), "{f}");
+    for _ in 0..50 {
+        if f["refreshing"] != json!(true) {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        f = get(&format!("{fresh}/api/youtube/feed")).1;
+    }
+    let ids: Vec<&str> = f["items"].as_array().unwrap().iter().map(|v| v["id"].as_str().unwrap()).collect();
+    assert_eq!(ids, ["newerVIDEO1", VIDEO], "{f}");
 
     // 다시 켜도 키와 구독이 남는다
     let again = start(app(&yt, &dir));

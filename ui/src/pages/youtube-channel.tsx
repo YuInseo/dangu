@@ -1,9 +1,20 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router';
 import Link from '@/compat/link';
-import { fetchJson, useApi, useTitle } from '@/api';
-import { ExternalLink, LoaderCircle, Play } from '@/components/icons';
-import { Avatar, KeySetup, PlaylistCard, SubscribeButton, VideoCard, VideoGrid, WorldTabs } from '@/components/yt';
+import { useApi, useTitle } from '@/api';
+import { ExternalLink, Play } from '@/components/icons';
+import {
+  Avatar,
+  KeySetup,
+  ListEnd,
+  PlaylistCard,
+  skeletonsFor,
+  SubscribeButton,
+  VideoCard,
+  VideoGrid,
+  VideoSkeletons,
+  WorldTabs,
+} from '@/components/yt';
 import {
   compact,
   needsKey,
@@ -75,36 +86,18 @@ export function YouTubeChannelPage() {
 }
 
 function ChannelVideos({ detail }: { detail: YtChannelDetail }) {
-  const [more, setMore] = useState<YtVideo[]>([]);
-  const [next, setNext] = useState(detail.videos.next);
-  const [loading, setLoading] = useState(false);
-  useEffect(() => {
-    setMore([]);
-    setNext(detail.videos.next);
-  }, [detail]);
-  const load = async () => {
-    if (!next) return;
-    setLoading(true);
-    try {
-      const r = await fetchJson<{ items: YtVideo[]; next?: string }>(yt.channelVideosUrl(detail.channel.id, next));
-      setMore((m) => [...m, ...r.items]);
-      setNext(r.next);
-    } finally {
-      setLoading(false);
-    }
-  };
-  const videos = [...detail.videos.items, ...more];
-  if (!videos.length) return <p className="muted pad">올린 영상이 없습니다.</p>;
+  const id = detail.channel.id;
+  // 키가 없으면 채널 피드의 최근 영상뿐(다음 쪽 없음)
+  const p = usePaged<YtVideo>(detail.limited ? null : yt.channelVideosUrl(id), (t) => yt.channelVideosUrl(id, t), {
+    seed: detail.videos,
+    revalidate: 15 * 60_000,
+  });
+  const videos = detail.limited ? detail.videos.items : p.items;
+  if (!videos.length && !p.loading) return <p className="muted pad">올린 영상이 없습니다.</p>;
   return (
     <>
-      <VideoGrid videos={videos} channel={false} />
-      {next && (
-        <div className="yt-more">
-          <button type="button" className="btn" disabled={loading} onClick={() => void load()}>
-            {loading ? <LoaderCircle size={16} className="spin" /> : null} 더 보기
-          </button>
-        </div>
-      )}
+      <VideoGrid videos={videos} channel={false} skeletons={skeletonsFor(p)} />
+      <ListEnd p={p} />
     </>
   );
 }
@@ -112,21 +105,16 @@ function ChannelVideos({ detail }: { detail: YtChannelDetail }) {
 function ChannelPlaylists({ id }: { id: string }) {
   const p = usePaged<YtPlaylist>(yt.channelPlaylistsUrl(id), (t) => yt.channelPlaylistsUrl(id, t));
   if (p.error && !p.items.length) return needsKey(p.error) ? <KeySetup /> : <p className="muted pad">재생목록을 불러오지 못했습니다.</p>;
-  if (!p.items.length) return p.loading ? <Loading /> : <p className="muted pad">재생목록이 없습니다.</p>;
+  if (!p.items.length && !p.loading) return <p className="muted pad">재생목록이 없습니다.</p>;
   return (
     <>
       <div className="yt-grid">
         {p.items.map((pl) => (
           <PlaylistCard key={pl.id} p={pl} />
         ))}
+        <VideoSkeletons count={skeletonsFor(p)} />
       </div>
-      {p.next && (
-        <div className="yt-more">
-          <button type="button" className="btn" disabled={p.loading} onClick={() => void p.more()}>
-            더 보기
-          </button>
-        </div>
-      )}
+      <ListEnd p={p} />
     </>
   );
 }
@@ -135,7 +123,11 @@ export function YouTubePlaylistPage() {
   const { id = '' } = useParams();
   const { data, error } = useApi<YtPlaylistDetail>(yt.playlistUrl(id));
   useTitle(data?.playlist.title ?? '재생목록');
-  const more = usePaged<YtVideo>(data?.videos.next ? yt.playlistUrl(id, data.videos.next) : null, (t) => yt.playlistUrl(id, t));
+  // 쪽마다 { playlist, videos }가 온다
+  const p = usePaged<YtVideo>(data ? yt.playlistUrl(id) : null, (t) => yt.playlistUrl(id, t), {
+    seed: data?.videos,
+    pick: (raw) => (raw as YtPlaylistDetail).videos,
+  });
   if (error && !data)
     return needsKey(error) ? (
       <>
@@ -147,7 +139,7 @@ export function YouTubePlaylistPage() {
     );
   if (!data) return <Loading />;
   const pl = data.playlist;
-  const videos = [...data.videos.items, ...more.items];
+  const videos = p.items.length ? p.items : data.videos.items;
   return (
     <>
       <WorldTabs active="youtube" />
@@ -167,7 +159,9 @@ export function YouTubePlaylistPage() {
         {videos.map((v) => (
           <VideoCard key={v.id} v={v} />
         ))}
+        <VideoSkeletons count={skeletonsFor(p)} />
       </div>
+      <ListEnd p={p} />
     </>
   );
 }

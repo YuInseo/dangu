@@ -116,7 +116,7 @@ function Description({ v, onTime, limited }: { v: YtVideo; onTime: (s: number) =
 
 function Comments({ videoId, count, onTime }: { videoId: string; count?: number; onTime: (s: number) => void }) {
   const [order, setOrder] = useState<'relevance' | 'time'>('relevance');
-  const p = usePaged<YtComment>(yt.commentsUrl(videoId, order), (t) => yt.commentsUrl(videoId, order, t));
+  const p = usePaged<YtComment>(yt.commentsUrl(videoId, order), (t) => yt.commentsUrl(videoId, order, t), { revalidate: 5 * 60_000 });
   return (
     <section className="section yt-comments">
       <div className="section-head">
