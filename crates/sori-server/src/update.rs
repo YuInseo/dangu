@@ -31,7 +31,7 @@ const BUILD_TIME: Option<&str> = option_env!("SORI_BUILD_TIME");
 const LATEST_URL: &str = "https://github.com/YuInseo/dangu/releases/download/sori-latest/latest.json";
 /// 처음 확인은 켜고 조금 뒤에(시작을 느리게 하지 않게), 그다음은 이만큼마다
 const FIRST_CHECK: Duration = Duration::from_secs(20);
-const EVERY: Duration = Duration::from_secs(6 * 3600);
+const EVERY: Duration = Duration::from_secs(3600);
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Asset {
@@ -282,7 +282,7 @@ fn platform(app: &App) -> Option<&'static str> {
     app.host.as_ref().map(|h| h.name()).filter(|n| matches!(*n, "android" | "windows"))
 }
 
-/// 앱 안에서만: 켜고 조금 뒤, 그다음은 여섯 시간마다 확인하고, 자동이면 미리 받아 둔다.
+/// 앱 안에서만: 켜고 조금 뒤, 그다음은 한 시간마다 확인하고, 자동이면 미리 받아 둔다(화면은 앱이 앞으로 올 때도 묻는다).
 pub fn start(app: &App) {
     let Some(p) = platform(app) else { return };
     if app.updater.build.is_none() {

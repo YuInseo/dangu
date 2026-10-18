@@ -5,6 +5,7 @@ import { CircleAlert, Radio } from '@/components/icons';
 import { LiveLink, SaveList } from '@/components/live-save';
 import { LiveSearch } from '@/components/live-search';
 import { LiveShowCard } from '@/components/live-show-card';
+import { WorldTabs } from '@/components/yt';
 import { LIVE_SORT_LABEL, type LiveShow, type LiveSort } from '@/lib/live/shared';
 import { count } from '@/lib/time';
 import { Loading } from './common';
@@ -35,11 +36,12 @@ export function LivePage() {
 
   return (
     <>
+      <WorldTabs active="band" />
       <header className="page-head live-head">
         <div className="eyebrow">
-          <Radio size={13} /> 무료 스트리밍
+          <Radio size={13} /> 밴드 · 무료 무손실
         </div>
-        <h1 className="page-title">라이브 아카이브</h1>
+        <h2 className="live-title">라이브 아카이브</h2>
         <p className="page-lede">
           Internet Archive의 Live Music Archive. 아티스트가 녹음과 무료 공유를 허락한 공연 실황이고, 대부분 원본이 무손실 FLAC입니다. 가입도
           광고도 없이 원본 파일을 그대로 받아 재생하고, 아티스트가 내려받기를 허락한 공연은 라이브러리에 저장할 수 있습니다.

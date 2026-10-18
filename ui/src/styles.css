@@ -5536,3 +5536,806 @@ button.zone-btn {
   font-size: 13.5px;
   color: var(--text-2);
 }
+
+/* ------------------------------------------------------------------ 월드 · 유튜브 */
+
+.world-head {
+  padding: 18px 0 8px;
+}
+
+.world-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.world-title {
+  font-size: clamp(26px, 3vw, 36px);
+  font-weight: 780;
+  letter-spacing: -0.04em;
+  margin: 0;
+}
+
+.live-title {
+  font-size: 26px;
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  margin: 6px 0 0;
+}
+
+.yt-search {
+  max-width: 640px;
+}
+
+.yt-chips {
+  margin: 18px 0 22px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.yt-chips::-webkit-scrollbar {
+  display: none;
+}
+
+.yt-chips .chip {
+  flex: none;
+}
+
+.yt-note {
+  font-size: 13px;
+  margin: 10px 0;
+}
+
+.yt-more {
+  display: flex;
+  justify-content: center;
+  margin: 26px 0;
+}
+
+.yt-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 42px 12px;
+  color: var(--text-2);
+}
+
+.yt-empty h2 {
+  margin: 4px 0 0;
+  font-size: 18px;
+  color: var(--text);
+}
+
+.yt-empty p {
+  max-width: 460px;
+  margin: 0 0 6px;
+  line-height: 1.6;
+}
+
+.yt-avatar {
+  flex: none;
+  border-radius: 50%;
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.yt-avatar-letter {
+  display: inline-grid;
+  place-items: center;
+  color: #fff;
+  font-weight: 720;
+}
+
+/* 영상 카드 */
+.yt-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 30px 18px;
+}
+
+.yt-video {
+  display: block;
+  min-width: 0;
+}
+
+.yt-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.yt-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.yt-video:hover .yt-thumb img {
+  transform: scale(1.03);
+}
+
+.yt-thumb-empty {
+  width: 100%;
+  height: 100%;
+}
+
+.yt-thumb-list::after {
+  content: '';
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: 38%;
+  background: linear-gradient(90deg, transparent, rgba(0, 0, 0, 0.75));
+}
+
+.yt-badge {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.82);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+
+.yt-badge-live {
+  background: #cc0000;
+}
+
+.yt-badge-short {
+  right: auto;
+  left: 8px;
+}
+
+.yt-video-text {
+  padding-top: 10px;
+  min-width: 0;
+}
+
+.yt-video-title {
+  font-size: 15px;
+  font-weight: 640;
+  line-height: 1.35;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+
+.yt-video-meta {
+  display: block;
+  color: var(--text-2);
+  font-size: 13px;
+  margin-top: 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 검색 결과: 넓은 화면에서는 가로로 */
+.yt-results {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  max-width: 1080px;
+}
+
+.yt-results > .yt-video {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: 16px;
+}
+
+.yt-results > .yt-video .yt-video-text {
+  padding-top: 2px;
+}
+
+.yt-results > .yt-video .yt-video-title {
+  font-size: 17px;
+}
+
+.yt-channel-item {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 10px 0;
+}
+
+.yt-results > .yt-channel-item {
+  display: grid;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr) auto;
+  justify-items: start;
+}
+
+.yt-results > .yt-channel-item > .yt-avatar {
+  justify-self: center;
+}
+
+.yt-channel-text {
+  min-width: 0;
+}
+
+.yt-channel-name {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.yt-channel-desc {
+  color: var(--text-3);
+  font-size: 12.5px;
+  margin-top: 4px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* 구독 단추 */
+.btn.yt-sub {
+  background: var(--text);
+  border-color: transparent;
+  color: #0e0e10;
+}
+
+.btn.yt-sub:hover:not(:disabled) {
+  background: #fff;
+}
+
+.btn.yt-subbed {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 구독한 채널 줄 */
+.yt-strip {
+  display: flex;
+  gap: 16px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  margin: 8px calc(var(--gutter) * -1) 0;
+  padding: 4px var(--gutter) 2px;
+}
+
+.yt-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.yt-strip-item {
+  flex: none;
+  width: 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.yt-strip-item span:last-child {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yt-strip-more {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-2);
+}
+
+/* 키 넣기 */
+.yt-key {
+  max-width: 640px;
+  padding: 18px 20px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+}
+
+.yt-key-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.yt-key-head svg {
+  color: var(--accent-strong);
+  flex: none;
+}
+
+.yt-key-steps {
+  margin: 12px 0 14px;
+  padding-left: 20px;
+  color: var(--text-2);
+  font-size: 13.5px;
+  line-height: 1.75;
+}
+
+.yt-key-steps a {
+  color: var(--accent-strong);
+  font-weight: 650;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.yt-key-compact .yt-key-form {
+  margin-top: 12px;
+}
+
+.yt-key-form {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.yt-key-form .filter {
+  flex: 1;
+  min-width: min(260px, 100%);
+}
+
+.yt-key-error {
+  margin-top: 10px;
+  font-size: 13.5px;
+}
+
+/* 영상 화면 */
+.yt-watch {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 28px;
+  padding-top: 18px;
+}
+
+.yt-player {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.yt-player-frame,
+.yt-player-frame iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.yt-player-failed {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.88);
+  color: var(--text-2);
+}
+
+.yt-watch-error {
+  margin-top: 16px;
+}
+
+.yt-watch-title {
+  font-size: 20px;
+  font-weight: 720;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  margin: 14px 0 12px;
+  overflow-wrap: anywhere;
+}
+
+.yt-watch-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 14px;
+}
+
+.yt-watch-channel {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.yt-watch-channel strong {
+  display: block;
+  font-size: 15px;
+}
+
+.yt-watch-pills {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.yt-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 13.5px;
+  font-weight: 640;
+  white-space: nowrap;
+}
+
+a.yt-pill:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.yt-desc {
+  margin-top: 14px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.yt-desc-meta {
+  font-size: 13.5px;
+  font-weight: 680;
+  margin-bottom: 4px;
+}
+
+.yt-desc-text {
+  font-size: 14px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 4.8em;
+  overflow: hidden;
+}
+
+.yt-desc.is-open .yt-desc-text {
+  max-height: none;
+}
+
+.yt-desc-toggle {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 720;
+}
+
+.yt-link,
+.yt-time {
+  color: #3ea6ff;
+}
+
+.yt-time {
+  font: inherit;
+  padding: 0;
+}
+
+.yt-comments .section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+}
+
+.yt-comment-sort {
+  margin-left: auto;
+}
+
+.yt-comment-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.yt-comment {
+  display: flex;
+  gap: 12px;
+  padding: 10px 0;
+}
+
+.yt-comment-avatar {
+  flex: none;
+}
+
+.yt-comment-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.yt-comment-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.yt-comment-head .yt-video-meta {
+  display: inline;
+  font-size: 12px;
+}
+
+.yt-comment-text {
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  margin-top: 2px;
+}
+
+.yt-comment-foot {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+
+.yt-comment-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.yt-replies-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  color: #3ea6ff;
+  font-size: 13.5px;
+  font-weight: 680;
+}
+
+.yt-replies {
+  margin-top: 2px;
+}
+
+.yt-side-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.yt-side-title {
+  font-size: 15px;
+  margin: 0 0 2px;
+}
+
+.yt-side-item {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.yt-side-item .yt-thumb {
+  border-radius: 9px;
+}
+
+.yt-side-item .yt-video-text {
+  padding-top: 0;
+}
+
+.yt-side-item .yt-video-title {
+  font-size: 14px;
+}
+
+/* 채널 화면 */
+.yt-banner {
+  aspect-ratio: 6.2 / 1;
+  border-radius: 14px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+  margin-top: 4px;
+}
+
+.yt-banner img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.yt-channel-head {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin: 22px 0 22px;
+}
+
+.yt-channel-info {
+  min-width: 0;
+}
+
+.yt-channel-title {
+  font-size: clamp(24px, 2.6vw, 32px);
+  font-weight: 760;
+  letter-spacing: -0.03em;
+  margin: 0 0 4px;
+}
+
+.yt-channel-about {
+  margin: 8px 0 0;
+  max-width: 720px;
+  font-size: 13.5px;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.yt-channel-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.yt-channel-tabs {
+  margin-bottom: 22px;
+}
+
+.yt-playlist-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+  padding: 16px 0 26px;
+}
+
+/* 구독 관리 */
+.yt-subs-head {
+  padding-top: 6px;
+}
+
+.yt-subs-head .page-lede a {
+  color: var(--accent-strong);
+  font-weight: 650;
+}
+
+.yt-sub-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 640px;
+}
+
+.yt-sub-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.yt-sub-row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+}
+
+.yt-sub-name {
+  font-weight: 640;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.yt-teaser .live-teaser-icon {
+  background: #cc0000;
+  color: #fff;
+}
+
+@media (max-width: 1000px) {
+  .yt-watch {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .world-head {
+    padding-top: 10px;
+  }
+
+  .yt-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+  }
+
+  /* 휴대폰: 유튜브 앱처럼 썸네일을 화면 끝까지 */
+  .yt-grid > .yt-video .yt-thumb,
+  .yt-results > .yt-video .yt-thumb {
+    margin: 0 calc(var(--gutter) * -1);
+    border-radius: 0;
+  }
+
+  .yt-results > .yt-video {
+    display: block;
+  }
+
+  .yt-results > .yt-video .yt-video-text {
+    padding-top: 10px;
+  }
+
+  .yt-results > .yt-video .yt-video-title {
+    font-size: 15px;
+  }
+
+  .yt-results > .yt-channel-item {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .yt-watch {
+    padding-top: 0;
+    gap: 18px;
+  }
+
+  /* 영상은 위에 붙어 있고 설명·댓글이 그 밑으로 흐른다 */
+  .yt-player {
+    position: sticky;
+    top: var(--topbar-h);
+    z-index: 12;
+    margin: 0 calc(var(--gutter) * -1);
+    border-radius: 0;
+  }
+
+  .yt-watch-title {
+    font-size: 17px;
+  }
+
+  .yt-watch-pills {
+    margin-left: 0;
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .yt-channel-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+  }
+
+  .yt-banner {
+    margin: 0 calc(var(--gutter) * -1);
+    border-radius: 0;
+  }
+
+  .yt-side-item {
+    grid-template-columns: 150px minmax(0, 1fr);
+  }
+}
+
+.yt-key-set {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.yt-key-set span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

@@ -27,7 +27,12 @@ export interface UpdateStatus {
 }
 
 const post = (url: string, body?: unknown) =>
-  fetchJson<UpdateStatus>(url, body === undefined ? { method: 'POST' } : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  fetchJson<UpdateStatus>(
+    url,
+    body === undefined
+      ? { method: 'POST' }
+      : { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) },
+  );
 
 export const updateApi = {
   status: () => fetchJson<UpdateStatus>('/api/update'),
@@ -54,6 +59,19 @@ export function useUpdate(idleMs = 30 * 60_000) {
     refresh();
   }, [refresh]);
   const busy = status?.download.state === 'downloading' || status?.download.state === 'installing';
+  // 앱을 다시 열면(뒤에 있다가 앞으로 오면) 30분이 지났을 때 새 버전을 바로 묻는다.
+  useEffect(() => {
+    const onShow = () => {
+      if (document.visibilityState !== 'visible' || !status?.supported) return;
+      if (status.checkedAt && Date.now() - status.checkedAt < 30 * 60_000) return;
+      updateApi
+        .check()
+        .then(setStatus)
+        .catch(() => {});
+    };
+    document.addEventListener('visibilitychange', onShow);
+    return () => document.removeEventListener('visibilitychange', onShow);
+  }, [status]);
   useEffect(() => {
     clearTimeout(timer.current);
     timer.current = setTimeout(refresh, busy ? 1000 : idleMs);

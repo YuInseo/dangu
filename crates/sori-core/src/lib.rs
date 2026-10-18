@@ -22,6 +22,7 @@ pub mod player;
 pub mod quality;
 pub mod scan;
 pub mod store;
+pub mod youtube;
 
 pub use config::Config;
 pub use library::Library;

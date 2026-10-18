@@ -98,6 +98,29 @@ impl Host for AppHost {
         }
     }
 
+    fn open_url(&self, url: &str) -> anyhow::Result<()> {
+        #[cfg(target_os = "windows")]
+        {
+            // cmd를 거치지 않는다(주소의 &를 cmd가 명령으로 읽는다).
+            std::process::Command::new("rundll32").args(["url.dll,FileProtocolHandler", url]).spawn()?;
+            Ok(())
+        }
+        #[cfg(target_os = "android")]
+        {
+            let plugin = self.handle.try_state::<UpdatePlugin>().ok_or_else(|| anyhow::anyhow!("열 곳이 없습니다"))?;
+            plugin
+                .0
+                .run_mobile_plugin::<serde_json::Value>("open", serde_json::json!({ "url": url }))
+                .map_err(|e| anyhow::anyhow!("{e}"))?;
+            Ok(())
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "android")))]
+        {
+            std::process::Command::new("xdg-open").arg(url).spawn()?;
+            Ok(())
+        }
+    }
+
     fn name(&self) -> &'static str {
         if cfg!(target_os = "android") {
             "android"

@@ -40,6 +40,11 @@ class InstallArgs {
   lateinit var path: String
 }
 
+@InvokeArg
+class OpenArgs {
+  lateinit var url: String
+}
+
 /**
  * 자동 업데이트의 마지막 단계. 소리 서버(러스트)가 받아 둔 새 APK를 시스템 설치 창으로 연다.
  * 안드로이드는 앱이 스스로 설치할 수 없으므로 사용자가 설치를 누른다(같은 서명이라 덮어 설치된다).
@@ -69,6 +74,22 @@ class UpdatePlugin(private val activity: Activity) : Plugin(activity) {
       invoke.resolve()
     } catch (e: Exception) {
       invoke.reject(e.message ?: "설치 창을 열지 못했습니다")
+    }
+  }
+
+  /** 주소를 앱 밖에서 연다(기본 브라우저, 유튜브 앱). 앱의 창이 그 주소로 넘어가지 않게. */
+  @Command
+  fun open(invoke: Invoke) {
+    try {
+      val uri = Uri.parse(invoke.parseArgs(OpenArgs::class.java).url)
+      if (uri.scheme != "https" && uri.scheme != "http") {
+        invoke.reject("열 수 없는 주소입니다")
+        return
+      }
+      activity.startActivity(Intent(Intent.ACTION_VIEW, uri).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+      invoke.resolve()
+    } catch (e: Exception) {
+      invoke.reject(e.message ?: "열지 못했습니다")
     }
   }
 }
@@ -136,16 +157,99 @@ pkg = re.search(r'^package\s+([\w.]+)', act.read_text(), re.M).group(1)
 act.write_text(f'''package {pkg}
 
 import android.Manifest
+import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.graphics.Color
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.View
+import android.view.ViewGroup
+import android.webkit.ConsoleMessage
+import android.webkit.GeolocationPermissions
+import android.webkit.JsPromptResult
+import android.webkit.JsResult
+import android.webkit.PermissionRequest
+import android.webkit.ValueCallback
+import android.webkit.WebChromeClient
+import android.webkit.WebView
+import android.widget.FrameLayout
+import androidx.activity.OnBackPressedCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 class MainActivity : TauriActivity() {{
+  // 웹뷰 안의 전체 화면(유튜브 플레이어의 전체 화면 단추). wry의 클라이언트는 전체 화면을 곧바로 닫아
+  // 버리므로, 그 위에 전체 화면만 맡는 껍질을 씌우고 나머지는 그대로 넘긴다.
+  private var fullscreen: View? = null
+  private var fullscreenDone: WebChromeClient.CustomViewCallback? = null
+  private val fullscreenBack = object : OnBackPressedCallback(false) {{
+    override fun handleOnBackPressed() {{
+      exitFullscreen()
+    }}
+  }}
+
+  override fun onWebViewCreate(webView: WebView) {{
+    // wry는 이 함수를 부른 다음에 클라이언트를 붙인다. 한 박자 뒤에 감싼다.
+    webView.post {{
+      val inner = webView.webChromeClient ?: return@post
+      webView.webChromeClient = FullscreenChromeClient(inner)
+      onBackPressedDispatcher.addCallback(this, fullscreenBack)
+    }}
+  }}
+
+  private fun enterFullscreen(view: View, done: WebChromeClient.CustomViewCallback) {{
+    if (fullscreen != null) {{
+      done.onCustomViewHidden()
+      return
+    }}
+    fullscreen = view
+    fullscreenDone = done
+    view.setBackgroundColor(Color.BLACK)
+    (window.decorView as FrameLayout).addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+    WindowCompat.getInsetsController(window, window.decorView).apply {{
+      hide(WindowInsetsCompat.Type.systemBars())
+      systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+    }}
+    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+    fullscreenBack.isEnabled = true
+  }}
+
+  private fun exitFullscreen() {{
+    val view = fullscreen ?: return
+    (window.decorView as FrameLayout).removeView(view)
+    fullscreen = null
+    WindowCompat.getInsetsController(window, window.decorView).show(WindowInsetsCompat.Type.systemBars())
+    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    fullscreenBack.isEnabled = false
+    fullscreenDone?.onCustomViewHidden()
+    fullscreenDone = null
+  }}
+
+  inner class FullscreenChromeClient(private val inner: WebChromeClient) : WebChromeClient() {{
+    override fun onShowCustomView(view: View, callback: CustomViewCallback) = enterFullscreen(view, callback)
+    override fun onHideCustomView() = exitFullscreen()
+    override fun onPermissionRequest(request: PermissionRequest) = inner.onPermissionRequest(request)
+    override fun onPermissionRequestCanceled(request: PermissionRequest) = inner.onPermissionRequestCanceled(request)
+    override fun getDefaultVideoPoster(): Bitmap? = inner.defaultVideoPoster
+    override fun onJsAlert(view: WebView, url: String, message: String, result: JsResult): Boolean = inner.onJsAlert(view, url, message, result)
+    override fun onJsConfirm(view: WebView, url: String, message: String, result: JsResult): Boolean = inner.onJsConfirm(view, url, message, result)
+    override fun onJsPrompt(view: WebView, url: String, message: String, defaultValue: String?, result: JsPromptResult): Boolean =
+      inner.onJsPrompt(view, url, message, defaultValue, result)
+    override fun onGeolocationPermissionsShowPrompt(origin: String, callback: GeolocationPermissions.Callback) =
+      inner.onGeolocationPermissionsShowPrompt(origin, callback)
+    override fun onGeolocationPermissionsHidePrompt() = inner.onGeolocationPermissionsHidePrompt()
+    override fun onShowFileChooser(view: WebView, filePathCallback: ValueCallback<Array<Uri>>, fileChooserParams: FileChooserParams): Boolean =
+      inner.onShowFileChooser(view, filePathCallback, fileChooserParams)
+    override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean = inner.onConsoleMessage(consoleMessage)
+    override fun onReceivedTitle(view: WebView, title: String?) = inner.onReceivedTitle(view, title)
+    override fun onProgressChanged(view: WebView, newProgress: Int) = inner.onProgressChanged(view, newProgress)
+  }}
+
   override fun onCreate(savedInstanceState: Bundle?) {{
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)

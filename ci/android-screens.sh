@@ -111,7 +111,25 @@ tap_label "좋아요" 4 && shot favorites
 adb shell input keyevent 4
 sleep 3
 tap_label "Night Drive Mix" 4 && shot playlist
-tap_label "라이브" 10 last && shot live
+# 월드 탭: 처음은 유튜브(키 없음: 구독 피드 안내와 키 넣는 법)
+tap_label "월드" 6 last && shot world-youtube
+# 키 없이 링크로 연 영상: 진짜 유튜브 공식 플레이어가 앱의 웹뷰 안에서 뜨는지("Me at the zoo")
+if tap_label "유튜브 검색" 2 || tap_label "유튜브 검색 또는 링크 붙여 넣기" 2; then
+  adb shell input text "https://youtu.be/jNQXAC9IVRw"
+  adb shell input keyevent 66
+  sleep 12
+  shot youtube-watch
+  curl -s --max-time 20 "http://127.0.0.1:4380/api/youtube/video/jNQXAC9IVRw" | head -c 600 || true
+  echo
+  adb shell input keyevent 4
+  sleep 3
+fi
+# 구독(키 없이): 채널을 구독하면 구독 피드에 새 영상이 모인다(유튜브 공식 채널).
+curl -s --max-time 10 -X POST -H 'content-type: application/json' -d '{"id":"UCBR8-60-B28hp2BmDPdntcQ","title":"YouTube"}' http://127.0.0.1:4380/api/youtube/subscriptions || true
+echo
+curl -s --max-time 30 "http://127.0.0.1:4380/api/youtube/feed" | head -c 600 || true
+echo
+tap_label "밴드" 8 && shot live
 
 # 라이브 아카이브: 공연마다 내려받기를 허락했는지(진짜 archive.org). 그레이트풀 데드의 사운드보드
 # 녹음은 듣기만 허락돼 있어야 하고, 킹 기저드는 받을 수 있어야 한다.

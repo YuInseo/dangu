@@ -327,6 +327,31 @@ pub fn routes() -> Router<App> {
         .route("/api/settings/pick-music-dir", post(pick_music_dir))
         .route("/api/settings/music-dirs", get(music_dir_suggestions))
         .route("/api/events", get(events))
+        .route("/api/open", post(open_url))
+}
+
+#[derive(Deserialize)]
+struct OpenBody {
+    url: String,
+}
+
+/// 앱이면 주소를 앱 밖에서 연다(브라우저, 유튜브 앱). 브라우저로 쓰는 서버면 501: 화면이 직접 연다.
+async fn open_url(State(app): State<App>, Json(b): Json<OpenBody>) -> Response {
+    let url = b.url.trim().to_string();
+    if !(url.starts_with("https://") || url.starts_with("http://"))
+        || url.len() > 4000
+        || url.chars().any(|c| c.is_whitespace() || c.is_control())
+    {
+        return (StatusCode::BAD_REQUEST, Json(json!({ "error": "열 수 없는 주소입니다" }))).into_response();
+    }
+    let Some(host) = app.host.clone() else {
+        return (StatusCode::NOT_IMPLEMENTED, Json(json!({ "error": "브라우저에서 엽니다" }))).into_response();
+    };
+    match tokio::task::spawn_blocking(move || host.open_url(&url)).await {
+        Ok(Ok(())) => Json(json!({ "ok": true })).into_response(),
+        Ok(Err(e)) => (StatusCode::NOT_IMPLEMENTED, Json(json!({ "error": e.to_string() }))).into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "error": "작업이 멈췄습니다" }))).into_response(),
+    }
 }
 
 #[cfg(test)]

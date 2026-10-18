@@ -13,6 +13,7 @@ pub mod player;
 pub mod saves;
 pub mod update;
 pub mod wav;
+pub mod youtube;
 
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -32,6 +33,11 @@ pub trait Host: Send + Sync {
     fn install_update(&self, file: &std::path::Path) -> anyhow::Result<()> {
         let _ = file;
         anyhow::bail!("이 기기에서는 업데이트를 설치할 수 없습니다")
+    }
+    /// 주소를 앱 밖(기본 브라우저, 유튜브 앱)에서 연다. 앱의 창이 그 주소로 넘어가지 않게.
+    fn open_url(&self, url: &str) -> anyhow::Result<()> {
+        let _ = url;
+        anyhow::bail!("이 기기에서는 열 수 없습니다")
     }
 }
 
@@ -55,6 +61,8 @@ pub struct App {
     pub updater: Arc<update::Updater>,
     /// 라이브 아카이브 공연을 라이브러리에 저장하기(받기 목록)
     pub saves: Arc<saves::Saves>,
+    /// 유튜브(공식 플레이어로 보기, 구독, API 키)
+    pub youtube: Arc<sori_core::youtube::YouTube>,
 }
 
 impl App {
@@ -64,6 +72,7 @@ impl App {
         let collections = Arc::new(sori_core::collections::Collections::open(&store.config.data_dir));
         let updater = Arc::new(update::Updater::new(&store.config.data_dir));
         let saves = Arc::new(saves::Saves::open(&store.config.data_dir));
+        let youtube = Arc::new(sori_core::youtube::YouTube::open(&store.config.data_dir));
         App {
             store,
             password: Arc::new(password),
@@ -76,6 +85,7 @@ impl App {
             collections,
             updater,
             saves,
+            youtube,
         }
     }
 
@@ -106,6 +116,7 @@ pub fn router(app: App) -> Router {
         .merge(collections::routes())
         .merge(logs::routes())
         .merge(update::routes())
+        .merge(youtube::routes())
         .merge(auth::routes())
         .fallback(embed::serve)
         // 오디오는 이미 압축돼 있거나(FLAC, MP3) 받는 쪽이 길이를 알아야 하므로(Range) 압축하지 않는다.

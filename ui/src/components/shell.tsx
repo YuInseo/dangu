@@ -4,6 +4,7 @@ import { Suspense, useEffect, type ReactNode } from 'react';
 import { ArrowLeft, Link2 } from '@/components/icons';
 import type { LibrarySummary, ScanStatus } from '@/lib/library/types';
 import { forgetVia, viaHome } from '@/lib/link';
+import { useExternalLinks } from '@/lib/external';
 import { useLibraryInfo } from '@/library';
 import { usePlayer, useUi } from '@/lib/player/context';
 import { NowPlaying } from './now-playing';
@@ -105,6 +106,7 @@ function ViaBar() {
 
 export function Shell({ children, status, summary }: { children: ReactNode; status: ScanStatus; summary: LibrarySummary }) {
   useShortcuts();
+  useExternalLinks(!!useLibraryInfo().host);
   return (
     <div className="app">
       <Sidebar status={status} summary={summary} />

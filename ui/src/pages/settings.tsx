@@ -8,6 +8,7 @@ import { AnalysisCard, FormatSupport, RescanCard, ZoneCard } from '@/components/
 import { SettingsNav } from '@/components/settings-nav';
 import { useToast } from '@/components/toast';
 import { UpdateCard } from '@/components/update';
+import { YouTubeKeyCard } from '@/components/yt';
 import { bytes, count, span } from '@/lib/time';
 import { useLibraryInfo } from '@/library';
 
@@ -197,12 +198,15 @@ export function AudioSettings() {
     <section>
       <h2 className="settings-h2">오디오</h2>
       <p className="settings-lede">
-        Sori에서는 곡을 트는 기기 하나하나가 존입니다. 이 컴퓨터나 휴대폰의 오디오 장치로 직접 내보내는 존과, 브라우저로 원본을 받아 트는 존이
-        있습니다. DSP 설정은 존마다 따로 저장됩니다.
+        Sori에서는 곡을 트는 기기 하나하나가 존입니다. 이 컴퓨터나 휴대폰의 오디오 장치로 직접 내보내는 존과, 브라우저로 원본을 받아 트는
+        존이 있습니다. DSP 설정은 존마다 따로 저장됩니다.
       </p>
       <ZoneCard />
       <h3 className="pref-group">소리 엔진</h3>
-      <Cap label="디코더" hint="FLAC, ALAC, WAV, AIFF, MP3, AAC, Vorbis를 직접 풉니다. 정수 PCM은 64비트로 옮겨도 한 비트도 잃지 않습니다." />
+      <Cap
+        label="디코더"
+        hint="FLAC, ALAC, WAV, AIFF, MP3, AAC, Vorbis를 직접 풉니다. 정수 PCM은 64비트로 옮겨도 한 비트도 잃지 않습니다."
+      />
       <Cap label="DSD → PCM" hint="DSF, DSDIFF를 120dB 데시메이션 필터로 176.4kHz PCM으로 바꿉니다." />
       <Cap label="64비트 DSP" hint="헤드룸, 볼륨 레벨링, 파라메트릭 EQ, 크로스피드, 컨볼루션, 샘플레이트 변환을 모두 f64로 계산합니다." />
       <Cap label="EBU R128 분석" hint="통합 라우드니스, 트루 피크, 라우드니스 범위. 볼륨 레벨링이 이 값을 씁니다." />
@@ -225,6 +229,8 @@ export function ConnectSettings() {
       <ShareCard />
       <h3 className="pref-group">다른 소리에 연결</h3>
       <ConnectCard />
+      <h3 className="pref-group">유튜브</h3>
+      <YouTubeKeyCard />
     </section>
   );
 }

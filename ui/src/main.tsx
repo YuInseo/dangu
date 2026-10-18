@@ -3,8 +3,9 @@ import './styles.css';
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Outlet, RouterProvider, ScrollRestoration, createBrowserRouter } from 'react-router';
+import { Navigate, Outlet, RouterProvider, ScrollRestoration, createBrowserRouter } from 'react-router';
 import { Shell } from '@/components/shell';
+import { worldHome } from '@/components/yt';
 import { ToastProvider } from '@/components/toast';
 import { DspProvider } from '@/lib/dsp/store';
 import { PlayerProvider } from '@/lib/player/context';
@@ -27,8 +28,19 @@ import { NotFound } from '@/pages/not-found';
 import { PlaylistPage } from '@/pages/playlist';
 import { PlaylistsPage } from '@/pages/playlists';
 import { SearchPage } from '@/pages/search';
-import { AboutSettings, AudioSettings, ConnectSettings, GeneralSettings, LibrarySettings, PlaySettings, SettingsLayout } from '@/pages/settings';
+import {
+  AboutSettings,
+  AudioSettings,
+  ConnectSettings,
+  GeneralSettings,
+  LibrarySettings,
+  PlaySettings,
+  SettingsLayout,
+} from '@/pages/settings';
 import { TracksPage } from '@/pages/tracks';
+import { YouTubePage, YouTubeSearchPage, YouTubeSubscriptionsPage } from '@/pages/youtube';
+import { YouTubeChannelPage, YouTubePlaylistPage } from '@/pages/youtube-channel';
+import { YouTubeWatchPage } from '@/pages/youtube-watch';
 
 function Main() {
   const info = useLibraryInfo();
@@ -74,6 +86,13 @@ const router = createBrowserRouter([
       { path: 'playlists/:id', element: <PlaylistPage /> },
       { path: 'live', element: <LivePage /> },
       { path: 'live/:id', element: <LiveShowPage /> },
+      { path: 'world', element: <Navigate to={worldHome()} replace /> },
+      { path: 'youtube', element: <YouTubePage /> },
+      { path: 'youtube/search', element: <YouTubeSearchPage /> },
+      { path: 'youtube/watch/:id', element: <YouTubeWatchPage /> },
+      { path: 'youtube/channel/:id', element: <YouTubeChannelPage /> },
+      { path: 'youtube/playlist/:id', element: <YouTubePlaylistPage /> },
+      { path: 'youtube/subscriptions', element: <YouTubeSubscriptionsPage /> },
       { path: 'dsp', element: <DspScreen /> },
       {
         path: 'settings',

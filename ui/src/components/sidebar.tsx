@@ -5,7 +5,21 @@ import { usePathname } from '@/compat/navigation';
 import { useApi } from '@/api';
 import type { PlaylistSummary } from '@/lib/collections';
 import type { LibrarySummary, ScanStatus } from '@/lib/library/types';
-import { Disc3, Heart, House, Library, LibraryBig, ListMusic, MicVocal, Radio, Settings, SlidersHorizontal, Tags } from './icons';
+import {
+  Disc3,
+  Globe,
+  Heart,
+  House,
+  Library,
+  LibraryBig,
+  ListMusic,
+  MicVocal,
+  Radio,
+  Settings,
+  SlidersHorizontal,
+  Tags,
+  TvMinimalPlay,
+} from './icons';
 import { Logo } from './logo';
 import { SidebarScan } from './scan-status';
 
@@ -62,10 +76,14 @@ export function Sidebar({ status, summary }: { status: ScanStatus; summary: Libr
       </div>
 
       <div className="side-group">
-        <div className="side-label">무료 스트리밍</div>
+        <div className="side-label">월드</div>
+        <Link href="/youtube" className={`side-link${active(pathname, '/youtube') ? ' is-active' : ''}`}>
+          <TvMinimalPlay size={18} />
+          유튜브
+        </Link>
         <Link href="/live" className={`side-link${active(pathname, '/live') ? ' is-active' : ''}`}>
           <Radio size={18} />
-          라이브 아카이브
+          밴드
           <span className="side-tag">FLAC</span>
         </Link>
       </div>
@@ -109,7 +127,7 @@ const MOBILE = [
   { href: '/', label: '홈', icon: House, also: [] as string[] },
   { href: '/albums', label: '앨범', icon: Disc3, also: [] },
   { href: '/collection', label: '보관함', icon: LibraryBig, also: ['/favorites', '/playlists', '/artists', '/tracks', '/genres'] },
-  { href: '/live', label: '라이브', icon: Radio, also: [] },
+  { href: '/world', label: '월드', icon: Globe, also: ['/youtube', '/live'] },
   { href: '/settings', label: '설정', icon: Settings, also: ['/dsp'] },
 ];
 
