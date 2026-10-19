@@ -23,6 +23,8 @@ const FEED_FILE: &str = "youtube-feed.json";
 const FEED_STALE: Duration = Duration::from_secs(15 * 60);
 /// 구독 피드에 남겨 두는 영상 수
 const FEED_KEEP: usize = 1500;
+/// 채널 RSS가 잠깐 404·429·5xx를 주면 이만큼 쉬었다가 한 번 더 묻는다
+const FEED_RETRY: Duration = Duration::from_millis(if cfg!(test) { 20 } else { 800 });
 
 /// 키가 있어야 하는 일을 키 없이 불렀다.
 #[derive(Debug)]
@@ -649,7 +651,17 @@ impl YouTube {
     }
 
     fn fetch_feed(&self, channel_id: &str) -> anyhow::Result<Feed> {
-        let (status, body) = self.get_web("feeds/videos.xml", &[("channel_id", channel_id)])?;
+        // 유튜브의 RSS는 멀쩡한 채널에도 가끔 404(또는 429·5xx)를 준다. 한 번 더 묻고 나서야 없다고 본다.
+        let mut again = true;
+        let (status, body) = loop {
+            let (status, body) = self.get_web("feeds/videos.xml", &[("channel_id", channel_id)])?;
+            if again && (status == 404 || status == 429 || status >= 500) {
+                again = false;
+                std::thread::sleep(FEED_RETRY);
+                continue;
+            }
+            break (status, body);
+        };
         if status == 404 {
             return Err(ApiError { status: 404, message: "채널을 찾을 수 없습니다".into() }.into());
         }

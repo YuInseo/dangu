@@ -134,12 +134,40 @@ yt_state() {
   curl -sN --max-time 3 http://127.0.0.1:4380/api/player/events 2> /dev/null | sed -n 's/^data://p' | head -1 \
     | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); print('$1:', '엔진', d.get('status'), '영상', json.dumps(d.get('external'), ensure_ascii=False))" || true
 }
-sori_uid=$(adb shell dumpsys package app.sori.player | sed -n 's/.*userId=\([0-9]*\).*/\1/p' | head -1)
+sori_uid=$(adb shell cmd package list packages -U app.sori.player | sed -n 's/.*uid:\([0-9]*\).*/\1/p' | head -1)
+echo "소리의 uid: $sori_uid"
 yt_sound() {
   adb shell dumpsys audio | grep "u/pid:$sori_uid/" | sed 's/^ *//' | cut -c1-200 | head -5 || true
-  adb shell dumpsys media_session | grep -A6 "package=app.sori.player" | grep -E "active=|state=|metadata" | head -4 || true
+  adb shell dumpsys media_session | grep -A14 "package=app.sori.player" | grep -E "active=|state=|metadata" | head -4 || true
 }
-if tap_label "유튜브 검색" 2; then
+# 웹뷰의 입력 칸은 이름표(aria-label)가 덤프에 나오지 않을 수 있다. 글자·힌트·이름표에 $1이 든 입력 칸,
+# 없으면 화면의 $2번째 입력 칸(첫째는 맨 위의 라이브러리 검색).
+find_input() {
+  python3 - "$1" "$2" << 'PY'
+import re, sys, xml.etree.ElementTree as ET
+want, nth = sys.argv[1], int(sys.argv[2])
+try:
+    nodes = list(ET.parse('/tmp/ui.xml').iter('node'))
+except Exception:
+    sys.exit(0)
+edits = [n for n in nodes if n.get('class') == 'android.widget.EditText']
+for n in edits:
+    print('입력 칸:', {k: n.get(k) for k in ('text', 'hint', 'content-desc', 'bounds')}, file=sys.stderr)
+pick = next((n for n in edits if any(want in (n.get(k) or '') for k in ('text', 'hint', 'content-desc'))), None)
+if pick is None and len(edits) >= nth:
+    pick = edits[nth - 1]
+if pick is not None:
+    b = [int(v) for v in re.findall(r'\d+', pick.get('bounds', ''))]
+    if len(b) == 4:
+        print((b[0] + b[2]) // 2, (b[1] + b[3]) // 2)
+PY
+}
+dump
+dismiss_anr || true
+yt_input=$(find_input "유튜브" 2)
+if [ -n "$yt_input" ]; then
+  adb shell input tap $yt_input
+  sleep 2
   adb shell input text "https://youtu.be/aqz-KE-bpKQ"
   adb shell input keyevent 66
   sleep 25

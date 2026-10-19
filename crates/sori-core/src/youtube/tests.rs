@@ -374,3 +374,38 @@ fn reconnects_when_a_kept_connection_was_dropped() {
         assert_eq!(v.video.title, "Super Shy");
     }
 }
+
+/// 유튜브의 RSS가 멀쩡한 채널에 잠깐 404를 주면 한 번 더 묻는다. 두 번 다 없으면 그때 없다고 한다.
+#[test]
+fn feed_asks_again_after_a_passing_404() {
+    use std::io::{BufRead, BufReader, Write};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let base = format!("http://{}", l.local_addr().unwrap());
+    let asked = std::sync::Arc::new(AtomicUsize::new(0));
+    let seen = asked.clone();
+    std::thread::spawn(move || {
+        for s in l.incoming().flatten() {
+            let mut r = BufReader::new(s.try_clone().unwrap());
+            let (mut first, mut line) = (String::new(), String::new());
+            r.read_line(&mut first).unwrap_or(0);
+            while r.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+                line.clear();
+            }
+            let n = seen.fetch_add(1, Ordering::SeqCst);
+            // 진짜 채널: 처음 한 번만 404. 없는 채널: 늘 404.
+            let ok = first.contains("UCMki_UkHb4qSc0qyEcOHHJw") && n > 0;
+            let (status, body) = if ok { ("200 OK", FEED) } else { ("404 Not Found", "") };
+            let mut s = s;
+            let _ = write!(s, "HTTP/1.1 {status}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        }
+    });
+    let dir = tempfile::tempdir().unwrap();
+    let yt = YouTube::with_bases(dir.path(), "http://127.0.0.1:9/youtube/v3", &base);
+    let f = yt.feed("UCMki_UkHb4qSc0qyEcOHHJw").unwrap();
+    assert_eq!(f.videos.len(), 2);
+    assert_eq!(asked.load(Ordering::SeqCst), 2);
+    let e = yt.feed("UC0000000000000000000000").unwrap_err();
+    assert!(format!("{e:#}").contains("채널을 찾을 수 없습니다"), "{e:#}");
+    assert_eq!(asked.load(Ordering::SeqCst), 4);
+}
