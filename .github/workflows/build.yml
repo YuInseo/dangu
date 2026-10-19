@@ -15,6 +15,8 @@ env:
   CARGO_INCREMENTAL: 0
   # 앱이 자기 빌드를 안다(자동 업데이트가 릴리스의 latest.json과 견준다).
   SORI_BUILD: ${{ github.sha }}
+  # 사람이 부르는 빌드 번호("18번"). 앱과 latest.json이 함께 보인다.
+  SORI_BUILD_NUMBER: ${{ github.run_number }}
 
 jobs:
   test:

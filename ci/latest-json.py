@@ -3,7 +3,7 @@
 
     BUILD_TIME=<커밋 시각(유닉스 초)> python3 ci/latest-json.py <올릴 폴더> > <올릴 폴더>/latest.json
 
-빌드(커밋), 시각, 바뀐 것(커밋 메시지 첫 줄), 그리고 기기별 파일의 주소·크기·SHA-256.
+빌드(커밋)와 그 번호, 시각, 바뀐 것(커밋 메시지 첫 줄), 그리고 기기별 파일의 주소·크기·SHA-256.
 """
 import glob
 import hashlib
@@ -30,6 +30,7 @@ def asset(pattern):
 
 print(json.dumps({
     'build': os.environ['GITHUB_SHA'],
+    'number': int(os.environ.get('SORI_BUILD_NUMBER') or 0) or None,
     'time': int(os.environ['BUILD_TIME']),
     'notes': os.environ.get('NOTES', '').strip().split('\n')[0][:200],
     'android': asset('Sori-android.apk'),

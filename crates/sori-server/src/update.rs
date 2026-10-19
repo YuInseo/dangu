@@ -28,6 +28,8 @@ use crate::App;
 pub const BUILD: Option<&str> = option_env!("SORI_BUILD");
 /// 그 커밋의 시각(유닉스 초)
 const BUILD_TIME: Option<&str> = option_env!("SORI_BUILD_TIME");
+/// CI의 빌드 번호. 사람이 부르는 이름("18번")이라 화면에 보인다.
+const BUILD_NUMBER: Option<&str> = option_env!("SORI_BUILD_NUMBER");
 const LATEST_URL: &str = "https://github.com/YuInseo/dangu/releases/download/sori-latest/latest.json";
 /// 처음 확인은 켜고 조금 뒤에(시작을 느리게 하지 않게), 그다음은 이만큼마다
 const FIRST_CHECK: Duration = Duration::from_secs(20);
@@ -43,6 +45,9 @@ pub struct Asset {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Latest {
     pub build: String,
+    /// CI의 빌드 번호(옛 latest.json에는 없다)
+    #[serde(default)]
+    pub number: Option<u64>,
     /// 커밋 시각(유닉스 초)
     #[serde(default)]
     pub time: u64,
@@ -86,6 +91,7 @@ pub struct Updater {
     /// 이 빌드(없으면 업데이트하지 않는다)
     build: Option<String>,
     build_time: u64,
+    number: Option<u64>,
     dir: PathBuf,
     settings: PathBuf,
     state: Mutex<Inner>,
@@ -106,12 +112,14 @@ pub fn is_newer(latest: &Latest, build: Option<&str>, build_time: u64) -> bool {
 
 impl Updater {
     pub fn new(data_dir: &Path) -> Updater {
-        Updater::with(
+        let mut u = Updater::with(
             data_dir,
             std::env::var("SORI_UPDATE_URL").unwrap_or_else(|_| LATEST_URL.into()),
             BUILD.map(String::from),
             BUILD_TIME.and_then(|t| t.parse().ok()).unwrap_or(0),
-        )
+        );
+        u.number = BUILD_NUMBER.and_then(|n| n.parse().ok());
+        u
     }
 
     pub fn with(data_dir: &Path, url: String, build: Option<String>, build_time: u64) -> Updater {
@@ -123,6 +131,7 @@ impl Updater {
             url,
             build,
             build_time,
+            number: None,
             dir,
             settings,
             state: Mutex::new(Inner { checked_at: None, latest: None, error: None, download: Download::Idle, file: None }),
@@ -257,6 +266,7 @@ impl Updater {
         json!({
             "build": self.build,
             "buildTime": self.build_time,
+            "number": self.number,
             // 이 기기에서 업데이트할 수 있는가(앱 안이고, CI가 만든 빌드)
             "supported": platform.is_some() && self.build.is_some(),
             "auto": self.auto(),
@@ -265,6 +275,7 @@ impl Updater {
             "available": newer && fits,
             "latest": s.latest.as_ref().map(|l| json!({
                 "build": l.build,
+                "number": l.number,
                 "time": l.time,
                 "notes": l.notes,
                 "size": platform.and_then(|p| l.asset(p)).map(|a| a.size),
@@ -385,6 +396,7 @@ mod tests {
     fn latest(build: &str, time: u64) -> Latest {
         Latest {
             build: build.into(),
+            number: None,
             time,
             notes: String::new(),
             android: Some(Asset { url: "https://x/Sori-android.apk".into(), size: 3, sha256: String::new() }),
@@ -442,7 +454,7 @@ mod tests {
         let files = serve(vec![("/Sori-android.apk", apk.clone())]);
         let latest = |sha: &str| {
             serde_json::to_vec(&json!({
-                "build": "new", "time": 200, "notes": "고침",
+                "build": "new", "number": 19, "time": 200, "notes": "고침",
                 "android": { "url": format!("{files}/Sori-android.apk"), "size": apk.len(), "sha256": sha },
             }))
             .unwrap()
@@ -458,6 +470,7 @@ mod tests {
         assert_eq!(std::fs::read(&file).unwrap(), apk);
         let st = u.json(Some("android"));
         assert_eq!((st["download"]["state"].as_str(), st["available"].as_bool()), (Some("ready"), Some(true)));
+        assert_eq!(st["latest"]["number"], 19, "빌드 번호를 화면에 넘긴다");
 
         // SHA-256이 다르면 받지 않고, 받다 만 것은 지운다.
         let dir = tempfile::tempdir().unwrap();
