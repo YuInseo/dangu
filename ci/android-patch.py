@@ -194,6 +194,10 @@ class MainActivity : TauriActivity() {{
   }}
 
   override fun onWebViewCreate(webView: WebView) {{
+    // 앱 화면은 확대하지 않는다(웹 페이지처럼 두 손가락으로 벌리거나 두 번 눌러 커지지 않게).
+    webView.settings.setSupportZoom(false)
+    webView.settings.builtInZoomControls = false
+    webView.settings.displayZoomControls = false
     // wry는 이 함수를 부른 다음에 클라이언트를 붙인다. 한 박자 뒤에 감싼다.
     webView.post {{
       val inner = webView.webChromeClient ?: return@post

@@ -16,7 +16,7 @@ interface YtApiPlayer {
 
 interface YtApi {
   Player: new (el: HTMLElement, opts: Record<string, unknown>) => YtApiPlayer;
-  PlayerState: { PLAYING: number; ENDED: number };
+  PlayerState: { PLAYING: number; ENDED: number; BUFFERING: number };
 }
 
 declare global {
@@ -49,6 +49,11 @@ function loadApi(): Promise<YtApi> {
 }
 
 const NO_API: YtFailure = { title: '유튜브 플레이어를 불러오지 못했습니다', detail: '인터넷에 닿는지 확인해 주세요.' };
+
+/** 영상이 도는 동안: 휴대폰에서는 아래쪽 소리 재생 막대를 내려 둔다(CSS가 이 표시를 본다). */
+function markPlaying(on: boolean) {
+  document.documentElement.classList.toggle('yt-playing', on);
+}
 
 export interface YtPlayerHandle {
   seek(sec: number): void;
@@ -115,10 +120,12 @@ export function YtPlayer({
           events: {
             onStateChange: (e: { data: number }) => {
               if (e.data === YT.PlayerState.PLAYING && engine.getSnapshot().status === 'playing') engine.pause();
+              markPlaying(live && (e.data === YT.PlayerState.PLAYING || e.data === YT.PlayerState.BUFFERING));
             },
             // 틀 수 없는 플레이어는 걷어 내고 그 자리에 까닭을 보인다(플레이어 위를 덮지 않는다).
             onError: (e: { data: number }) => {
               if (!live) return;
+              markPlaying(false);
               setFailed(playerFailure(e.data));
               setTimeout(drop, 0);
             },
@@ -128,6 +135,7 @@ export function YtPlayer({
       .catch(() => live && setFailed(NO_API));
     return () => {
       live = false;
+      markPlaying(false);
       drop();
     };
     // 시작 위치는 처음 열 때만 쓴다
