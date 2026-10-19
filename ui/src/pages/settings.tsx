@@ -8,7 +8,7 @@ import { AnalysisCard, FormatSupport, RescanCard, ZoneCard } from '@/components/
 import { SettingsNav } from '@/components/settings-nav';
 import { useToast } from '@/components/toast';
 import { UpdateCard } from '@/components/update';
-import { YouTubeKeyCard } from '@/components/yt';
+import { YouTubeBackgroundPref, YouTubeKeyCard } from '@/components/yt';
 import { bytes, count, span } from '@/lib/time';
 import { useLibraryInfo } from '@/library';
 
@@ -231,6 +231,7 @@ export function ConnectSettings() {
       <ConnectCard />
       <h3 className="pref-group">유튜브</h3>
       <YouTubeKeyCard />
+      <YouTubeBackgroundPref />
     </section>
   );
 }

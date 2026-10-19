@@ -22,6 +22,8 @@ export interface Prefs {
   volumeDb: boolean;
   /** 홈의 "오늘의 발견" */
   homeDiscover: boolean;
+  /** 앱을 떠나거나 화면이 꺼져도 유튜브 영상의 소리를 계속(알림·잠금 화면에서 조종) */
+  ytBackground: boolean;
 }
 
 export const DEFAULT_PREFS: Prefs = {
@@ -32,6 +34,7 @@ export const DEFAULT_PREFS: Prefs = {
   waveform: true,
   volumeDb: true,
   homeDiscover: true,
+  ytBackground: true,
 };
 
 const KEY = 'sori.prefs';

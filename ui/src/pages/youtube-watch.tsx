@@ -36,7 +36,17 @@ export function YouTubeWatchPage() {
   return (
     <div className="yt-watch">
       <div className="yt-watch-main">
-        <YtPlayer key={id} id={id} list={list} start={t} blocked={v?.embeddable === false} thumb={v?.thumb} ref={player} />
+        <YtPlayer
+          key={id}
+          id={id}
+          list={list}
+          start={t}
+          blocked={v?.embeddable === false}
+          thumb={v?.thumb}
+          title={v?.title}
+          channel={ch?.title ?? v?.channelTitle}
+          ref={player}
+        />
         {error && !data && (
           <div className="notice notice-error yt-watch-error">
             <div>

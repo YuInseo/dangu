@@ -63,6 +63,8 @@ pub struct App {
     pub saves: Arc<saves::Saves>,
     /// 유튜브(공식 플레이어로 보기, 구독, API 키)
     pub youtube: Arc<sori_core::youtube::YouTube>,
+    /// 엔진 밖에서 나는 소리(화면의 유튜브 영상): 알림·잠금 화면이 보이고 그 단추가 화면으로 간다
+    pub external: Arc<player::ExternalSlot>,
 }
 
 impl App {
@@ -86,6 +88,7 @@ impl App {
             updater,
             saves,
             youtube,
+            external: Arc::new(Default::default()),
         }
     }
 

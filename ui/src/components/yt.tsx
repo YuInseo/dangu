@@ -3,7 +3,10 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from '@/compat/link';
 import { useRouter } from '@/compat/navigation';
+import { useLibraryInfo } from '@/library';
+import { isLocalOrigin } from '@/lib/link';
 import { readJSON, writeJSON } from '@/lib/player/storage';
+import { setPref, usePrefs } from '@/lib/prefs';
 import { artColors } from '@/lib/hash';
 import {
   agoIso,
@@ -24,6 +27,8 @@ import {
 } from '@/lib/youtube';
 import { ArrowUp, Bell, Check, ExternalLink, KeyRound, Link2, ListVideo, RotateCcw, Search } from './icons';
 import { useToast } from './toast';
+import { Switch } from './dsp/ui';
+import { PrefRow } from './prefs-client';
 
 // ---------------------------------------------------------------------------
 // 월드: 유튜브 | 밴드
@@ -497,5 +502,22 @@ export function SubscriptionStrip() {
         <span>관리</span>
       </Link>
     </div>
+  );
+}
+
+/** 설정 → 연결 → 유튜브: 앱을 떠나도 영상의 소리를 계속 */
+export function YouTubeBackgroundPref() {
+  const prefs = usePrefs();
+  const inApp = useLibraryInfo().host === 'android' && isLocalOrigin();
+  // 컴퓨터는 창을 내려도 영상이 이어진다(고를 것이 없다)
+  if (!/Android|iPhone|iPad/i.test(navigator.userAgent)) return null;
+  const where = inApp ? '. 알림·잠금 화면에 영상이 뜨고, 거기서 멈추거나 다시 틉니다' : '(브라우저가 허락하는 만큼)';
+  return (
+    <PrefRow
+      label="백그라운드 재생"
+      hint={`앱을 떠나거나 화면이 꺼져도 영상의 소리를 이어서 틉니다${where}. 유튜브 약관에서 백그라운드 재생은 유튜브 프리미엄의 기능이라, 켜 두는 것은 사용자의 선택입니다.`}
+    >
+      <Switch label="백그라운드 재생" on={prefs.ytBackground} onChange={(v) => setPref('ytBackground', v)} />
+    </PrefRow>
   );
 }

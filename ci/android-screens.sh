@@ -126,6 +126,50 @@ if [ -n "$first" ] && tap_label "$first" 15; then
   adb shell input keyevent 4
   sleep 3
 fi
+
+# 유튜브 백그라운드 재생(설정의 기본값은 켬): 링크로 긴 영상(블렌더 재단의 Big Buck Bunny)을 열고, 홈으로
+# 나가도 영상이 이어지는지 본다. 화면의 플레이어가 서버에 알린 상태(external: 재생 중인지)와 미디어 세션,
+# 그리고 알림·헤드셋 단추(미디어 키)가 화면의 영상을 멈추고 다시 트는지.
+yt_state() {
+  curl -sN --max-time 3 http://127.0.0.1:4380/api/player/events 2> /dev/null | sed -n 's/^data://p' | head -1 \
+    | python3 -c "import json,sys; d=json.loads(sys.stdin.read() or '{}'); print('$1:', '엔진', d.get('status'), '영상', json.dumps(d.get('external'), ensure_ascii=False))" || true
+}
+sori_uid=$(adb shell dumpsys package app.sori.player | sed -n 's/.*userId=\([0-9]*\).*/\1/p' | head -1)
+yt_sound() {
+  adb shell dumpsys audio | grep "u/pid:$sori_uid/" | sed 's/^ *//' | cut -c1-200 | head -5 || true
+  adb shell dumpsys media_session | grep -A6 "package=app.sori.player" | grep -E "active=|state=|metadata" | head -4 || true
+}
+if tap_label "유튜브 검색" 2; then
+  adb shell input text "https://youtu.be/aqz-KE-bpKQ"
+  adb shell input keyevent 66
+  sleep 25
+  shot youtube-bg-watch
+  yt_state "앱 안에서"
+  yt_sound
+  adb shell input keyevent 3
+  sleep 15
+  yt_state "홈으로 나가고 15초"
+  yt_sound
+  adb shell cmd statusbar expand-notifications
+  sleep 3
+  shot youtube-bg-notification
+  adb shell cmd statusbar collapse
+  sleep 2
+  adb shell cmd media_session dispatch pause || adb shell input keyevent 127
+  sleep 4
+  yt_state "미디어 키: 일시정지"
+  adb shell cmd media_session dispatch play || adb shell input keyevent 126
+  sleep 8
+  yt_state "미디어 키: 재생"
+  yt_sound
+  adb shell monkey -p app.sori.player -c android.intent.category.LAUNCHER 1
+  sleep 5
+  shot youtube-bg-back
+  # 영상 화면을 떠나면 알림은 엔진으로 돌아간다
+  adb shell input keyevent 4
+  sleep 3
+  yt_state "영상 화면을 떠난 뒤"
+fi
 tap_label "밴드" 8 && shot live
 
 # 라이브 아카이브: 공연마다 내려받기를 허락했는지(진짜 archive.org). 그레이트풀 데드의 사운드보드

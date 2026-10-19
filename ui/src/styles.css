@@ -4697,6 +4697,11 @@ button.zone-btn {
   align-items: stretch;
   gap: 10px;
 }
+/* 세로로 쌓으면 .dir-form의 기본 너비(360px)가 높이가 된다: 제 높이만, 이름표 아래 왼쪽부터 */
+.link-card .pref-row-stack .dir-form {
+  flex: none;
+  justify-content: flex-start;
+}
 .link-card > :last-child,
 .link-card > .link-list:last-child > .link-item:last-child {
   border-bottom: 0;
