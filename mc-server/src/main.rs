@@ -23,6 +23,8 @@ async fn main() -> std::io::Result<()> {
     // 길드: 모든 인스턴스(담비 자식 프로세스 포함)가 같은 파일
     mc_server::plugins::guild::config::open_global();
     mc_server::plugins::quest::open_global();
+    // 장비 내용(아이템 목록이 여기서 나오므로 콘텐츠보다 먼저)과 장비 하나하나의 상태
+    mc_server::plugins::equip::open_global();
     mc_server::plugins::guild::store::open_global(
         std::env::var_os("MC_GUILDS")
             .map(std::path::PathBuf::from)

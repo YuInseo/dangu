@@ -298,10 +298,13 @@ pub(super) fn melee(server: &Server, e: &Entity, m: &mut Mob, p: &PlayerState, o
         m.attack_cooldown = 20;
         out.events.push(Event::Damage {
             target: p.uuid,
-            amount: server.difficulty().scale_mob_damage(m.kind.attack_damage()),
+            amount: server.difficulty().scale_mob_damage(m.kind.attack_damage()) * m.damage_mult,
             damage_type: "mob_attack",
             attacker: Some((e.id, e.pos)),
-            attacker_name: m.kind.display_name().to_owned(),
+            attacker_name: m
+                .custom_name
+                .clone()
+                .unwrap_or_else(|| m.kind.display_name().to_owned()),
         });
     }
 }

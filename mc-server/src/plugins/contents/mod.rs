@@ -127,6 +127,8 @@ pub fn reload() -> Arc<Loaded> {
 pub fn reload_from(base: &Path) -> Arc<Loaded> {
     let loaded = Arc::new(load(base));
     *CURRENT.write().unwrap() = Some(Arc::clone(&loaded));
+    // 장비: 겉모습·보스 훅, 광석 블록 상태를 월드 생성에
+    crate::plugins::equip::after_contents();
     loaded
 }
 

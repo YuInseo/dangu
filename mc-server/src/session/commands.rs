@@ -168,6 +168,27 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
                 }
             }
         }
+        "장비" => {
+            let c = t.literal(ROOT, name, true);
+            let g = t.literal(c, "지급", false);
+            let id = t.argument_ask_server(g, "id", STRING, WORD, true);
+            t.argument_with(id, "count", INTEGER, &[0], true);
+        }
+        "강화" => {
+            t.literal(ROOT, name, true);
+        }
+        "대장간" => {
+            let c = t.literal(ROOT, name, true);
+            for sub in crate::plugins::equip::gui::TABS {
+                t.literal(c, sub, true);
+            }
+        }
+        "보스" => {
+            let c = t.literal(ROOT, name, true);
+            t.literal(c, "목록", true);
+            let s = t.literal(c, "소환", false);
+            t.argument_ask_server(s, "id", STRING, WORD, true);
+        }
         "퀘스트" => {
             let c = t.literal(ROOT, name, true);
             for sub in ["일반", "주간", "길드"] {
@@ -267,6 +288,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             "hud" => self.hud_command().await,
             "길드" => self.guild_command(&args).await,
             "퀘스트" => self.quest_command(&args).await,
+            "장비" | "강화" | "대장간" | "보스" => {
+                self.equip_command(spec.name, &args).await
+            }
             "ia" | "iaget" | "iaimage" => self.ia_command(spec.name, &args).await,
             "재화" => self.money_command(&args).await,
             "locate" => self.locate(&args).await,

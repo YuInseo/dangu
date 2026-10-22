@@ -103,6 +103,19 @@ fn death_message(name: &str, cause: &str, attacker: &str) -> String {
     }
 }
 
+/// 방어력으로 줄이는 공격 피해 종류.
+const ATTACKS: [&str; 9] = [
+    "mob_attack",
+    "player_attack",
+    "arrow",
+    "mob_projectile",
+    "explosion",
+    "player_explosion",
+    "fireball",
+    "sting",
+    "thorns",
+];
+
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
     pub(crate) async fn send_health(&mut self) -> std::io::Result<()> {
         let v = &self.vitals;
@@ -251,7 +264,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
-    /// 피해를 입습니다. 0.5초 안에 다시 맞은 것은 무시합니다.
+    /// 피해를 입습니다. 0.5초 안에 다시 맞은 것은 무시합니다. `amount`는 바닐라 단위.
     pub(crate) async fn damage(
         &mut self,
         amount: f32,
@@ -273,6 +286,17 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             amount
         } else {
             amount * (1.0 - b.resist)
+        };
+        // RPG: 맞는 공격은 방어력으로 줄이고, 바닐라 체력 20을 RPG 체력에 나눠 씀
+        let amount = {
+            let st = self.rpg_stats(self.hud.job_levels());
+            let rpg = amount * crate::plugins::equip::SCALE;
+            let rpg = if ATTACKS.contains(&cause) {
+                crate::plugins::equip::after_defense(rpg as f64, st.defense as f64) as f32
+            } else {
+                rpg
+            };
+            rpg * MAX_HEALTH / st.max_health.max(1.0)
         };
         let now = Instant::now();
         if now < self.vitals.invulnerable_until {
@@ -390,7 +414,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         } else {
             REACH
         } + 1.0;
-        let amount = self.held_damage();
+        // RPG 공격력 (+치명타) → 바닐라 단위 피해
+        let st = self.rpg_stats(self.hud.job_levels());
+        let crit = (crate::game::rand_u32() % 10_000) as f32 / 100.0 < st.crit_chance;
+        let rpg = st.attack * if crit { st.crit_damage / 100.0 } else { 1.0 };
+        let amount = rpg / crate::plugins::equip::SCALE;
+        if crit {
+            self.play_sound("entity.player.attack.crit");
+        }
         let me = (self.entity_id, self.position);
         if let Some(victim) = self
             .server
@@ -414,9 +445,11 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             && mob.dimension == self.dimension
             && crate::game::entities::dist2(mob.pos, self.position) <= reach * reach
         {
-            let mob_name = match &mob.kind {
-                crate::game::entities::Kind::Mob(m) => m.kind.name(),
-                _ => "",
+            let (mob_name, boss) = match &mob.kind {
+                crate::game::entities::Kind::Mob(m) => {
+                    (m.kind.name(), m.boss.as_ref().and(m.custom_name.clone()))
+                }
+                _ => ("", None),
             };
             let killed = mobs::damage(
                 self.server,
@@ -427,6 +460,12 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             );
             self.vitals.exhaust(0.1);
             if killed {
+                if let Some(name) = boss {
+                    self.server.publish(Event::System(crate::text::colored(
+                        &format!("{}님이 {name}§r§6을(를) 쓰러뜨렸습니다!", self.profile.name),
+                        "gold",
+                    )));
+                }
                 self.quest_happened(crate::plugins::quest::Happened {
                     kind: "kill",
                     name: mob_name.to_owned(),

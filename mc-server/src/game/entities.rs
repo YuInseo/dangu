@@ -24,6 +24,7 @@ const PICKUP_RANGE: f64 = 1.5;
 const CLAIM_TIMEOUT: u32 = 20;
 
 #[derive(Debug, Clone)]
+#[allow(clippy::large_enum_variant)] // 몹이 대부분이라 상자에 넣지 않음
 pub enum Kind {
     Item {
         item: Item,

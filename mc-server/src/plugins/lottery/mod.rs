@@ -492,6 +492,7 @@ fn look(st: &State, t: &Ticket) -> Look {
     lore.push("스폰의 복권 NPC에게 내면 당첨금을 받습니다".into());
     let drawn = st.draws.iter().any(|d| d.round == t.round);
     Look {
+        rich: None,
         name: Some((format!("복권 · 제{}회", t.round), "gold".into())),
         lore,
         glint: Some(

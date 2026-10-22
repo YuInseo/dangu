@@ -60,7 +60,7 @@ fn slot_of(number: u8) -> usize {
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
     /// 이 세션의 메뉴 아이콘 일련번호 (복권 번호와 겹치지 않게 높은 범위).
-    fn icon_serial(&self, slot: usize) -> u32 {
+    pub(crate) fn icon_serial(&self, slot: usize) -> u32 {
         0x8000_0000 | ((self.entity_id as u32 & 0x7_FFFF) << 6) | slot as u32
     }
 
@@ -77,6 +77,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         custom_items::set_look(
             serial,
             Look {
+                rich: None,
                 name: Some((name.to_owned(), color.to_owned())),
                 lore,
                 glint: Some(glint),

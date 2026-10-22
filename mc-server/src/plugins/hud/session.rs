@@ -36,6 +36,11 @@ pub struct HudState {
 }
 
 impl HudState {
+    /// 마지막으로 받은 직업 레벨들.
+    pub fn job_levels(&self) -> Vec<u32> {
+        self.jobs.clone()
+    }
+
     /// 다른 기능이 액션바에 글을 띄웠음: HUD 아래쪽이 바로 덮지 않게 잠깐 쉽니다.
     pub fn pause_action_bar(&mut self) {
         self.pause_until = Some(Instant::now() + ACTION_BAR_PAUSE);
@@ -48,11 +53,23 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     pub(crate) fn rpg_stats(&self, job_levels: Vec<u32>) -> rpg::Stats {
-        let armor = [5, 6, 7, 8].map(|slot| self.inventory[slot].map(|i| i.id));
+        // 장비는 바닐라 갑옷 점수·무기 피해 대신 장비 능력치로
+        let armor = [5, 6, 7, 8].map(|slot| {
+            self.inventory[slot]
+                .filter(|i| !self.is_gear(i))
+                .map(|i| i.id)
+        });
+        let (gear, _, weapon) = self.equip_bonus();
+        let held_damage = if weapon.is_some() {
+            self.guild.bonus.damage
+        } else {
+            self.held_damage()
+        };
         rpg::compute(&rpg::Input {
             job_levels,
-            held_damage: self.held_damage(),
+            held_damage,
             armor,
+            gear,
             sprinting: self.vitals.sprinting,
             sneaking: self.vitals.sneaking,
         })
@@ -61,11 +78,11 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     /// 1초마다.
     pub(crate) async fn hud_tick(&mut self) -> Result<(), FrameError> {
         // 마나는 HUD가 없어도 찹니다
-        let max = rpg::max_mana(self.hud.jobs.iter().copied().max().unwrap_or(1));
+        let now_stats = self.rpg_stats(self.hud.jobs.clone());
         if !self.vitals.dead {
-            self.mana.tick(HUD_SECS, max);
+            self.mana.tick(HUD_SECS, now_stats.max_mana);
         }
-        let power = self.rpg_stats(self.hud.jobs.clone()).combat_power();
+        let power = now_stats.combat_power();
         self.guild_tick(power).await?;
         if !self.hud_active() {
             return Ok(());
@@ -104,11 +121,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if self.hud.pause_until.is_some_and(|t| now < t) {
             return Ok(());
         }
-        let stats = (!self.hud.hidden).then(|| self.rpg_stats(job_levels));
+        let full = self.rpg_stats(job_levels);
+        let stats = (!self.hud.hidden).then_some(full);
         let survival = matches!(self.gamemode, GameMode::Survival | GameMode::Adventure);
+        // 바닐라 체력(0..20)을 RPG 체력으로 보여 줌
+        let hp = self.vitals.health / 20.0 * full.max_health;
         let line = super::bottom(&super::Bottom {
             stats: stats.as_ref(),
-            health: survival.then_some((self.vitals.health, 20.0)),
+            health: survival.then_some((hp, full.max_health)),
             mana: survival.then_some((self.mana.current, self.mana.max)),
         });
         self.send(hud::SET_ACTION_BAR_TEXT_ID, &hud::encode_text(&line))

@@ -1,4 +1,5 @@
-//! 웹 관리 화면: 길드 레벨별 효과·강화·작물 단계·창고 막을 인스턴스, 퀘스트를 브라우저에서 고칩니다.
+//! 웹 관리 화면: 길드 레벨별 효과·강화·작물 단계·창고 막을 인스턴스, 퀘스트, 장비(강화 확률·잠재능력·
+//! 주문서·보스)를 브라우저에서 고칩니다.
 //!
 //! - `MC_ADMIN_PORT` (기본 25580, 0이면 끔), `MC_ADMIN_BIND` (기본 `127.0.0.1` — 이 컴퓨터에서만).
 //!   밖에서 쓰려면 SSH 터널(`ssh -L 25580:127.0.0.1:25580 서버`)을 권합니다.
@@ -14,6 +15,8 @@
 //! | `GET /api/guild-config/default` | 기본값 |
 //! | `GET /api/quests` · `PUT` | 퀘스트 JSON |
 //! | `GET /api/quests/default` | 기본값 |
+//! | `GET /api/equipment` · `PUT` | 장비 JSON (강화 확률·잠재능력·주문서·보스·조합법·장비 능력치) |
+//! | `GET /api/equipment/default` | 기본값 |
 //!
 //! `/api/`는 모두 `Authorization: Bearer <토큰>`이 있어야 합니다. `PUT`에 `X-Dry-Run: 1`을 붙이면
 //! 확인만 하고 저장하지 않습니다.
@@ -26,6 +29,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
 use crate::json::{self, Json};
+use crate::plugins::equip::config as equip_config;
 use crate::plugins::guild::config as guild_config;
 use crate::plugins::quest::config as quest_config;
 use crate::plugins::store::data_path;
@@ -281,9 +285,28 @@ pub fn handle(req: &Request, token: &str) -> Response {
             quest_config::set(c.clone())?;
             Ok(quest_config::encode(&quest_config::get()))
         }),
-        (_, "guild-config" | "guild-config/default" | "quests" | "quests/default") => {
-            Response::error(405, "그 방법으로는 안 됩니다")
-        }
+        ("GET", "equipment") => Response::json(200, &equip_config::encode(&equip_config::get())),
+        ("GET", "equipment/default") => Response::json(
+            200,
+            &equip_config::encode(&equip_config::EquipConfig::default()),
+        ),
+        ("PUT" | "POST", "equipment") => save(&req.body, equip_config::decode, |c| {
+            if dry {
+                c.validate()?;
+                return Ok(equip_config::encode(c));
+            }
+            equip_config::set(c.clone())?;
+            Ok(equip_config::encode(&equip_config::get()))
+        }),
+        (
+            _,
+            "guild-config"
+            | "guild-config/default"
+            | "quests"
+            | "quests/default"
+            | "equipment"
+            | "equipment/default",
+        ) => Response::error(405, "그 방법으로는 안 됩니다"),
         _ => Response::error(404, "없는 주소"),
     }
 }
@@ -407,6 +430,18 @@ mod tests {
         );
         let r = handle(&req("GET", "/api/quests/default", Some(t), ""), t);
         assert!(body(&r).get("weekly").is_some());
+        let r = handle(&req("GET", "/api/equipment", Some(t), ""), t);
+        assert!(body(&r).get("enhance").is_some());
+        let r = handle(
+            &req(
+                "PUT",
+                "/api/equipment",
+                Some(t),
+                r#"{"enhance": {"chances": [0.5]}}"#,
+            ),
+            t,
+        );
+        assert_eq!(r.status, 400, "확률 30개가 아니면 거절");
         let r = handle(&req("DELETE", "/api/quests", Some(t), ""), t);
         assert_eq!(r.status, 405);
         assert!(same("abc", "abc") && !same("abc", "abd") && !same("abc", "ab"));

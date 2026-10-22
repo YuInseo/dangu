@@ -64,6 +64,7 @@ button.danger { color: var(--bad); }
   <nav>
     <button data-tab="guild" class="on">길드</button>
     <button data-tab="quests">퀘스트</button>
+    <button data-tab="equip">장비</button>
     <button data-tab="raw">JSON</button>
   </nav>
   <span class="spacer"></span>
@@ -129,6 +130,38 @@ button.danger { color: var(--bad); }
     <div class="row"><button class="btn" id="quests-default">기본값으로 채우기 (저장 전)</button></div>
   </div>
 
+  <div id="tab-equip" hidden>
+    <section class="card">
+      <h2>강화 (+30까지)</h2>
+      <p class="hint">+n → +n+1 성공 확률(%). 단계마다 기본 능력치가 "단계마다 +" 만큼, +10·+20·+30에서 "10단계마다 +" 만큼 더 오릅니다.
+        비용: 돈 × (n+1)², 강화석 1 + n/3개. 실패해도 단계는 내려가지 않습니다. 악세서리는 강화 없음.</p>
+      <div class="grid" id="enhance-misc"></div>
+      <div class="scroll" style="margin-top:10px"><table id="enhance-chances"></table></div>
+    </section>
+    <section class="card">
+      <h2>잠재능력 주문서</h2>
+      <p class="hint">줄 수는 범위 안에서 무작위, 값은 아래 옵션 범위 × 배율. 악세서리마다 바를 수 있는 횟수는 장비 능력치(JSON 탭)의 potential_tries.</p>
+      <div class="scroll"><table id="scrolls"></table></div>
+    </section>
+    <section class="card">
+      <h2>잠재능력 옵션 (하급 기준 값)</h2>
+      <p class="hint">무게가 클수록 자주 붙습니다. 한 장신구에 같은 옵션은 한 줄만.</p>
+      <div class="scroll"><table id="potentials"></table></div>
+      <div class="row" style="margin-top:8px"><button class="btn small" id="add-potential">옵션 추가</button></div>
+    </section>
+    <section class="card">
+      <h2>보스</h2>
+      <p class="hint">체력은 바닐라 단위(×5 = 화면 체력). 자연 스폰 확률은 그 몹이 생길 때 보스로 바뀔 확률 (0이면 /보스 소환으로만).
+        떨구는 것은 JSON 탭의 drops.</p>
+      <div class="scroll"><table id="bosses"></table></div>
+    </section>
+    <section class="card">
+      <h2>대장간 상점</h2>
+      <div class="scroll"><table id="shop"></table></div>
+    </section>
+    <div class="row"><button class="btn" id="equip-default">기본값으로 채우기 (저장 전)</button></div>
+  </div>
+
   <div id="tab-raw" hidden>
     <section class="card">
       <h2>길드 설정 JSON <span class="chip">world/guild_config.json</span></h2>
@@ -139,6 +172,12 @@ button.danger { color: var(--bad); }
       <h2>퀘스트 JSON <span class="chip">world/quests.json</span></h2>
       <textarea class="code" id="raw-quests" spellcheck="false"></textarea>
     </section>
+    <section class="card">
+      <h2>장비 JSON <span class="chip">world/equipment.json</span></h2>
+      <p class="hint">장비 능력치(gear) · 세트 효과(sets) · 조합법(recipes) · 광석 생성(ores) · 보스 드랍(drops) 모두 여기서.
+        장비·재료를 새로 더하면 그림이 필요해 서버를 다시 켤 때 반영됩니다.</p>
+      <textarea class="code" id="raw-equip" spellcheck="false"></textarea>
+    </section>
   </div>
 </main>
 
@@ -147,7 +186,7 @@ button.danger { color: var(--bad); }
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 let token = "";
-let guild = null, quests = null;
+let guild = null, quests = null, equipment = null;
 let tab = "guild";
 let dirty = false;
 
@@ -289,31 +328,72 @@ $$("[data-add]").forEach(b => b.onclick = () => {
 });
 $("#quests-default").onclick = async () => { quests = await api("GET", "quests/default"); markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다."); };
 
+// ---- 장비 ----
+const STATS = { attack: "공격력", magic: "마법력", hp: "체력", mp: "마력", defense: "방어력", crit_chance: "치명타 확률", crit_damage: "크리티컬 피해",
+  str: "힘", dex: "민첩", int: "지능", attack_pct: "공격력%", magic_pct: "마법력%", hp_pct: "체력%", mp_pct: "마력%", defense_pct: "방어력%" };
+function table(id, cols, rows, onDelete) {
+  const t = $("#" + id);
+  t.replaceChildren(el("tr", {}, ...cols.map(c => el("th", {}, c[1])), ...(onDelete ? [el("th")] : [])));
+  rows.forEach((row, i) => t.append(el("tr", {},
+    ...cols.map(([k, , kind]) => el("td", {}, kind === "text" ? text(row[k], v => row[k] = v)
+      : kind === "bool" ? el("input", { type: "checkbox", checked: !!row[k], on: { change: e => { row[k] = e.target.checked; markDirty(); } } })
+      : kind === "stat" ? el("select", { on: { change: e => { row[k] = e.target.value; markDirty(); } } },
+          ...Object.entries(STATS).map(([v, n]) => el("option", { value: v, textContent: n, selected: row[k] === v })))
+      : num(row[k], kind, v => row[k] = v))),
+    ...(onDelete ? [el("td", {}, el("button", { className: "btn small danger", textContent: "빼기", on: { click: () => onDelete(i) } }))] : []))));
+}
+function renderEquip() {
+  const e = equipment.enhance;
+  $("#enhance-misc").replaceChildren(
+    el("label", {}, "단계마다 + (0.05 = 5%)", num(e.per_level, 0.01, v => e.per_level = v)),
+    el("label", {}, "10단계마다 +", num(e.milestone, 0.01, v => e.milestone = v)),
+    el("label", {}, "기본 돈", num(e.money, 100, v => e.money = v)));
+  const rows = e.chances.map((p, i) => ({ i, p: Math.round(p * 1000) / 10 }));
+  const t = $("#enhance-chances");
+  const head = [el("th", {}, "단계")], cells = [el("th", {}, "성공 %")];
+  rows.forEach(r => {
+    head.push(el("th", {}, `+${r.i}→${r.i + 1}`));
+    cells.push(el("td", {}, el("input", { type: "number", step: 0.5, value: r.p, style: "width:64px",
+      on: { input: ev => { e.chances[r.i] = (parseFloat(ev.target.value) || 0) / 100; markDirty(); } } })));
+  });
+  t.replaceChildren(el("tr", {}, ...head), el("tr", {}, ...cells));
+  table("scrolls", [["name", "등급", "text"], ["item", "아이템", "text"], ["min_lines", "최소 줄", 1], ["max_lines", "최대 줄", 1], ["mult", "값 배율", 0.1]], equipment.scrolls);
+  table("potentials", [["stat", "능력치", "stat"], ["weight", "무게", 1], ["min", "최소", 1], ["max", "최대", 1]], equipment.potentials,
+    i => { equipment.potentials.splice(i, 1); markDirty(); renderEquip(); });
+  table("bosses", [["name", "이름", "text"], ["mob", "바탕 몹", "text"], ["health", "체력", 10], ["damage", "공격 배율", 0.1], ["spawn_chance", "자연 스폰 확률", 0.001], ["raid", "레이드", "bool"]], equipment.bosses);
+  table("shop", [["item", "아이템", "text"], ["price", "값", 100]], equipment.shop);
+}
+$("#add-potential").onclick = () => { equipment.potentials.push({ stat: "str", weight: 5, min: 1, max: 3 }); markDirty(); renderEquip(); };
+$("#equip-default").onclick = async () => { equipment = await api("GET", "equipment/default"); markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다."); };
+
 // ---- JSON / 탭 ----
 function renderRaw() {
   $("#raw-guild").value = JSON.stringify(guild, null, 2);
   $("#raw-quests").value = JSON.stringify(quests, null, 2);
+  $("#raw-equip").value = JSON.stringify(equipment, null, 2);
 }
 $("#raw-guild").oninput = markDirty;
 $("#raw-quests").oninput = markDirty;
+$("#raw-equip").oninput = markDirty;
 function readRaw() {
   // JSON 탭에서 고친 것을 폼에 반영 (망가졌으면 알림)
   try { guild = JSON.parse($("#raw-guild").value); } catch (e) { throw new Error("길드 JSON: " + e.message); }
   try { quests = JSON.parse($("#raw-quests").value); } catch (e) { throw new Error("퀘스트 JSON: " + e.message); }
+  try { equipment = JSON.parse($("#raw-equip").value); } catch (e) { throw new Error("장비 JSON: " + e.message); }
 }
-function renderAll() { renderGuild(); renderQuests(); renderRaw(); }
+function renderAll() { renderGuild(); renderQuests(); renderEquip(); renderRaw(); }
 function show(t) {
-  if (tab === "raw" && t !== "raw") { try { readRaw(); renderGuild(); renderQuests(); } catch (e) { status(e.message, "bad"); return; } }
+  if (tab === "raw" && t !== "raw") { try { readRaw(); renderGuild(); renderQuests(); renderEquip(); } catch (e) { status(e.message, "bad"); return; } }
   if (t === "raw") renderRaw();
   tab = t;
   $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
-  for (const k of ["guild", "quests", "raw"]) $("#tab-" + k).hidden = k !== t;
+  for (const k of ["guild", "quests", "equip", "raw"]) $("#tab-" + k).hidden = k !== t;
 }
 $$("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
 
 async function load() {
   status("불러오는 중…");
-  [guild, quests] = await Promise.all([api("GET", "guild-config"), api("GET", "quests")]);
+  [guild, quests, equipment] = await Promise.all([api("GET", "guild-config"), api("GET", "quests"), api("GET", "equipment")]);
   renderAll(); clean(); show(tab);
   status("불러왔습니다", "ok");
 }
@@ -322,20 +402,22 @@ $("#save").onclick = async () => {
   try {
     if (tab === "raw") readRaw();
     status("확인하는 중…");
-    // 둘 다 통과해야 저장 (하나만 저장되는 일이 없게)
+    // 모두 통과해야 저장 (하나만 저장되는 일이 없게)
     await api("PUT", "guild-config", guild, true).catch(e => { throw new Error("길드: " + e.message); });
     await api("PUT", "quests", quests, true).catch(e => { throw new Error("퀘스트: " + e.message); });
+    await api("PUT", "equipment", equipment, true).catch(e => { throw new Error("장비: " + e.message); });
     status("저장하는 중…");
     const g = await api("PUT", "guild-config", guild);
     const q = await api("PUT", "quests", quests);
-    guild = g.saved; quests = q.saved;
+    const eq = await api("PUT", "equipment", equipment);
+    guild = g.saved; quests = q.saved; equipment = eq.saved;
     renderAll(); clean();
     status("저장했습니다 — 모든 인스턴스에 곧바로 적용", "ok");
   } catch (e) { status("저장 못 함: " + e.message, "bad"); }
 };
 window.addEventListener("beforeunload", e => { if (dirty) e.preventDefault(); });
 
-function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "raw"]) $("#tab-" + k).hidden = true; }
+function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "equip", "raw"]) $("#tab-" + k).hidden = true; }
 $("#login-go").onclick = () => {
   token = $("#token").value.trim();
   try { sessionStorage.setItem("dangu-token", token); } catch {}

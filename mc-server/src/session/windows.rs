@@ -41,6 +41,8 @@ pub enum WindowKind {
     Guild(crate::plugins::guild::gui::Page),
     /// `/퀘스트` 메뉴.
     Quest(crate::plugins::quest::gui::Page),
+    /// `/장비` · `/강화` · `/대장간` 메뉴.
+    Equip(crate::plugins::equip::gui::Page),
     /// 길드 창고 한 페이지: 위 45칸은 진짜 칸, 아래 줄은 버튼.
     GuildStorage {
         guild: u32,
@@ -282,6 +284,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             WindowKind::Catalog(page) => self.catalog_slots(page),
             WindowKind::Guild(page) => self.guild_slots(page),
             WindowKind::Quest(page) => self.quest_slots(page),
+            WindowKind::Equip(page) => self.equip_slots(page),
             WindowKind::GuildStorage { guild, page } => {
                 let mut v = crate::plugins::guild::guilds().read(|d| {
                     d.guild(*guild)
@@ -325,6 +328,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         | WindowKind::Catalog(_)
                         | WindowKind::Guild(_)
                         | WindowKind::Quest(_)
+                        | WindowKind::Equip(_)
                         | WindowKind::GuildStorage { .. }
                 ) {
                     self.lottery_closed();
@@ -354,21 +358,29 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         self.send_inventory().await
     }
 
+    /// 열린 창의 위쪽(창 자체) 칸 수. 그 뒤가 플레이어 가방 27칸 + 핫바 9칸.
+    pub(crate) fn window_size(&self) -> usize {
+        match &self.window {
+            None => 0,
+            Some(w) => match w.kind {
+                WindowKind::Crafting => 10,
+                WindowKind::Chest { size, .. } => size,
+                WindowKind::Merchant { .. } => 3,
+                WindowKind::Lottery(ref page) => page.size(),
+                WindowKind::Catalog(_) => 54,
+                WindowKind::Guild(ref page) => page.size(),
+                WindowKind::Quest(_) | WindowKind::Equip(_) => 54,
+                WindowKind::GuildStorage { .. } => 54,
+            },
+        }
+    }
+
     /// 창 번호의 칸 하나 읽기·쓰기.
     fn slot_mut(&mut self, slot: usize) -> Option<SlotRef<'_>> {
+        let own = self.window_size();
         match &mut self.window {
             None => (slot < 46).then(|| SlotRef::Inventory(&mut self.inventory[slot])),
             Some(w) => {
-                let own = match w.kind {
-                    WindowKind::Crafting => 10,
-                    WindowKind::Chest { size, .. } => size,
-                    WindowKind::Merchant { .. } => 3,
-                    WindowKind::Lottery(ref page) => page.size(),
-                    WindowKind::Catalog(_) => 54,
-                    WindowKind::Guild(ref page) => page.size(),
-                    WindowKind::Quest(_) => 54,
-                    WindowKind::GuildStorage { .. } => 54,
-                };
                 if slot < own {
                     match &w.kind {
                         WindowKind::Crafting => {
@@ -384,7 +396,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         WindowKind::Lottery(_)
                         | WindowKind::Catalog(_)
                         | WindowKind::Guild(_)
-                        | WindowKind::Quest(_) => None,
+                        | WindowKind::Quest(_)
+                        | WindowKind::Equip(_) => None,
                         WindowKind::GuildStorage { guild, page } => (slot
                             < crate::plugins::guild::PAGE_SLOTS)
                             .then_some(SlotRef::Guild(*guild, *page, slot)),
@@ -411,11 +424,20 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             return Ok(()); // 이미 닫힌 창에 대한 클릭
         }
         let menu = self.window.as_ref().map(|w| w.kind.clone());
+        // 주문서를 들고 악세서리 위에 놓기 (가방·상자 등 보통 창에서)
+        if c.mode == pc::MODE_PICKUP
+            && c.button == 0
+            && let Ok(slot) = usize::try_from(c.slot)
+            && self.try_apply_scroll(slot).await?
+        {
+            return Ok(());
+        }
         if let Some(
             WindowKind::Lottery(_)
             | WindowKind::Catalog(_)
             | WindowKind::Guild(_)
-            | WindowKind::Quest(_),
+            | WindowKind::Quest(_)
+            | WindowKind::Equip(_),
         ) = menu
         {
             // 메뉴: 무엇을 집든 되돌리고, 누른 칸만 버튼으로
@@ -427,6 +449,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 }
                 Some(WindowKind::Quest(page)) => {
                     self.quest_click(page, c.slot, c.button, c.mode).await?
+                }
+                Some(WindowKind::Equip(page)) => {
+                    self.equip_click(page, c.slot, c.button, c.mode).await?
                 }
                 _ => {}
             }

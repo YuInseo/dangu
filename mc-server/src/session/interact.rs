@@ -70,8 +70,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
             self.exhaust(0.005);
             if let Some((custom, drops)) = crate::plugins::contents::block_item(old) {
-                // 사용자 정의 블록은 그 아이템을 떨어뜨림
-                if drops && let Some(def) = crate::game::custom_items::get(custom) {
+                // 장비 광석은 원석을, 그 밖의 사용자 정의 블록은 그 아이템을 떨어뜨림
+                if self.ore_mined(custom, pos).await? {
+                } else if drops && let Some(def) = crate::game::custom_items::get(custom) {
                     let item = Item {
                         id: def.base,
                         count: 1,

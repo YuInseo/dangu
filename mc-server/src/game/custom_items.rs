@@ -11,7 +11,7 @@
 
 use std::collections::HashMap;
 use std::path::Path;
-use std::sync::{Mutex, RwLock};
+use std::sync::{Mutex, OnceLock, RwLock};
 
 use crate::data::{component, items};
 use crate::json::{self, Json};
@@ -101,9 +101,18 @@ pub struct Look {
     pub name: Option<(String, String)>,
     pub lore: Vec<String>,
     pub glint: Option<bool>,
+    /// 색을 여러 가지 쓰는 이름과 설명 줄 (텍스트 컴포넌트). 있으면 `name`·`lore` 대신.
+    pub rich: Option<(Tag, Vec<Tag>)>,
 }
 
 static LOOKS: RwLock<Option<HashMap<u32, Look>>> = RwLock::new(None);
+/// [`set_look`]로 정하지 않은 일련번호의 겉모습을 그때그때 만드는 곳 (장비 플러그인).
+static LOOK_PROVIDER: OnceLock<fn(u32) -> Option<Look>> = OnceLock::new();
+
+/// 일련번호 → 겉모습을 만드는 함수를 정합니다 (한 번만).
+pub fn set_look_provider(f: fn(u32) -> Option<Look>) {
+    let _ = LOOK_PROVIDER.set(f);
+}
 
 /// 이 일련번호의 아이템을 이렇게 보이게 합니다 (다음에 보내는 칸부터).
 pub fn set_look(serial: u32, look: Look) {
@@ -121,7 +130,12 @@ pub fn remove_look(serial: u32) {
 }
 
 fn look(serial: u32) -> Option<Look> {
-    LOOKS.read().unwrap().as_ref()?.get(&serial).cloned()
+    let fixed = LOOKS
+        .read()
+        .unwrap()
+        .as_ref()
+        .and_then(|m| m.get(&serial).cloned());
+    fixed.or_else(|| LOOK_PROVIDER.get().and_then(|f| f(serial)))
 }
 
 pub fn get(index: u16) -> Option<CustomItem> {
@@ -190,9 +204,11 @@ pub fn components_with(index: u16, serial: u32) -> Vec<(i32, Vec<u8>)> {
     let Some(mut c) = get(index) else {
         return Vec::new();
     };
+    let mut rich = None;
     if serial != 0
         && let Some(l) = look(serial)
     {
+        rich = l.rich;
         if let Some((name, color)) = l.name {
             c.name = name;
             c.color = color;
@@ -215,10 +231,18 @@ pub fn components_with(index: u16, serial: u32) -> Vec<(i32, Vec<u8>)> {
         data.push((SERIAL_KEY.into(), Tag::Int(serial as i32)));
     }
     out.push((component::CUSTOM_DATA, nbt(Tag::Compound(data))));
-    if !own.contains(&component::ITEM_NAME) || serial != 0 {
+    if let Some((name, lore)) = &rich {
+        out.push((component::ITEM_NAME, nbt(name.clone())));
+        let mut b = Vec::new();
+        write_varint(&mut b, lore.len() as i32);
+        for line in lore {
+            line.write_root(&mut b);
+        }
+        out.push((component::LORE, b));
+    } else if !own.contains(&component::ITEM_NAME) || serial != 0 {
         out.push((component::ITEM_NAME, nbt(text(&c.name, &c.color))));
     }
-    if !c.lore.is_empty() && (!own.contains(&component::LORE) || serial != 0) {
+    if rich.is_none() && !c.lore.is_empty() && (!own.contains(&component::LORE) || serial != 0) {
         let mut b = Vec::new();
         write_varint(&mut b, c.lore.len() as i32);
         for line in &c.lore {

@@ -200,7 +200,12 @@ fn natural(server: &Server, players: &[PlayerState]) {
                         && dark(server, dim, x, y, z)
                     {
                         let k = overworld_hostile("", false);
-                        mobs::spawn(server, k, dim, (x as f64 + 0.5, y as f64, z as f64 + 0.5));
+                        mobs::spawn_natural(
+                            server,
+                            k,
+                            dim,
+                            (x as f64 + 0.5, y as f64, z as f64 + 0.5),
+                        );
                         continue;
                     }
                 }
@@ -211,7 +216,12 @@ fn natural(server: &Server, players: &[PlayerState]) {
                     if dark(server, dim, x, y, z) {
                         let def = bio.def();
                         let k = overworld_hostile(def.name, def.snowy);
-                        mobs::spawn(server, k, dim, (x as f64 + 0.5, y as f64, z as f64 + 0.5));
+                        mobs::spawn_natural(
+                            server,
+                            k,
+                            dim,
+                            (x as f64 + 0.5, y as f64, z as f64 + 0.5),
+                        );
                     }
                 } else if passive_near < PASSIVE_CAP
                     && server.world.get(dim, x, y - 1, z) == block::GRASS_BLOCK
@@ -221,7 +231,7 @@ fn natural(server: &Server, players: &[PlayerState]) {
                     for i in 0..2 + rand_u32() % 3 {
                         let (gx, gz) = (x + (i as i32 % 2) * 2, z + (i as i32 / 2) * 2);
                         if let Some(gy) = surface(server, dim, gx, gz) {
-                            mobs::spawn(
+                            mobs::spawn_natural(
                                 server,
                                 k,
                                 dim,
@@ -245,11 +255,11 @@ fn natural(server: &Server, players: &[PlayerState]) {
                 } else {
                     pick(&[(MobKind::ZombifiedPiglin, 10), (MobKind::Enderman, 1)])
                 };
-                mobs::spawn(server, k, dim, (x as f64 + 0.5, y as f64, z as f64 + 0.5));
+                mobs::spawn_natural(server, k, dim, (x as f64 + 0.5, y as f64, z as f64 + 0.5));
             }
             Dimension::End if !peaceful && hostile_near < HOSTILE_CAP => {
                 if let Some(y) = surface(server, dim, x, z) {
-                    mobs::spawn(
+                    mobs::spawn_natural(
                         server,
                         MobKind::Enderman,
                         dim,

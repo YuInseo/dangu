@@ -884,6 +884,62 @@ fn replaceable_stone(state: u32) -> bool {
         || matches!(name_of(state), "granite" | "diorite" | "andesite" | "tuff")
 }
 
+/// 플러그인이 더하는 광석 (사용자 정의 블록 상태).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExtraOre {
+    pub state: u32,
+    pub nether: bool,
+    pub min_y: i32,
+    pub max_y: i32,
+    /// 청크마다 광맥 수
+    pub tries: u32,
+    /// 광맥 크기 (블록)
+    pub size: u32,
+}
+
+static EXTRA_ORES: std::sync::RwLock<Vec<ExtraOre>> = std::sync::RwLock::new(Vec::new());
+
+pub fn set_extra_ores(ores: Vec<ExtraOre>) {
+    *EXTRA_ORES.write().unwrap() = ores;
+}
+
+/// 플러그인 광석을 이 청크에 (오버월드는 돌·심층암, 지옥은 네더랙 자리에).
+pub fn extra_ores(p: &mut Placer, seed: u64, nether: bool) {
+    let ores: Vec<ExtraOre> = EXTRA_ORES
+        .read()
+        .unwrap()
+        .iter()
+        .filter(|o| o.nether == nether)
+        .cloned()
+        .collect();
+    if ores.is_empty() {
+        return;
+    }
+    let mut rng = biome::chunk_rng(seed, p.cx, p.cz, 0xD4A6);
+    for o in &ores {
+        for _ in 0..o.tries {
+            let (mut x, mut y, mut z) = (
+                p.cx * 16 + rng.range(1, 14),
+                rng.range(o.min_y, o.max_y.max(o.min_y)),
+                p.cz * 16 + rng.range(1, 14),
+            );
+            for _ in 0..o.size {
+                let ok = match p.get(x, y, z) {
+                    Some(s) if nether => s == block::NETHERRACK,
+                    Some(s) => replaceable_stone(s),
+                    None => false,
+                };
+                if ok {
+                    p.set(x, y, z, o.state);
+                }
+                x += rng.range(-1, 1);
+                y += rng.range(-1, 1);
+                z += rng.range(-1, 1);
+            }
+        }
+    }
+}
+
 pub fn ores(p: &mut Placer, seed: u64) {
     let mut rng = biome::chunk_rng(seed, p.cx, p.cz, 0x0AE5);
     for ore in ORES {

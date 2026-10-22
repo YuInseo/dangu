@@ -275,6 +275,10 @@ pub struct Mob {
     pub npc: Option<&'static str>,
     /// 머리 위 이름표.
     pub custom_name: Option<String>,
+    /// 보스면 그 id (죽으면 [`set_boss_hooks`]의 전리품).
+    pub boss: Option<String>,
+    /// 근접 공격 배율 (보스).
+    pub damage_mult: f32,
     /// 마지막으로 보낸 상태 플래그 (불붙음).
     flags_sent: u8,
 }
@@ -306,6 +310,8 @@ impl Mob {
             trading: false,
             npc: None,
             custom_name: None,
+            boss: None,
+            damage_mult: 1.0,
             flags_sent: 0,
         }
     }
@@ -404,6 +410,11 @@ fn hurt(
         e.pos.1.floor() as i32,
         e.pos.2.floor() as i32,
     );
+    if let (Some(id), Some(hooks)) = (&m.boss, BOSS_HOOKS.get()) {
+        for item in (hooks.0)(id) {
+            out.drops.push((e.dimension, at, item));
+        }
+    }
     for &(name, lo, hi) in m.kind.drops() {
         let count = lo + (rand_u32() % (hi - lo + 1) as u32) as i32;
         if let (Some(item), true) = (by_name(name), count > 0) {
@@ -463,6 +474,29 @@ pub fn damage(
 
 pub fn spawn(server: &Server, kind: MobKind, dimension: Dimension, pos: Vec3) -> i32 {
     spawn_mob(server, Mob::new(kind), dimension, pos)
+}
+
+/// 보스 훅: (보스 id → 전리품, 자연 스폰 몹 → 보스로 바꿀지). 장비 플러그인이 정합니다.
+type BossHooks = (fn(&str) -> Vec<Item>, fn(MobKind) -> Option<Mob>);
+static BOSS_HOOKS: std::sync::OnceLock<BossHooks> = std::sync::OnceLock::new();
+
+pub fn set_boss_hooks(loot: fn(&str) -> Vec<Item>, natural: fn(MobKind) -> Option<Mob>) {
+    let _ = BOSS_HOOKS.set((loot, natural));
+}
+
+/// 자연 스폰: 드물게 보스로 바뀜.
+pub fn spawn_natural(server: &Server, kind: MobKind, dimension: Dimension, pos: Vec3) -> i32 {
+    let mob = BOSS_HOOKS
+        .get()
+        .and_then(|h| (h.1)(kind))
+        .unwrap_or_else(|| Mob::new(kind));
+    if let Some(name) = mob.boss.as_ref().and(mob.custom_name.as_ref()) {
+        server.publish(Event::System(crate::text::colored(
+            &format!("어딘가에 {name}§r§c이(가) 나타났습니다!"),
+            "red",
+        )));
+    }
+    spawn_mob(server, mob, dimension, pos)
 }
 
 pub fn spawn_mob(server: &Server, mob: Mob, dimension: Dimension, pos: Vec3) -> i32 {

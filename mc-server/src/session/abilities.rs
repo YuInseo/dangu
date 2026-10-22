@@ -112,7 +112,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     volume: 4.0,
                     pitch: 1.0,
                 });
-                // 주변의 몹과 (나 말고) 플레이어에게 피해
+                // 주변의 몹과 (나 말고) 플레이어에게 피해 (마법력만큼 강해짐)
+                let magic = self.rpg_stats(self.hud.job_levels()).magic;
+                let bolt = LIGHTNING_DAMAGE * (1.0 + magic / 100.0);
                 let mobs_near: Vec<i32> = self
                     .server
                     .entities
@@ -125,13 +127,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     .map(|e| e.id)
                     .collect();
                 for m in mobs_near {
-                    mobs::damage(
-                        self.server,
-                        m,
-                        LIGHTNING_DAMAGE,
-                        Some(ground),
-                        Some(self.entity_id),
-                    );
+                    mobs::damage(self.server, m, bolt, Some(ground), Some(self.entity_id));
                 }
                 for p in self.server.players() {
                     if p.uuid != self.profile.uuid
@@ -140,7 +136,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     {
                         self.server.publish(Event::Damage {
                             target: p.uuid,
-                            amount: LIGHTNING_DAMAGE,
+                            amount: bolt,
                             damage_type: "lightning_bolt",
                             attacker: Some((self.entity_id, ground)),
                             attacker_name: self.profile.name.clone(),

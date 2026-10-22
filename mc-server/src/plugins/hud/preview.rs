@@ -226,11 +226,14 @@ fn hud_preview() {
     );
     let stats = crate::plugins::rpg::Stats {
         level: 12,
-        attack: 7.0,
-        defense: 8.0,
-        max_health: 20.0,
-        speed: 100.0,
+        attack: 186.0,
+        magic: 42.0,
+        defense: 64.0,
+        max_health: 455.0,
         max_mana: 155.0,
+        crit_chance: 18.0,
+        crit_damage: 175.0,
+        speed: 100.0,
     };
     let bottom = super::bottom(&super::Bottom {
         stats: Some(&stats),

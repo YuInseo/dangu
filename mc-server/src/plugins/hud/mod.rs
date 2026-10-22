@@ -291,14 +291,24 @@ pub fn bottom(b: &Bottom) -> Tag {
             false,
             &[
                 item(sprites::STAR, "레벨", s.level.to_string(), Pal::Yellow),
-                item(sprites::SWORD, "공격력", trim(s.attack), Pal::White),
-                item(sprites::SHIELD, "방어력", trim(s.defense), Pal::White),
-                item(sprites::HEART, "체력", trim(s.max_health), Pal::White),
                 item(
-                    sprites::BOOT,
-                    "속도",
-                    format!("{:.0}%", s.speed),
+                    sprites::SWORD,
+                    "공격력",
+                    number(s.attack as i64),
                     Pal::White,
+                ),
+                item(sprites::DROP, "마법력", number(s.magic as i64), Pal::Aqua),
+                item(
+                    sprites::SHIELD,
+                    "방어력",
+                    number(s.defense as i64),
+                    Pal::White,
+                ),
+                item(
+                    sprites::HEART,
+                    "치명타",
+                    format!("{:.0}%", s.crit_chance),
+                    Pal::Pink,
                 ),
                 item(
                     sprites::FLAME,
@@ -310,15 +320,6 @@ pub fn bottom(b: &Bottom) -> Tag {
         );
     }
     c.finish()
-}
-
-/// 7.0 → "7", 7.5 → "7.5".
-fn trim(v: f32) -> String {
-    if (v - v.round()).abs() < 0.05 {
-        format!("{:.0}", v)
-    } else {
-        format!("{v:.1}")
-    }
 }
 
 /// 핫바 왼쪽 위(가운데에서 -91..-10): 아이콘 + 막대. 바닐라 하트 자리에 체력, 그 위 갑옷 자리에 마나.
@@ -416,11 +417,14 @@ mod tests {
 
         let s = crate::plugins::rpg::Stats {
             level: 12,
-            attack: 7.0,
-            defense: 8.0,
-            max_health: 20.0,
-            speed: 100.0,
+            attack: 186.0,
+            magic: 42.0,
+            defense: 64.0,
+            max_health: 455.0,
             max_mana: 100.0,
+            crit_chance: 18.0,
+            crit_damage: 175.0,
+            speed: 100.0,
         };
         let b = bottom(&Bottom {
             stats: Some(&s),
@@ -443,7 +447,5 @@ mod tests {
         assert_eq!(number(-5000), "-5,000");
         assert_eq!(number(999_999_999), "999,999,999");
         assert_eq!(number(12_345_678_901), "12.3B");
-        assert_eq!(trim(7.0), "7");
-        assert_eq!(trim(7.5), "7.5");
     }
 }

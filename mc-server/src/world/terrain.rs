@@ -221,6 +221,7 @@ fn overworld(seed: u64, cx: i32, cz: i32) -> Column {
     {
         let mut p = Placer::new(&mut col, cx, cz);
         features::ores(&mut p, seed);
+        features::extra_ores(&mut p, seed, false);
         for dx in -1..=1 {
             for dz in -1..=1 {
                 features::trees_from(&mut p, seed, cx + dx, cz + dz);
@@ -555,6 +556,7 @@ fn nether(seed: u64, cx: i32, cz: i32) -> Column {
             }
         }
         nether_ores(&mut p, seed);
+        features::extra_ores(&mut p, seed, true);
         super::structure::generate(&mut p, seed, Dimension::Nether);
     }
     let _ = floors;

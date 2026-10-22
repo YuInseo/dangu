@@ -251,6 +251,30 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/채널 [전체|채널|주변|거래|길드|관리자] | 끄기|켜기 <이름> — 채팅 채널 (앞에 ! $ @ # ~ 를 붙이면 한 번만)",
     },
     Spec {
+        name: "장비",
+        aliases: &["equip", "gear"],
+        level: 0,
+        usage: "/장비 — 장비 창 (악세서리·능력치·세트) · /장비 지급 <id> [개수] (OP)",
+    },
+    Spec {
+        name: "강화",
+        aliases: &["enhance"],
+        level: 0,
+        usage: "/강화 — 장비 강화 (+30까지)",
+    },
+    Spec {
+        name: "대장간",
+        aliases: &["smith", "제작"],
+        level: 0,
+        usage: "/대장간 [제련|장비|악세서리|재료|상점]",
+    },
+    Spec {
+        name: "보스",
+        aliases: &["boss"],
+        level: 0,
+        usage: "/보스 목록 · /보스 소환 <id> (OP)",
+    },
+    Spec {
         name: "퀘스트",
         aliases: &["quest", "q"],
         level: 0,
@@ -869,6 +893,17 @@ pub fn suggest(server: &Server, actor: &Actor, line: &str) -> (usize, Vec<String
     let mut out: Vec<String> = match (spec.name, &words[1..]) {
         ("server", []) => instance_names(),
         ("iaget", []) => crate::plugins::contents::current().items.clone(),
+        ("장비", ["지급"]) => crate::plugins::equip::config::with(|c| {
+            c.gear
+                .iter()
+                .map(|g| g.id.clone())
+                .chain(c.materials.iter().map(|m| m.id.clone()))
+                .chain(c.ores.iter().map(|o| o.block.clone()))
+                .collect()
+        }),
+        ("보스", ["소환"]) => {
+            crate::plugins::equip::config::with(|c| c.bosses.iter().map(|b| b.id.clone()).collect())
+        }
         ("npc", []) => [
             "create", "select", "list", "info", "rename", "type", "skin", "desc", "tphere", "look",
             "msg", "cmd", "action", "remove",
