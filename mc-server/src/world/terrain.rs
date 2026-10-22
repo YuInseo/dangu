@@ -21,75 +21,17 @@ pub const LAVA_LEVEL: i32 = 31;
 /// 이 아래의 동굴은 용암으로 찹니다 (바닐라와 같은 -55).
 const CAVE_LAVA_LEVEL: i32 = -55;
 
-/// 블록 하나하나를 담은 청크 기둥 (16×높이×16)과 바이옴(4×4×4 칸마다).
-pub struct Column {
-    pub dimension: Dimension,
-    blocks: Vec<u32>,
-    /// (높이/4) × 16칸, `ycell*16 + (z/4)*4 + x/4`. 값은 [`Biome`] 번호.
-    biomes: Vec<u8>,
-    /// 구조물 상자들의 전리품 표: (월드 좌표, 표 이름).
-    pub loot: Vec<((i32, i32, i32), &'static str)>,
-    /// 몹 생성기: (월드 좌표, 엔티티 이름).
-    pub spawners: Vec<((i32, i32, i32), &'static str)>,
-}
-
-impl Column {
-    fn new(dimension: Dimension, fill_biome: Biome) -> Self {
-        Self {
-            dimension,
-            blocks: vec![block::AIR; dimension.height() as usize * 256],
-            biomes: vec![fill_biome.0; dimension.height() as usize / 4 * 16],
-            loot: Vec::new(),
-            spawners: Vec::new(),
-        }
-    }
-
-    fn index(&self, x: usize, y: i32, z: usize) -> Option<usize> {
-        let ry = y - self.dimension.min_y();
-        (0..self.dimension.height())
-            .contains(&ry)
-            .then(|| ry as usize * 256 + z * 16 + x)
-    }
-
-    pub fn get(&self, x: usize, y: i32, z: usize) -> u32 {
-        self.index(x, y, z).map_or(block::AIR, |i| self.blocks[i])
-    }
-
-    pub fn set(&mut self, x: usize, y: i32, z: usize, state: u32) {
-        if let Some(i) = self.index(x, y, z) {
-            self.blocks[i] = state;
-        }
-    }
-
-    /// 섹션 하나(아래에서 `section`번째)의 4096개 블록, `y*256 + z*16 + x` 순서.
-    pub fn section(&self, section: usize) -> &[u32] {
-        &self.blocks[section * 4096..(section + 1) * 4096]
-    }
-
-    /// 섹션 하나의 바이옴 64칸, `(y*4 + z)*4 + x` 순서 (바닐라 팔레트 순서).
-    pub fn section_biomes(&self, section: usize) -> &[u8] {
-        &self.biomes[section * 64..(section + 1) * 64]
-    }
-
-    pub fn biome_at(&self, x: usize, y: i32, z: usize) -> Biome {
-        let ry = ((y - self.dimension.min_y()).clamp(0, self.dimension.height() - 1) / 4) as usize;
-        Biome(self.biomes[ry * 16 + (z / 4) * 4 + x / 4])
-    }
-
-    fn set_biome_cell(&mut self, cx: usize, ycell: usize, cz: usize, b: Biome) {
-        if let Some(c) = self.biomes.get_mut(ycell * 16 + cz * 4 + cx) {
-            *c = b.0;
-        }
-    }
-}
+pub use super::column::Column;
 
 /// 청크 (cx, cz)를 만듭니다.
 pub fn generate(dimension: Dimension, seed: u64, cx: i32, cz: i32) -> Column {
-    match dimension {
+    let mut col = match dimension {
         Dimension::Overworld => overworld(seed, cx, cz),
         Dimension::Nether => nether(seed, cx, cz),
         Dimension::End => end(seed, cx, cz),
-    }
+    };
+    col.compact();
+    col
 }
 
 /// 플레이어가 설 수 있는 가장 높은 블록 바로 위의 y (지형만 보고, 나무는 무시).

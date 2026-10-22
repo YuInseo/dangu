@@ -28,7 +28,6 @@ use crate::protocol::frame::{FrameError, RawPacket};
 use crate::protocol::nbt::Tag;
 use crate::server::{AlreadyOnline, Event, PlayerState, Server};
 use crate::text;
-use crate::world::store::WorldStore;
 use crate::world::{Dimension, chunk, terrain};
 
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
@@ -627,22 +626,13 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         // 가까운 것부터: 발밑 청크가 먼저 와야 로딩 화면이 빨리 끝납니다.
         wanted.sort_by_key(|&(x, z)| (x - center.0).pow(2) + (z - center.1).pow(2));
 
-        // 생성은 CPU 일이므로 비동기 런타임 밖에서.
-        // 바뀐 블록은 여기서 복사해 넘깁니다 (잠금을 다른 스레드로 가져가지 않도록).
-        let (dimension, seed) = (self.dimension, self.server.seed);
-        let jobs: Vec<_> = wanted
-            .iter()
-            .map(|&(x, z)| (x, z, self.server.world.changes_in(dimension, x, z)))
-            .collect();
+        // 읽기·생성·인코딩은 CPU·디스크 일이므로 비동기 런타임 밖에서.
+        let dimension = self.dimension;
+        let world = std::sync::Arc::clone(&self.server.world);
+        let jobs = wanted.clone();
         let bodies = tokio::task::spawn_blocking(move || {
             jobs.iter()
-                .map(|(x, z, changes)| {
-                    chunk::encode(
-                        &WorldStore::column(seed, dimension, *x, *z, changes),
-                        *x,
-                        *z,
-                    )
-                })
+                .map(|&(x, z)| chunk::encode(&world.chunk(dimension, x, z), x, z))
                 .collect::<Vec<_>>()
         })
         .await

@@ -1,70 +1,57 @@
-//! 플레이어가 바꾼 블록. 지형은 시드로 언제든 다시 만들 수 있으므로, 바뀐 블록만
-//! 기억했다가 청크를 만들 때 덮어씁니다. 디스크에도 그것만 저장합니다.
+//! 월드 저장소: 메모리에 올린 청크들과 바닐라 Anvil 영역 파일(`region/r.X.Z.mca`).
 //!
-//! 저장 파일 (`blocks.dat`, 빅엔디언):
-//! ```text
-//! "DGW1" | u32 개수 | 개수 × (u8 차원, i32 x, i32 y, i32 z, u32 블록 상태)
-//! ```
+//! 청크가 필요하면 영역 파일에서 읽고, 없으면 지형 생성기로 만듭니다. 만든 청크와 바뀐
+//! 청크는 "저장할 것"으로 표시했다가 [`WorldStore::save`]에서 영역 파일에 씁니다. 메모리에는
+//! 최근에 쓴 청크를 [`CACHE_CHUNKS`]개까지만 두고, 오래된 것은 (저장한 뒤) 내립니다.
+//!
+//! 예전 형식(`blocks.dat`: 바뀐 블록 목록)은 처음 열 때 영역 파일로 옮기고 `blocks.dat.old`로
+//! 이름을 바꿉니다.
 
 use std::collections::HashMap;
-use std::io::{self, Read, Write};
-use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::io::{self, Read};
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use super::Dimension;
+use super::anvil;
 use super::terrain::{self, Column};
+use crate::game::containers::Containers;
 
-const MAGIC: &[u8; 4] = b"DGW1";
-const FILE_NAME: &str = "blocks.dat";
+const LEGACY_MAGIC: &[u8; 4] = b"DGW1";
+const LEGACY_FILE: &str = "blocks.dat";
+
+/// 메모리에 둘 청크 수 (섹션 압축으로 청크 하나가 대략 50~150KB).
+pub const CACHE_CHUNKS: usize = 1536;
 
 type ChunkKey = (Dimension, i32, i32);
-/// 청크 안 좌표 (x 0..16, 월드 y, z 0..16).
-type LocalPos = (u8, i32, u8);
+
+struct Entry {
+    col: Arc<Column>,
+    dirty: bool,
+    used: u64,
+}
+
+#[derive(Default)]
+struct Cache {
+    map: HashMap<ChunkKey, Entry>,
+    clock: u64,
+}
 
 pub struct WorldStore {
     seed: u64,
     dir: Option<PathBuf>,
-    changes: Mutex<HashMap<ChunkKey, HashMap<LocalPos, u32>>>,
-    dirty: AtomicBool,
-    /// 블록 하나를 물을 때마다 청크를 새로 만들지 않도록, 최근에 만든 지형을 몇 개 둡니다.
-    terrain: Mutex<TerrainCache>,
+    cache: Mutex<Cache>,
+    /// 영역 파일은 한 번에 하나씩 씁니다.
+    io: Mutex<()>,
+    /// 상자 내용: 저장할 때 블록 엔티티에 넣고, 바닐라 월드를 읽을 때 채웁니다.
+    containers: OnceLock<Arc<Containers>>,
+    /// 켠 뒤 바뀐 블록 수.
+    changed: AtomicUsize,
 }
 
-const TERRAIN_CACHE_CHUNKS: usize = 48;
-
-#[derive(Default)]
-struct TerrainCache {
-    columns: HashMap<ChunkKey, (Arc<Column>, u64)>,
-    clock: u64,
-}
-
-impl TerrainCache {
-    fn get(&mut self, seed: u64, key: ChunkKey) -> Arc<Column> {
-        self.clock += 1;
-        let clock = self.clock;
-        if let Some((col, used)) = self.columns.get_mut(&key) {
-            *used = clock;
-            return col.clone();
-        }
-        if self.columns.len() >= TERRAIN_CACHE_CHUNKS {
-            // 가장 오래 안 쓴 것 버리기
-            let oldest = *self
-                .columns
-                .iter()
-                .min_by_key(|(_, (_, used))| *used)
-                .unwrap()
-                .0;
-            self.columns.remove(&oldest);
-        }
-        let col = Arc::new(terrain::generate(key.0, seed, key.1, key.2));
-        self.columns.insert(key, (col.clone(), clock));
-        col
-    }
-}
-
-fn split(x: i32, z: i32) -> ((i32, i32), (u8, u8)) {
-    ((x >> 4, z >> 4), ((x & 15) as u8, (z & 15) as u8))
+fn split(x: i32, z: i32) -> ((i32, i32), (usize, usize)) {
+    ((x >> 4, z >> 4), ((x & 15) as usize, (z & 15) as usize))
 }
 
 impl WorldStore {
@@ -73,160 +60,250 @@ impl WorldStore {
         let store = Self {
             seed,
             dir,
-            changes: Mutex::new(HashMap::new()),
-            dirty: AtomicBool::new(false),
-            terrain: Mutex::new(TerrainCache::default()),
+            cache: Mutex::new(Cache::default()),
+            io: Mutex::new(()),
+            containers: OnceLock::new(),
+            changed: AtomicUsize::new(0),
         };
-        if let Some(dir) = &store.dir {
-            let path = dir.join(FILE_NAME);
-            match std::fs::File::open(&path) {
-                Ok(mut f) => {
-                    let mut bytes = Vec::new();
-                    f.read_to_end(&mut bytes)?;
-                    store.load(&bytes)?;
-                }
-                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                Err(e) => return Err(e),
-            }
-        }
+        store.migrate_legacy()?;
         Ok(store)
     }
 
-    fn load(&self, bytes: &[u8]) -> io::Result<()> {
-        let bad = || io::Error::new(io::ErrorKind::InvalidData, "blocks.dat가 손상되었습니다");
-        if bytes.get(..4) != Some(MAGIC) {
-            return Err(bad());
+    /// 상자 내용을 함께 저장하도록 연결합니다.
+    pub fn attach_containers(&self, containers: Arc<Containers>) {
+        let _ = self.containers.set(containers);
+    }
+
+    /// 예전 `blocks.dat`(바뀐 블록 목록)를 영역 파일로 옮깁니다.
+    fn migrate_legacy(&self) -> io::Result<()> {
+        let Some(dir) = &self.dir else { return Ok(()) };
+        let path = dir.join(LEGACY_FILE);
+        let mut bytes = Vec::new();
+        match std::fs::File::open(&path) {
+            Ok(mut f) => f.read_to_end(&mut bytes)?,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        let changes = parse_legacy(&bytes)?;
+        let n = changes.len();
+        for (dim, x, y, z, state) in changes {
+            self.set(dim, x, y, z, state);
         }
-        let count =
-            u32::from_be_bytes(bytes.get(4..8).ok_or_else(bad)?.try_into().unwrap()) as usize;
-        let records = bytes.get(8..).ok_or_else(bad)?;
-        if records.len() != count * 17 {
-            return Err(bad());
-        }
-        let int = |r: &[u8], at: usize| i32::from_be_bytes(r[at..at + 4].try_into().unwrap());
-        let mut changes = self.changes.lock().unwrap();
-        for r in records.chunks(17) {
-            let dim = Dimension::from_index(r[0]).ok_or_else(bad)?;
-            let (x, y, z, state) = (int(r, 1), int(r, 5), int(r, 9), int(r, 13) as u32);
-            if state >= crate::data::BLOCK_STATE_COUNT {
-                return Err(bad());
-            }
-            let ((cx, cz), (lx, lz)) = split(x, z);
-            changes
-                .entry((dim, cx, cz))
-                .or_default()
-                .insert((lx, y, lz), state);
-        }
+        self.save()?;
+        std::fs::rename(&path, dir.join(format!("{LEGACY_FILE}.old")))?;
+        println!(
+            "{}: 예전 형식의 바뀐 블록 {n}개를 영역 파일로 옮겼습니다",
+            dir.display()
+        );
         Ok(())
     }
 
-    /// 한 블록의 지금 상태. 바뀐 적 없으면 지형 생성기에 묻습니다.
-    pub fn get(&self, dim: Dimension, x: i32, y: i32, z: i32) -> u32 {
-        let ((cx, cz), (lx, lz)) = split(x, z);
-        if let Some(state) = self
-            .changes
-            .lock()
-            .unwrap()
-            .get(&(dim, cx, cz))
-            .and_then(|c| c.get(&(lx, y, lz)))
+    /// 청크 하나 (메모리 → 영역 파일 → 지형 생성 순으로).
+    pub fn chunk(&self, dim: Dimension, cx: i32, cz: i32) -> Arc<Column> {
+        let key = (dim, cx, cz);
         {
-            return *state;
+            let mut c = self.cache.lock().unwrap();
+            c.clock += 1;
+            let clock = c.clock;
+            if let Some(e) = c.map.get_mut(&key) {
+                e.used = clock;
+                return e.col.clone();
+            }
         }
-        self.terrain
-            .lock()
-            .unwrap()
-            .get(self.seed, (dim, cx, cz))
-            .get(lx as usize, y, lz as usize)
+        let (col, fresh) = self.load_or_generate(dim, cx, cz);
+        self.insert(key, col, fresh)
     }
 
-    /// 그 자리가 구조물이 만든(플레이어가 바꾸지 않은) 상자라면 전리품 표.
-    pub fn loot_at(&self, dim: Dimension, x: i32, y: i32, z: i32) -> Option<&'static str> {
-        let ((cx, cz), (lx, lz)) = split(x, z);
-        if self
-            .changes
-            .lock()
-            .unwrap()
-            .get(&(dim, cx, cz))
-            .is_some_and(|c| c.contains_key(&(lx, y, lz)))
-        {
-            return None;
+    fn load_or_generate(&self, dim: Dimension, cx: i32, cz: i32) -> (Column, bool) {
+        if let Some(dir) = &self.dir {
+            match anvil::read_chunk(dir, dim, cx, cz) {
+                Ok(Some(tag)) => {
+                    if let Some(loaded) = anvil::from_nbt(&tag, dim) {
+                        if loaded.unknown_blocks > 0 {
+                            eprintln!(
+                                "청크 {cx},{cz}: 모르는 블록 {}개를 공기로 읽었습니다",
+                                loaded.unknown_blocks
+                            );
+                        }
+                        if let Some(containers) = self.containers.get() {
+                            for (pos, items) in loaded.items {
+                                if !containers.contains(dim, pos) {
+                                    let mut slots =
+                                        vec![None; crate::game::containers::CHEST_SLOTS];
+                                    for (i, it) in items {
+                                        if let Some(s) = slots.get_mut(i) {
+                                            *s = Some(it);
+                                        }
+                                    }
+                                    containers.fill(dim, pos, slots);
+                                }
+                            }
+                        }
+                        return (loaded.column, false);
+                    }
+                    eprintln!("청크 {cx},{cz}: 읽지 못해 새로 만듭니다");
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("청크 {cx},{cz}: {e} — 새로 만듭니다"),
+            }
         }
-        let col = self.terrain.lock().unwrap().get(self.seed, (dim, cx, cz));
-        col.loot
-            .iter()
-            .find(|(p, _)| *p == (x, y, z))
-            .map(|(_, t)| *t)
+        (terrain::generate(dim, self.seed, cx, cz), true)
+    }
+
+    /// 넣고(다른 스레드가 먼저 넣었으면 그것을), 넘치면 오래된 청크를 내립니다.
+    fn insert(&self, key: ChunkKey, col: Column, dirty: bool) -> Arc<Column> {
+        let (result, evicted) = {
+            let mut c = self.cache.lock().unwrap();
+            c.clock += 1;
+            let clock = c.clock;
+            let result = c
+                .map
+                .entry(key)
+                .or_insert_with(|| Entry {
+                    col: Arc::new(col),
+                    // 저장할 곳이 없으면 굳이 표시하지 않음
+                    dirty: dirty && self.dir.is_some(),
+                    used: clock,
+                })
+                .col
+                .clone();
+            let mut evicted = Vec::new();
+            if c.map.len() > CACHE_CHUNKS {
+                let mut by_age: Vec<(ChunkKey, u64)> =
+                    c.map.iter().map(|(k, e)| (*k, e.used)).collect();
+                by_age.sort_by_key(|(_, u)| *u);
+                let excess = c.map.len() - CACHE_CHUNKS * 9 / 10;
+                for (k, _) in by_age.into_iter().take(excess) {
+                    if let Some(e) = c.map.remove(&k)
+                        && e.dirty
+                    {
+                        evicted.push((k, e.col));
+                    }
+                }
+            }
+            (result, evicted)
+        };
+        for (k, col) in evicted {
+            if let Err(e) = self.write(k, &col) {
+                eprintln!("청크 {k:?} 저장 실패: {e}");
+            }
+        }
+        result
+    }
+
+    fn write(&self, (dim, cx, cz): ChunkKey, col: &Column) -> io::Result<()> {
+        let Some(dir) = &self.dir else { return Ok(()) };
+        let containers = self.containers.get();
+        let items = |pos: (i32, i32, i32)| -> Option<Vec<Option<crate::packets::world::Item>>> {
+            let c = containers?;
+            c.contains(dim, pos).then(|| c.get(dim, pos))
+        };
+        let tag = anvil::to_nbt(col, cx, cz, &items);
+        let _guard = self.io.lock().unwrap();
+        anvil::write_chunk(dir, dim, cx, cz, &tag)
+    }
+
+    /// 한 블록의 지금 상태.
+    pub fn get(&self, dim: Dimension, x: i32, y: i32, z: i32) -> u32 {
+        let ((cx, cz), (lx, lz)) = split(x, z);
+        self.chunk(dim, cx, cz).get(lx, y, lz)
     }
 
     pub fn set(&self, dim: Dimension, x: i32, y: i32, z: i32, state: u32) {
         let ((cx, cz), (lx, lz)) = split(x, z);
-        self.changes
-            .lock()
-            .unwrap()
-            .entry((dim, cx, cz))
-            .or_default()
-            .insert((lx, y, lz), state);
-        self.dirty.store(true, Ordering::Relaxed);
-    }
-
-    /// 청크 하나의 바뀐 블록들. 청크 생성을 다른 스레드로 넘길 때 복사해 갑니다.
-    pub fn changes_in(&self, dim: Dimension, cx: i32, cz: i32) -> Vec<(LocalPos, u32)> {
-        self.changes
-            .lock()
-            .unwrap()
-            .get(&(dim, cx, cz))
-            .map(|c| c.iter().map(|(&p, &s)| (p, s)).collect())
-            .unwrap_or_default()
-    }
-
-    /// 바뀐 블록을 덮어쓴 청크.
-    pub fn column(
-        seed: u64,
-        dim: Dimension,
-        cx: i32,
-        cz: i32,
-        changes: &[(LocalPos, u32)],
-    ) -> Column {
-        let mut col = terrain::generate(dim, seed, cx, cz);
-        for &((x, y, z), state) in changes {
-            col.set(x as usize, y, z as usize, state);
+        let key = (dim, cx, cz);
+        let persist = self.dir.is_some();
+        loop {
+            // 먼저 올려 둠 (자물쇠 밖에서 읽거나 만들도록)
+            self.chunk(dim, cx, cz);
+            let mut c = self.cache.lock().unwrap();
+            c.clock += 1;
+            let clock = c.clock;
+            if let Some(e) = c.map.get_mut(&key) {
+                Arc::make_mut(&mut e.col).set(lx, y, lz, state);
+                e.dirty = persist;
+                e.used = clock;
+                break;
+            }
+            // 그 사이 다른 스레드가 내렸으면 다시 (드묾)
         }
-        col
+        self.changed.fetch_add(1, Ordering::Relaxed);
     }
 
-    /// 바뀐 것이 있으면 저장합니다. 임시 파일에 다 쓴 뒤 바꿔치기하므로, 도중에 꺼져도
-    /// 이전 파일은 남습니다.
+    /// 저장할 청크들을 영역 파일에 씁니다. 쓴 것이 있으면 true.
     pub fn save(&self) -> io::Result<bool> {
-        let Some(dir) = &self.dir else {
+        if self.dir.is_none() {
             return Ok(false);
+        }
+        let dirty: Vec<(ChunkKey, Arc<Column>)> = {
+            let mut c = self.cache.lock().unwrap();
+            c.map
+                .iter_mut()
+                .filter(|(_, e)| e.dirty)
+                .map(|(k, e)| {
+                    e.dirty = false;
+                    (*k, e.col.clone())
+                })
+                .collect()
         };
-        if !self.dirty.swap(false, Ordering::Relaxed) {
-            return Ok(false);
-        }
-        let bytes = self.serialize();
-        if let Err(e) = write_atomically(dir, &bytes) {
-            self.dirty.store(true, Ordering::Relaxed); // 다음에 다시
-            return Err(e);
-        }
-        Ok(true)
-    }
-
-    fn serialize(&self) -> Vec<u8> {
-        let changes = self.changes.lock().unwrap();
-        let count: usize = changes.values().map(HashMap::len).sum();
-        let mut out = Vec::with_capacity(8 + count * 17);
-        out.extend_from_slice(MAGIC);
-        out.extend_from_slice(&(count as u32).to_be_bytes());
-        for (&(dim, cx, cz), blocks) in changes.iter() {
-            for (&(lx, y, lz), &state) in blocks {
-                out.push(dim.index());
-                out.extend_from_slice(&(cx * 16 + lx as i32).to_be_bytes());
-                out.extend_from_slice(&y.to_be_bytes());
-                out.extend_from_slice(&(cz * 16 + lz as i32).to_be_bytes());
-                out.extend_from_slice(&state.to_be_bytes());
+        let mut first_err = None;
+        for (k, col) in &dirty {
+            if let Err(e) = self.write(*k, col) {
+                // 다음 저장 때 다시
+                if let Some(entry) = self.cache.lock().unwrap().map.get_mut(k) {
+                    entry.dirty = true;
+                }
+                first_err.get_or_insert(e);
             }
         }
-        out
+        match first_err {
+            Some(e) => Err(e),
+            None => Ok(!dirty.is_empty()),
+        }
+    }
+
+    /// 스폰 둘레를 미리 만들어 저장합니다 (처음 켤 때). 여러 스레드로 만듭니다.
+    pub fn pregenerate(
+        &self,
+        dim: Dimension,
+        center: (i32, i32),
+        radius: i32,
+    ) -> io::Result<usize> {
+        let mut keys: Vec<(i32, i32)> = Vec::new();
+        for dx in -radius..=radius {
+            for dz in -radius..=radius {
+                keys.push((center.0 + dx, center.1 + dz));
+            }
+        }
+        keys.sort_by_key(|(x, z)| (x - center.0).pow(2) + (z - center.1).pow(2));
+        let threads = std::thread::available_parallelism()
+            .map_or(2, |n| n.get())
+            .min(8);
+        let total = keys.len();
+        let seed = self.seed;
+        let mut done = 0;
+        for batch in keys.chunks(256) {
+            let columns: Vec<((i32, i32), Column)> = std::thread::scope(|s| {
+                let parts: Vec<_> = batch
+                    .chunks(batch.len().div_ceil(threads))
+                    .map(|part| {
+                        s.spawn(move || {
+                            part.iter()
+                                .map(|&(x, z)| ((x, z), terrain::generate(dim, seed, x, z)))
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect();
+                parts.into_iter().flat_map(|h| h.join().unwrap()).collect()
+            });
+            done += columns.len();
+            for ((x, z), col) in columns {
+                self.insert((dim, x, z), col, true);
+            }
+            self.save()?;
+            println!("  미리 만들기: {done}/{total} 청크");
+        }
+        Ok(total)
     }
 
     /// 엔티티가 서거나 부딪히는 블록인가 (공기·물·풀처럼 덮어써지는 블록이 아닌 것).
@@ -234,23 +311,50 @@ impl WorldStore {
         !crate::data::blocks::is_replaceable(self.get(dim, x, y, z))
     }
 
+    /// 켠 뒤 바뀐 블록 수.
     pub fn changed_block_count(&self) -> usize {
-        self.changes
-            .lock()
-            .unwrap()
-            .values()
-            .map(HashMap::len)
-            .sum()
+        self.changed.load(Ordering::Relaxed)
+    }
+
+    /// 메모리에 올라 있는 청크 수.
+    pub fn loaded_chunks(&self) -> usize {
+        self.cache.lock().unwrap().map.len()
+    }
+
+    /// 구조물이 만든(아직 아무도 연 적 없는) 상자라면 전리품 표.
+    pub fn loot_at(&self, dim: Dimension, x: i32, y: i32, z: i32) -> Option<&'static str> {
+        let ((cx, cz), _) = split(x, z);
+        let col = self.chunk(dim, cx, cz);
+        col.loot
+            .iter()
+            .find(|(p, _)| *p == (x, y, z))
+            .map(|(_, t)| *t)
     }
 }
 
-fn write_atomically(dir: &Path, bytes: &[u8]) -> io::Result<()> {
-    std::fs::create_dir_all(dir)?;
-    let tmp = dir.join(format!("{FILE_NAME}.tmp"));
-    let mut f = std::fs::File::create(&tmp)?;
-    f.write_all(bytes)?;
-    f.sync_all()?;
-    std::fs::rename(&tmp, dir.join(FILE_NAME))
+/// 예전 `blocks.dat`: "DGW1" | u32 개수 | 개수 × (u8 차원, i32 x, y, z, u32 상태).
+fn parse_legacy(bytes: &[u8]) -> io::Result<Vec<(Dimension, i32, i32, i32, u32)>> {
+    let bad = || io::Error::new(io::ErrorKind::InvalidData, "blocks.dat가 손상되었습니다");
+    if bytes.get(..4) != Some(LEGACY_MAGIC) {
+        return Err(bad());
+    }
+    let count = u32::from_be_bytes(bytes.get(4..8).ok_or_else(bad)?.try_into().unwrap()) as usize;
+    let records = bytes.get(8..).ok_or_else(bad)?;
+    if records.len() != count * 17 {
+        return Err(bad());
+    }
+    let int = |r: &[u8], at: usize| i32::from_be_bytes(r[at..at + 4].try_into().unwrap());
+    records
+        .chunks(17)
+        .map(|r| {
+            let dim = Dimension::from_index(r[0]).ok_or_else(bad)?;
+            let state = int(r, 13) as u32;
+            if state >= crate::data::BLOCK_STATE_COUNT {
+                return Err(bad());
+            }
+            Ok((dim, int(r, 1), int(r, 5), int(r, 9), state))
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -259,7 +363,7 @@ mod tests {
     use crate::data::block;
 
     #[test]
-    fn changes_override_terrain_and_survive_a_restart() {
+    fn changes_survive_a_restart_in_region_files() {
         let dir = std::env::temp_dir().join(format!("dangu-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
@@ -273,9 +377,10 @@ mod tests {
         );
         assert!(store.save().unwrap());
         assert!(!store.save().unwrap(), "nothing new to save");
+        assert!(dir.join("region/r.-1.-1.mca").exists());
+        assert!(dir.join("DIM-1/region/r.0.0.mca").exists());
 
         let reopened = WorldStore::open(5, Some(dir.clone())).unwrap();
-        assert_eq!(reopened.changed_block_count(), 2);
         assert_eq!(
             reopened.get(Dimension::Overworld, -1, -64, -1),
             block::GLOWSTONE
@@ -284,22 +389,30 @@ mod tests {
             reopened.get(Dimension::Nether, 20, 100, 30),
             block::OBSIDIAN
         );
-        let col = WorldStore::column(
-            5,
-            Dimension::Nether,
-            1,
-            1,
-            &reopened.changes_in(Dimension::Nether, 1, 1),
+        assert_eq!(
+            reopened.chunk(Dimension::Nether, 1, 1).get(4, 100, 14),
+            block::OBSIDIAN
         );
-        assert_eq!(col.get(4, 100, 14), block::OBSIDIAN);
-
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
-    fn rejects_garbage() {
-        let store = WorldStore::open(1, None).unwrap();
-        assert!(store.load(b"nope").is_err());
-        assert!(store.load(b"DGW1\0\0\0\x01short").is_err());
+    fn legacy_block_list_is_migrated() {
+        let dir = std::env::temp_dir().join(format!("dangu-legacy-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut bytes = LEGACY_MAGIC.to_vec();
+        bytes.extend_from_slice(&1u32.to_be_bytes());
+        bytes.push(0);
+        for v in [3i32, 70, -9] {
+            bytes.extend_from_slice(&v.to_be_bytes());
+        }
+        bytes.extend_from_slice(&block::GLOWSTONE.to_be_bytes());
+        std::fs::write(dir.join(LEGACY_FILE), &bytes).unwrap();
+        let store = WorldStore::open(5, Some(dir.clone())).unwrap();
+        assert_eq!(store.get(Dimension::Overworld, 3, 70, -9), block::GLOWSTONE);
+        assert!(dir.join("blocks.dat.old").exists());
+        assert!(parse_legacy(b"nope").is_err());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

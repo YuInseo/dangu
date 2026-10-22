@@ -197,8 +197,20 @@ pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, ZlibError> {
     {
         return Err(ZlibError::BadHeader);
     }
+    let (out, used) = inflate(&data[2..], limit)?;
+    let tail = data
+        .get(2 + used..2 + used + 4)
+        .ok_or(ZlibError::BadData("missing checksum"))?;
+    if u32::from_be_bytes(tail.try_into().unwrap()) != adler32(&out) {
+        return Err(ZlibError::Checksum);
+    }
+    Ok(out)
+}
+
+/// 날 deflate 스트림을 풉니다. (풀린 바이트, 읽은 압축 바이트 수)
+pub fn inflate(data: &[u8], limit: usize) -> Result<(Vec<u8>, usize), ZlibError> {
     let mut br = BitReader {
-        data: &data[2..],
+        data,
         pos: 0,
         bit: 0,
         nbits: 0,
@@ -268,16 +280,75 @@ pub fn decompress(data: &[u8], limit: usize) -> Result<Vec<u8>, ZlibError> {
             break;
         }
     }
-    // 바이트 경계에 맞춘 뒤 Adler-32
-    let p = br.pos;
-    let tail = br
-        .data
-        .get(p..p + 4)
-        .ok_or(ZlibError::BadData("missing checksum"))?;
-    if u32::from_be_bytes(tail.try_into().unwrap()) != adler32(&out) {
+    // 바이트 경계까지 읽은 자리
+    Ok((out, br.pos))
+}
+
+/// CRC-32 (gzip, PNG와 같은 다항식).
+pub fn crc32(data: &[u8]) -> u32 {
+    static TABLE: std::sync::OnceLock<[u32; 256]> = std::sync::OnceLock::new();
+    let t = TABLE.get_or_init(|| {
+        let mut t = [0u32; 256];
+        for (i, e) in t.iter_mut().enumerate() {
+            let mut c = i as u32;
+            for _ in 0..8 {
+                c = if c & 1 != 0 {
+                    0xEDB8_8320 ^ (c >> 1)
+                } else {
+                    c >> 1
+                };
+            }
+            *e = c;
+        }
+        t
+    });
+    let mut c = 0xFFFF_FFFFu32;
+    for &b in data {
+        c = t[((c ^ b as u32) & 0xFF) as usize] ^ (c >> 8);
+    }
+    !c
+}
+
+/// gzip 파일 풀기 (level.dat).
+pub fn gunzip(data: &[u8], limit: usize) -> Result<Vec<u8>, ZlibError> {
+    if data.len() < 18 || data[0] != 0x1F || data[1] != 0x8B || data[2] != 8 {
+        return Err(ZlibError::BadHeader);
+    }
+    let flags = data[3];
+    let mut p = 10;
+    if flags & 0x04 != 0 {
+        let xlen = u16::from_le_bytes([data[p], data[p + 1]]) as usize;
+        p += 2 + xlen;
+    }
+    for bit in [0x08, 0x10] {
+        if flags & bit != 0 {
+            while p < data.len() && data[p] != 0 {
+                p += 1;
+            }
+            p += 1;
+        }
+    }
+    if flags & 0x02 != 0 {
+        p += 2;
+    }
+    let (out, used) = inflate(data.get(p..).ok_or(ZlibError::BadHeader)?, limit)?;
+    let tail = data
+        .get(p + used..p + used + 8)
+        .ok_or(ZlibError::BadData("missing trailer"))?;
+    if u32::from_le_bytes(tail[..4].try_into().unwrap()) != crc32(&out) {
         return Err(ZlibError::Checksum);
     }
     Ok(out)
+}
+
+/// gzip으로 압축 (level.dat).
+pub fn gzip(data: &[u8]) -> Vec<u8> {
+    let z = compress(data);
+    let mut out = vec![0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 0xFF];
+    out.extend_from_slice(&z[2..z.len() - 4]);
+    out.extend_from_slice(&crc32(data).to_le_bytes());
+    out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    out
 }
 
 // ---- 압축 ----
@@ -408,6 +479,13 @@ pub fn compress(data: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn gzip_round_trip_and_crc() {
+        assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+        let data = b"level.dat level.dat level.dat".repeat(50);
+        assert_eq!(gunzip(&gzip(&data), 1 << 20).unwrap(), data);
+    }
 
     #[test]
     fn adler_vector() {

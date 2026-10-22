@@ -218,15 +218,34 @@ impl Network {
             spawn_mobs: spec.spawn_mobs && self.config.spawn_mobs,
             ..self.config.clone()
         };
+        let mut created = false;
         let server = match &self.base_dir {
             Some(base) => {
                 let dir = base.join(&spec.dir);
-                crate::world::level::ensure(&dir, &spec.name, spec.seed)?;
+                created = crate::world::level::ensure(&dir, &spec.name, spec.seed)?;
                 Server::open_instance(self.info.clone(), spec.seed, dir)?
             }
             None => Server::new(self.info.clone(), spec.seed),
         }
         .named(&spec.name);
+        // 새 월드: 스폰 둘레를 미리 만들어 둡니다 (첫 접속이 기다리지 않도록).
+        if created && self.config.pregen_radius > 0 {
+            let spawn =
+                crate::world::terrain::spawn_point(crate::world::Dimension::Overworld, spec.seed);
+            let center = ((spawn.0.floor() as i32) >> 4, (spawn.2.floor() as i32) >> 4);
+            let r = self.config.pregen_radius;
+            println!(
+                "{}: 스폰 둘레 {}×{} 청크를 미리 만듭니다",
+                spec.name,
+                2 * r + 1,
+                2 * r + 1
+            );
+            let t = std::time::Instant::now();
+            server
+                .world
+                .pregenerate(crate::world::Dimension::Overworld, center, r)?;
+            println!("{}: {:.1}초 걸림", spec.name, t.elapsed().as_secs_f64());
+        }
         let mut server = match share {
             Some(other) => server.share_from(other),
             None => server,

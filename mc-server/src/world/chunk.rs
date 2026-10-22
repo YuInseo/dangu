@@ -15,6 +15,7 @@
 use std::sync::OnceLock;
 
 use super::biome::Biome;
+use super::column::SectionView;
 use super::terrain::Column;
 use crate::data::BLOCK_ENTITY_TYPES;
 use crate::data::{BLOCK_STATE_COUNT, block, blocks};
@@ -331,16 +332,31 @@ fn pack(values: &[i64], bits: u8) -> Vec<i64> {
     longs
 }
 
-fn write_section(out: &mut Vec<u8>, blocks: &[u32], biomes: &[u8]) {
-    let non_air = blocks.iter().filter(|&&b| b != block::AIR).count() as i16;
-    let fluids = blocks.iter().filter(|&&b| is_fluid(b)).count() as i16;
+fn write_section(out: &mut Vec<u8>, blocks: SectionView<'_>, biomes: &[u8]) {
+    let blocks = match blocks {
+        SectionView::Uniform(state) => {
+            // 한 가지 블록: 개수와 단일 값 팔레트
+            let n = if state == block::AIR { 0 } else { 4096 };
+            out.extend_from_slice(&(n as i16).to_be_bytes());
+            out.extend_from_slice(&(if is_fluid(state) { 4096i16 } else { 0 }).to_be_bytes());
+            out.push(0);
+            write_varint(out, state as i32);
+            write_biomes(out, biomes);
+            return;
+        }
+        SectionView::Full(a) => a,
+    };
+    let non_air = blocks.iter().filter(|&&b| b as u32 != block::AIR).count() as i16;
+    let fluids = blocks.iter().filter(|&&b| is_fluid(b as u32)).count() as i16;
     out.extend_from_slice(&non_air.to_be_bytes());
     out.extend_from_slice(&fluids.to_be_bytes());
 
     // 블록: 한 가지면 단일 값, 256가지 이하면 간접 팔레트, 그 이상이면 전역 ID.
-    let mut palette: Vec<u32> = Vec::new();
-    for &b in blocks {
-        if !palette.contains(&b) {
+    let mut palette: Vec<u16> = Vec::new();
+    let mut index: std::collections::HashMap<u16, i64> = std::collections::HashMap::new();
+    for &b in blocks.iter() {
+        if let std::collections::hash_map::Entry::Vacant(e) = index.entry(b) {
+            e.insert(palette.len() as i64);
             palette.push(b);
             if palette.len() > 256 {
                 break;
@@ -357,10 +373,7 @@ fn write_section(out: &mut Vec<u8>, blocks: &[u32], biomes: &[u8]) {
         for &p in &palette {
             write_varint(out, p as i32);
         }
-        let indices: Vec<i64> = blocks
-            .iter()
-            .map(|b| palette.iter().position(|p| p == b).unwrap() as i64)
-            .collect();
+        let indices: Vec<i64> = blocks.iter().map(|b| index[b]).collect();
         for l in pack(&indices, bits) {
             out.extend_from_slice(&l.to_be_bytes());
         }
@@ -371,7 +384,10 @@ fn write_section(out: &mut Vec<u8>, blocks: &[u32], biomes: &[u8]) {
             out.extend_from_slice(&l.to_be_bytes());
         }
     }
+    write_biomes(out, biomes);
+}
 
+fn write_biomes(out: &mut Vec<u8>, biomes: &[u8]) {
     // 바이옴 64칸: 한 가지면 단일 값, 아니면 간접 팔레트(1~3비트), 그 이상이면 전역.
     let ids: Vec<u16> = biomes.iter().map(|&b| Biome(b).network_id()).collect();
     let mut palette: Vec<u16> = Vec::new();

@@ -264,6 +264,8 @@ pub struct Config {
     pub difficulty: Difficulty,
     /// 하드코어: 하트 모양이 바뀌고, 죽으면 관전 모드.
     pub hardcore: bool,
+    /// 새 월드를 만들 때 스폰 둘레를 미리 만들 반지름 (청크). 0이면 안 함.
+    pub pregen_radius: i32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -331,6 +333,7 @@ impl Default for Config {
             initial_ops: Vec::new(),
             difficulty: Difficulty::Normal,
             hardcore: false,
+            pregen_radius: 0,
         }
     }
 }
@@ -362,13 +365,13 @@ pub struct Server {
     /// 월드 시드. 세 차원 모두 이 값에서 지형을 만듭니다.
     pub seed: u64,
     /// 플레이어가 바꾼 블록들.
-    pub world: WorldStore,
+    pub world: Arc<WorldStore>,
     /// 떨어진 아이템과 몹.
     pub entities: crate::game::entities::Entities,
     difficulty: std::sync::atomic::AtomicU8,
     /// 난이도 잠금 (설정 화면의 자물쇠). 잠그면 다시 풀 수 없습니다.
     difficulty_locked: std::sync::atomic::AtomicBool,
-    pub containers: crate::game::containers::Containers,
+    pub containers: Arc<crate::game::containers::Containers>,
     /// 플레이어 저장 위치 (없으면 저장하지 않음).
     pub data_dir: Option<std::path::PathBuf>,
     players: Mutex<HashMap<u128, PlayerState>>,
@@ -418,8 +421,12 @@ impl Server {
         dir: std::path::PathBuf,
     ) -> std::io::Result<Self> {
         let world = WorldStore::open(seed, Some(dir.clone()))?;
+        let containers = Arc::new(crate::game::containers::Containers::open(Some(
+            dir.clone(),
+        ))?);
+        world.attach_containers(Arc::clone(&containers));
         let mut s = Self::with_world(info, seed, world, Some(dir.clone()));
-        s.containers = crate::game::containers::Containers::open(Some(dir))?;
+        s.containers = containers;
         Ok(s)
     }
 
@@ -509,7 +516,9 @@ impl Server {
             difficulty: std::sync::atomic::AtomicU8::new(Difficulty::Normal as u8),
             difficulty_locked: std::sync::atomic::AtomicBool::new(false),
             shutdown: Arc::new(tokio::sync::Notify::new()),
-            containers: crate::game::containers::Containers::open(None).expect("memory containers"),
+            containers: Arc::new(
+                crate::game::containers::Containers::open(None).expect("memory containers"),
+            ),
             data_dir,
             info,
             config: Config::default(),
@@ -517,7 +526,7 @@ impl Server {
             key: Arc::new(OnceLock::new()),
             chat_keys: Arc::new(Mutex::new(Vec::new())),
             seed,
-            world,
+            world: Arc::new(world),
             players: Mutex::new(HashMap::new()),
             // 26.2부터 클라이언트가 엔티티 ID 0을 거부합니다.
             next_entity_id: AtomicI32::new(1),
@@ -549,11 +558,29 @@ impl Server {
         }
         match self.world.save() {
             Ok(true) => println!(
-                "월드 저장: 바뀐 블록 {}개",
-                self.world.changed_block_count()
+                "[{}] 월드 저장 (켠 뒤 바뀐 블록 {}개, 올린 청크 {}개)",
+                self.name,
+                self.world.changed_block_count(),
+                self.world.loaded_chunks()
             ),
             Ok(false) => {}
             Err(e) => eprintln!("월드 저장 실패: {e}"),
+        }
+        // level.dat의 시간·난이도·모드도 맞춰 둡니다 (바닐라 도구가 볼 수 있게).
+        if let Some(dir) = &self.data_dir
+            && let Some(level) = crate::world::level::read(dir)
+        {
+            let (time, day_time) = self.time();
+            let state = crate::world::level::LevelState {
+                gamemode: self.config.default_gamemode.id(),
+                difficulty: self.difficulty() as u8,
+                hardcore: self.config.hardcore,
+                time,
+                day_time,
+            };
+            if let Err(e) = crate::world::level::write_level_dat(dir, &level, &state) {
+                eprintln!("level.dat 저장 실패: {e}");
+            }
         }
         self.publish(Event::SavePlayers);
     }

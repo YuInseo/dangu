@@ -58,6 +58,10 @@ async fn main() -> std::io::Result<()> {
             .and_then(|d| mc_server::server::Difficulty::from_name(&d))
             .unwrap_or(mc_server::server::Difficulty::Normal),
         hardcore: env_flag("MC_HARDCORE", false),
+        pregen_radius: std::env::var("MC_PREGEN")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(8),
     };
     // 인스턴스: MC_INSTANCES="lobby,survival:12345:survival,build::creative" (이름[:시드[:모드]]).
     // 처음 켤 때만 쓰이고, 그 뒤로는 world/instances.json이 기준입니다.
@@ -119,7 +123,7 @@ async fn main() -> std::io::Result<()> {
     );
     for s in net.all() {
         println!(
-            "인스턴스 {}{}: 시드 {}, 바뀐 블록 {}개",
+            "인스턴스 {}{}: 시드 {}, 청크 {}개 올림",
             s.name,
             if s.name == net.default_name() {
                 " (기본)"
@@ -127,7 +131,7 @@ async fn main() -> std::io::Result<()> {
                 ""
             },
             s.seed,
-            s.world.changed_block_count()
+            s.world.loaded_chunks()
         );
     }
 

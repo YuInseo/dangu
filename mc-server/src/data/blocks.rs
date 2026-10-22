@@ -122,6 +122,34 @@ pub fn is_air(state: StateId) -> bool {
     TAG.get_or_init(|| block_tag("air"))[block_of(state)]
 }
 
+/// 상태의 모든 속성 (이름, 값). 월드 파일에 쓸 때.
+pub fn properties(state: StateId) -> Vec<(&'static str, &'static str)> {
+    let (block, idx) = decode(state);
+    BLOCKS[block]
+        .3
+        .iter()
+        .zip(idx)
+        .map(|((k, values), i)| (*k, values[i]))
+        .collect()
+}
+
+/// 이름과 속성으로 상태 (월드 파일을 읽을 때). 모르는 속성·값은 기본값으로 둡니다.
+pub fn state_from(name: &str, props: &[(&str, &str)]) -> Option<StateId> {
+    let name = name.strip_prefix("minecraft:").unwrap_or(name);
+    let mut state = default_state(by_name_fast(name)?);
+    for (k, v) in props {
+        state = with_property(state, k, v);
+    }
+    Some(state)
+}
+
+fn by_name_fast(name: &str) -> Option<BlockId> {
+    static MAP: OnceLock<std::collections::HashMap<&'static str, BlockId>> = OnceLock::new();
+    MAP.get_or_init(|| BLOCKS.iter().enumerate().map(|(i, b)| (b.0, i)).collect())
+        .get(name)
+        .copied()
+}
+
 /// 이름으로 블록 찾기.
 pub fn by_name(name: &str) -> Option<BlockId> {
     BLOCKS.iter().position(|(n, _, _, _)| *n == name)
@@ -131,6 +159,14 @@ pub fn by_name(name: &str) -> Option<BlockId> {
 mod tests {
     use super::*;
     use crate::data::block;
+
+    #[test]
+    fn properties_round_trip_through_names() {
+        for state in (0..crate::data::BLOCK_STATE_COUNT).step_by(7) {
+            let props = properties(state);
+            assert_eq!(state_from(name(block_of(state)), &props), Some(state));
+        }
+    }
 
     #[test]
     fn decode_encode_round_trip_for_every_state() {

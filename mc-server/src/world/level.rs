@@ -62,6 +62,127 @@ impl Level {
     }
 }
 
+/// 바닐라가 알아보는 `level.dat` (gzip NBT). 바닐라 서버·도구가 이 폴더를 월드로 열 수 있게.
+pub fn write_level_dat(dir: &Path, level: &Level, state: &LevelState) -> std::io::Result<()> {
+    use crate::protocol::nbt::Tag;
+    let s = |v: &str| Tag::String(v.to_owned());
+    let dim = |ty: &str, settings: &str, source: Tag| {
+        Tag::Compound(vec![
+            ("type".into(), s(ty)),
+            (
+                "generator".into(),
+                Tag::Compound(vec![
+                    ("type".into(), s("minecraft:noise")),
+                    ("settings".into(), s(settings)),
+                    ("biome_source".into(), source),
+                ]),
+            ),
+        ])
+    };
+    let preset = |p: &str| {
+        Tag::Compound(vec![
+            ("type".into(), s("minecraft:multi_noise")),
+            ("preset".into(), s(p)),
+        ])
+    };
+    let data = Tag::Compound(vec![
+        ("DataVersion".into(), Tag::Int(super::anvil::DATA_VERSION)),
+        (
+            "version".into(),
+            Tag::Compound(vec![
+                ("Id".into(), Tag::Int(super::anvil::DATA_VERSION)),
+                ("Name".into(), s(crate::protocol::VERSION_NAME)),
+                ("Series".into(), s("main")),
+                ("Snapshot".into(), Tag::Byte(0)),
+            ]),
+        ),
+        ("LevelName".into(), s(&level.name)),
+        (
+            "WorldGenSettings".into(),
+            Tag::Compound(vec![
+                ("seed".into(), Tag::Long(level.seed as i64)),
+                ("generate_features".into(), Tag::Byte(1)),
+                ("bonus_chest".into(), Tag::Byte(0)),
+                (
+                    "dimensions".into(),
+                    Tag::Compound(vec![
+                        (
+                            "minecraft:overworld".into(),
+                            dim(
+                                "minecraft:overworld",
+                                "minecraft:overworld",
+                                preset("minecraft:overworld"),
+                            ),
+                        ),
+                        (
+                            "minecraft:the_nether".into(),
+                            dim(
+                                "minecraft:the_nether",
+                                "minecraft:nether",
+                                preset("minecraft:nether"),
+                            ),
+                        ),
+                        (
+                            "minecraft:the_end".into(),
+                            dim(
+                                "minecraft:the_end",
+                                "minecraft:end",
+                                Tag::Compound(vec![("type".into(), s("minecraft:the_end"))]),
+                            ),
+                        ),
+                    ]),
+                ),
+            ]),
+        ),
+        ("SpawnX".into(), Tag::Int(level.spawn.0)),
+        ("SpawnY".into(), Tag::Int(level.spawn.1)),
+        ("SpawnZ".into(), Tag::Int(level.spawn.2)),
+        (
+            "spawn".into(),
+            Tag::Compound(vec![
+                ("dimension".into(), s("minecraft:overworld")),
+                (
+                    "pos".into(),
+                    Tag::IntArray(vec![level.spawn.0, level.spawn.1, level.spawn.2]),
+                ),
+                ("yaw".into(), Tag::Float(0.0)),
+                ("pitch".into(), Tag::Float(0.0)),
+            ]),
+        ),
+        ("GameType".into(), Tag::Int(state.gamemode)),
+        ("Difficulty".into(), Tag::Byte(state.difficulty as i8)),
+        ("hardcore".into(), Tag::Byte(state.hardcore as i8)),
+        ("allowCommands".into(), Tag::Byte(1)),
+        ("initialized".into(), Tag::Byte(1)),
+        ("Time".into(), Tag::Long(state.time)),
+        ("DayTime".into(), Tag::Long(state.day_time)),
+        (
+            "LastPlayed".into(),
+            Tag::Long(
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map_or(0, |d| d.as_millis() as i64),
+            ),
+        ),
+        ("raining".into(), Tag::Byte(0)),
+        ("thundering".into(), Tag::Byte(0)),
+        ("ServerBrands".into(), Tag::List(vec![s("dangu")])),
+    ]);
+    let mut raw = Vec::new();
+    Tag::Compound(vec![("Data".into(), data)]).write_named("", &mut raw);
+    crate::game::playerdata::write_atomically(dir, "level.dat", &crate::protocol::zlib::gzip(&raw))
+}
+
+/// `level.dat`에 쓰는 바뀌는 값들.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LevelState {
+    pub gamemode: i32,
+    pub difficulty: u8,
+    pub hardcore: bool,
+    pub time: i64,
+    pub day_time: i64,
+}
+
 pub fn read(dir: &Path) -> Option<Level> {
     let text = std::fs::read_to_string(dir.join(FILE_NAME)).ok()?;
     Level::from_json(&json::parse(&text).ok()?)
@@ -96,6 +217,14 @@ pub fn ensure(dir: &Path, name: &str, seed: u64) -> std::io::Result<bool> {
         ),
     };
     crate::game::playerdata::write_atomically(dir, FILE_NAME, level.to_json().pretty().as_bytes())?;
+    write_level_dat(
+        dir,
+        &level,
+        &LevelState {
+            difficulty: 2,
+            ..LevelState::default()
+        },
+    )?;
     println!(
         "새 월드 {name} 만듦 (시드 {seed}, 스폰 {} {} {})",
         level.spawn.0, level.spawn.1, level.spawn.2
@@ -112,6 +241,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dangu-level-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert!(ensure(&dir, "t", 42).unwrap());
+        // level.dat은 gzip NBT이고 시드가 들어 있음
+        let raw =
+            crate::protocol::zlib::gunzip(&std::fs::read(dir.join("level.dat")).unwrap(), 1 << 20)
+                .unwrap();
+        let (_, root) = crate::protocol::nbt::Tag::read_named(&raw).unwrap();
+        let seed = root
+            .get("Data")
+            .and_then(|d| d.get("WorldGenSettings"))
+            .and_then(|w| w.get("seed"));
+        assert_eq!(seed.and_then(crate::protocol::nbt::Tag::as_i64), Some(42));
         assert!(!ensure(&dir, "t", 43).unwrap());
         let level = read(&dir).unwrap();
         assert_eq!(

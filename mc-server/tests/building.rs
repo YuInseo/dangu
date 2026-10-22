@@ -99,6 +99,8 @@ async fn place_and_break_are_shared_and_saved() {
         placed.1,
         placed.2
     )));
-    assert_eq!(reopened.world.changed_block_count(), 1);
+    // 바닐라 Anvil 영역 파일로 저장됨
+    let region = dir.join(format!("region/r.{}.{}.mca", placed.0 >> 9, placed.2 >> 9));
+    assert!(region.exists(), "{}", region.display());
     std::fs::remove_dir_all(&dir).unwrap();
 }
