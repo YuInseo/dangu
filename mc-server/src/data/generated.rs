@@ -44,6 +44,17 @@ pub mod block {
     pub const OBSIDIAN: u32 = 4925;
 }
 
+/// 엔티티 종류의 네트워크 ID.
+pub mod entity_type {
+    pub const PLAYER: i32 = 159;
+}
+
+/// 명령어 인자 파서의 네트워크 ID.
+pub mod argument_type {
+    pub const GAME_PROFILE: i32 = 7;
+    pub const MESSAGE: i32 = 20;
+}
+
 /// Configuration 단계에서 보내는 레지스트리와 그 항목. 항목 순서가 곧 네트워크 ID입니다.
 pub const SYNCED_REGISTRIES: &[(&str, &[&str])] = &[
     ("banner_pattern", &["base", "border", "bricks", "circle", "creeper", "cross", "curly_border", "diagonal_left", "diagonal_right", "diagonal_up_left", "diagonal_up_right", "flow", "flower", "globe", "gradient", "gradient_up", "guster", "half_horizontal", "half_horizontal_bottom", "half_vertical", "half_vertical_right", "mojang", "piglin", "rhombus", "skull", "small_stripes", "square_bottom_left", "square_bottom_right", "square_top_left", "square_top_right", "straight_cross", "stripe_bottom", "stripe_center", "stripe_downleft", "stripe_downright", "stripe_left", "stripe_middle", "stripe_right", "stripe_top", "triangle_bottom", "triangle_top", "triangles_bottom", "triangles_top"]),

@@ -1,56 +1,24 @@
 //! 바닐라 클라이언트처럼 Login → Configuration → Play를 끝까지 가 보고, 차원을 옮겨 봅니다.
 
-use std::sync::Arc;
+mod common;
 
-use mc_server::Server;
-use mc_server::packets::status::ServerInfo;
-use mc_server::protocol::frame::{RawPacket, encode_packet, read_packet};
+use common::{recv, send, start_server};
 use mc_server::protocol::types::{read_string, read_uuid, write_string, write_uuid};
 use mc_server::protocol::varint::{read_varint, write_varint};
 use mc_server::uuid::offline_uuid;
-use tokio::io::AsyncWriteExt;
-use tokio::net::{TcpListener, TcpStream};
-use tokio::time::{Duration, timeout};
+use tokio::net::TcpStream;
 
-async fn start() -> TcpStream {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let info = ServerInfo {
-        name: "t".into(),
-        description: "t".into(),
-        max_players: 10,
-    };
-    tokio::spawn(mc_server::serve(listener, Arc::new(Server::new(info, 99))));
-    TcpStream::connect(addr).await.unwrap()
-}
-
-async fn recv(s: &mut TcpStream) -> RawPacket {
-    timeout(Duration::from_secs(30), read_packet(s))
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap()
-}
-
-/// `id` 패킷이 올 때까지 읽고, 그동안 본 ID들을 함께 돌려줍니다.
-async fn recv_until(s: &mut TcpStream, id: i32) -> (RawPacket, Vec<i32>) {
-    let mut seen = Vec::new();
-    loop {
-        let p = recv(s).await;
-        if p.id == id {
-            return (p, seen);
-        }
-        seen.push(p.id);
-    }
-}
-
-async fn send(s: &mut TcpStream, id: i32, body: &[u8]) {
-    s.write_all(&encode_packet(id, body)).await.unwrap();
+async fn recv_until(
+    s: &mut TcpStream,
+    id: i32,
+) -> (mc_server::protocol::frame::RawPacket, Vec<i32>) {
+    let (p, seen) = common::recv_until(s, id).await;
+    (p, common::ids(&seen))
 }
 
 #[tokio::test]
 async fn login_configure_play_and_travel() {
-    let mut s = start().await;
+    let mut s = TcpStream::connect(start_server().await).await.unwrap();
 
     // ---- Handshake + Login ----
     let mut hs = Vec::new();

@@ -4,7 +4,9 @@
 #[allow(clippy::type_complexity)]
 mod generated;
 
-pub use generated::{BLOCK_STATE_COUNT, SYNCED_REGISTRIES, TAGS, block};
+pub use generated::{
+    BLOCK_STATE_COUNT, SYNCED_REGISTRIES, TAGS, argument_type, block, entity_type,
+};
 
 /// 동기화 레지스트리 안에서 `entry`의 네트워크 ID. 생성 데이터에 없는 이름이면 패닉 —
 /// 코드에 박힌 이름이 틀린 것이므로 시작하자마자 드러나는 편이 낫습니다.

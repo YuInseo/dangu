@@ -84,6 +84,15 @@ BLOCK_STATES = [
     ("OBSIDIAN", "obsidian"),
 ]
 
+# 쓰는 엔티티 종류.
+ENTITY_TYPES = [("PLAYER", "player")]
+
+# Commands 패킷의 인자 파서 (`command_argument_type` 레지스트리). 매핑에는 minecraft: 접두사가 빠져 있습니다.
+ARGUMENT_TYPES = [
+    ("GAME_PROFILE", "game_profile"),
+    ("MESSAGE", "message"),
+]
+
 
 def load(path):
     with open(path, encoding="utf-8") as f:
@@ -199,6 +208,18 @@ def main():
             sys.exit(f"블록 상태가 없습니다: {state}")
         w(f"    /// `{state}`")
         w(f"    pub const {name}: u32 = {state_ids[state]};")
+    w("}")
+    w("")
+    w("/// 엔티티 종류의 네트워크 ID.")
+    w("pub mod entity_type {")
+    for name, key in ENTITY_TYPES:
+        w(f"    pub const {name}: i32 = {mapping['entities'].index(key)};")
+    w("}")
+    w("")
+    w("/// 명령어 인자 파서의 네트워크 ID.")
+    w("pub mod argument_type {")
+    for name, key in ARGUMENT_TYPES:
+        w(f"    pub const {name}: i32 = {mapping['argumenttypes'].index(key)};")
     w("}")
     w("")
     w("/// Configuration 단계에서 보내는 레지스트리와 그 항목. 항목 순서가 곧 네트워크 ID입니다.")

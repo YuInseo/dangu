@@ -1,20 +1,21 @@
-//! Play 상태: 월드에 들어가 돌아다니기.
+//! Play 상태: 월드에 들어가 돌아다니고, 다른 사람과 보고 말하기.
 //!
 //! 소켓을 읽기·쓰기 반쪽으로 나누고, 읽기는 별도 태스크가 채널로 넘깁니다.
 //! `read_packet`은 도중에 취소되면 읽던 바이트를 잃기 때문에 `select!`에 직접 넣을 수
-//! 없어서입니다. 메인 루프는 받은 패킷, keep-alive 타이머, 전체 채팅을 함께 기다립니다.
+//! 없어서입니다. 메인 루프는 받은 패킷, keep-alive 타이머, 서버 이벤트를 함께 기다립니다.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{broadcast, mpsc};
 
+use super::commands;
 use super::{ClientSettings, Profile};
-use crate::packets::play::{self as p, Login, SpawnInfo};
+use crate::packets::play::{self as p, ChatKind, GameMode, ListedPlayer, Login, SpawnInfo};
 use crate::protocol::frame::{FrameError, RawPacket, read_packet, write_packet};
 use crate::protocol::nbt::Tag;
-use crate::server::Server;
+use crate::server::{AlreadyOnline, Event, PlayerState, Server};
 use crate::text;
 use crate::world::{Dimension, chunk, terrain};
 
@@ -23,8 +24,8 @@ const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
 const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(30);
 /// 클라이언트가 더 멀리 보겠다고 해도 이만큼만 보냅니다. 압축이 없어서 청크가 큽니다.
 const MAX_VIEW_DISTANCE: i32 = 8;
-
-const COMMANDS: &[&str] = &["overworld", "nether", "end", "spawn", "help"];
+/// 바닐라와 같은 채팅 길이 제한.
+const MAX_CHAT_LENGTH: usize = 256;
 
 pub async fn run<S>(
     stream: S,
@@ -54,84 +55,115 @@ where
         }
     });
 
-    let _online = server.join();
-    let mut chat = server.subscribe_chat();
+    // 명단에 오르기 전에 구독해야 그 사이의 소식을 놓치지 않습니다.
+    let mut events = server.subscribe();
     let mut session = Session::new(writer, server, profile, settings);
-    session.join().await?;
-    server.broadcast(text::colored(
-        &format!("{}님이 들어왔습니다", session.profile.name),
-        "yellow",
-    ));
-
-    let mut keep_alive = tokio::time::interval(KEEP_ALIVE_INTERVAL);
-    keep_alive.tick().await; // 첫 tick은 즉시 오므로 버립니다
-    let result = loop {
-        tokio::select! {
-            packet = rx.recv() => match packet {
-                Some(Ok(packet)) => {
-                    if let Err(e) = session.handle(packet).await {
-                        break Err(e);
-                    }
-                }
-                Some(Err(e)) => break Err(e),
-                None => break Ok(()), // 클라이언트가 연결을 닫음
-            },
-            _ = keep_alive.tick() => {
-                if let Err(e) = session.keep_alive().await {
-                    break Err(e);
-                }
-            }
-            message = chat.recv() => match message {
-                Ok(message) => {
-                    if let Err(e) = session.send_chat(&message).await {
-                        break Err(e.into());
-                    }
-                }
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => {}
-            },
+    let others = match server.add_player(session.state()) {
+        Ok(others) => others,
+        Err(AlreadyOnline) => {
+            let reason = text::plain("같은 이름으로 이미 접속해 있습니다.");
+            session
+                .send(p::DISCONNECT_ID, &p::encode_disconnect(&reason))
+                .await?;
+            reader_task.abort();
+            return Ok(());
         }
     };
 
+    let result = async {
+        session.join(&others).await?;
+        server.publish(Event::System(text::colored(
+            &format!("{}님이 들어왔습니다", session.profile.name),
+            "yellow",
+        )));
+
+        let mut keep_alive = tokio::time::interval(KEEP_ALIVE_INTERVAL);
+        keep_alive.tick().await; // 첫 tick은 즉시 오므로 버립니다
+        loop {
+            tokio::select! {
+                packet = rx.recv() => match packet {
+                    Some(Ok(packet)) => session.handle(packet).await?,
+                    Some(Err(e)) => return Err(e),
+                    None => return Ok(()), // 클라이언트가 연결을 닫음
+                },
+                _ = keep_alive.tick() => session.keep_alive().await?,
+                event = events.recv() => match event {
+                    Ok(event) => session.on_event(event).await?,
+                    // 너무 밀렸으면 몇 개 버리고 계속합니다. 위치는 다음 이동에서 다시 맞춰집니다.
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => return Ok(()),
+                },
+            }
+        }
+    }
+    .await;
+
     reader_task.abort();
-    server.broadcast(text::colored(
+    server.remove_player(session.profile.uuid);
+    server.publish(Event::System(text::colored(
         &format!("{}님이 나갔습니다", session.profile.name),
         "yellow",
-    ));
+    )));
     println!("{} 접속 종료", session.profile.name);
     result
 }
 
-struct Session<'a, W> {
+pub(super) struct Session<'a, W> {
     w: W,
-    server: &'a Server,
-    profile: Profile,
+    pub(super) server: &'a Server,
+    pub(super) profile: Profile,
     entity_id: i32,
     view_distance: i32,
-    dimension: Dimension,
+    pub(super) dimension: Dimension,
+    pub(super) gamemode: GameMode,
     position: (f64, f64, f64),
+    yaw: f32,
+    pitch: f32,
     /// 클라이언트에 보낸(그리고 아직 잊으라고 하지 않은) 청크.
     loaded: HashSet<(i32, i32)>,
     center: (i32, i32),
     next_teleport_id: i32,
     /// 보냈지만 아직 답을 못 받은 keep-alive.
     pending_keep_alive: Option<(i64, Instant)>,
+    /// 탭 목록에 올린 사람들.
+    listed: HashSet<u128>,
+    /// 이 클라이언트에 엔티티로 띄운 다른 플레이어: UUID → 엔티티 ID.
+    visible: HashMap<u128, i32>,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
     fn new(w: W, server: &'a Server, profile: Profile, settings: ClientSettings) -> Self {
+        let dimension = Dimension::Overworld;
         Self {
             w,
             server,
             profile,
             entity_id: server.allocate_entity_id(),
             view_distance: (settings.view_distance as i32).clamp(2, MAX_VIEW_DISTANCE),
-            dimension: Dimension::Overworld,
-            position: (0.0, 0.0, 0.0),
+            dimension,
+            gamemode: GameMode::Creative,
+            position: terrain::spawn_point(dimension, server.seed),
+            yaw: 0.0,
+            pitch: 0.0,
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,
             pending_keep_alive: None,
+            listed: HashSet::new(),
+            visible: HashMap::new(),
+        }
+    }
+
+    fn state(&self) -> PlayerState {
+        PlayerState {
+            uuid: self.profile.uuid,
+            name: self.profile.name.clone(),
+            entity_id: self.entity_id,
+            dimension: self.dimension,
+            position: self.position,
+            yaw: self.yaw,
+            pitch: self.pitch,
+            gamemode: self.gamemode,
         }
     }
 
@@ -140,75 +172,151 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             dimension: self.dimension,
             // 클라이언트는 이 값을 바이옴 색 섞기에만 씁니다. 실제 시드를 줄 필요는 없습니다.
             hashed_seed: self.server.seed as i64,
-            gamemode: p::GAMEMODE_CREATIVE,
+            gamemode: self.gamemode,
         }
     }
 
-    async fn send(&mut self, id: i32, body: &[u8]) -> std::io::Result<()> {
+    pub(super) async fn send(&mut self, id: i32, body: &[u8]) -> std::io::Result<()> {
         write_packet(&mut self.w, id, body).await
     }
 
-    async fn join(&mut self) -> Result<(), FrameError> {
+    async fn join(&mut self, others: &[PlayerState]) -> Result<(), FrameError> {
         let login = Login {
             entity_id: self.entity_id,
             view_distance: self.view_distance,
             spawn: self.spawn_info(),
         };
         self.send(p::LOGIN_ID, &login.encode()).await?;
-        self.send(p::COMMANDS_ID, &p::encode_commands(COMMANDS))
+        self.send(p::COMMANDS_ID, &commands::tree().encode())
             .await?;
+
+        // 탭 목록: 나 자신과 이미 있던 사람들.
+        let me = self.state();
+        let listed: Vec<ListedPlayer<'_>> = std::iter::once(&me)
+            .chain(others)
+            .map(|s| ListedPlayer {
+                uuid: s.uuid,
+                name: &s.name,
+                gamemode: s.gamemode,
+            })
+            .collect();
+        let body = p::encode_player_info_add(&listed);
+        self.send(p::PLAYER_INFO_UPDATE_ID, &body).await?;
+        self.listed
+            .extend(std::iter::once(me.uuid).chain(others.iter().map(|s| s.uuid)));
+
+        self.send_time().await?;
         self.enter_world().await?;
         self.message(&text::colored(
-            "순수 Rust 서버에 오신 것을 환영합니다! /overworld /nether /end 로 차원을 오갈 수 있습니다.",
+            "순수 Rust 서버에 오신 것을 환영합니다! /help 로 명령어를 볼 수 있습니다.",
             "aqua",
         ))
         .await?;
         Ok(())
     }
 
-    /// 지금 차원의 스폰 지점에 세우고 주변 청크를 보냅니다. 접속 직후와 차원 이동 후에 씁니다.
+    /// 지금 차원의 스폰 지점에 세우고 주변 청크와 사람들을 보냅니다.
+    /// 접속 직후와 차원 이동 후에 씁니다.
     async fn enter_world(&mut self) -> Result<(), FrameError> {
         let spawn = terrain::spawn_point(self.dimension, self.server.seed);
-        self.position = spawn;
-        self.loaded.clear(); // 새 차원에 들어가면 클라이언트도 청크를 모두 버립니다
+        // 새 차원에 들어가면 클라이언트도 청크와 엔티티를 모두 버립니다.
+        self.loaded.clear();
+        self.visible.clear();
 
-        self.send(p::PLAYER_ABILITIES_ID, &p::encode_creative_abilities())
+        self.send(p::PLAYER_ABILITIES_ID, &p::encode_abilities(self.gamemode))
             .await?;
         let block = (
             spawn.0.floor() as i32,
             spawn.1.floor() as i32,
             spawn.2.floor() as i32,
         );
-        self.send(
-            p::SET_DEFAULT_SPAWN_POSITION_ID,
-            &p::encode_spawn_position(self.dimension, block),
-        )
-        .await?;
+        let body = p::encode_spawn_position(self.dimension, block);
+        self.send(p::SET_DEFAULT_SPAWN_POSITION_ID, &body).await?;
         self.teleport(spawn).await?;
-        self.send(
-            p::GAME_EVENT_ID,
-            &p::encode_game_event(p::GAME_EVENT_LEVEL_CHUNKS_LOAD_START, 0.0),
-        )
-        .await?;
-        self.update_chunks(true).await
+        let body = p::encode_game_event(p::GAME_EVENT_LEVEL_CHUNKS_LOAD_START, 0.0);
+        self.send(p::GAME_EVENT_ID, &body).await?;
+        self.update_chunks(true).await?;
+
+        for other in self.server.players() {
+            if other.uuid != self.profile.uuid && other.dimension == self.dimension {
+                self.show(&other).await?;
+            }
+        }
+        Ok(())
     }
 
-    async fn teleport(&mut self, pos: (f64, f64, f64)) -> std::io::Result<()> {
+    /// 지금 차원 안에서 옮깁니다. 다른 사람들에게도 알립니다.
+    pub(super) async fn teleport(&mut self, pos: (f64, f64, f64)) -> std::io::Result<()> {
         let id = self.next_teleport_id;
         self.next_teleport_id += 1;
         self.position = pos;
         self.send(
             p::PLAYER_POSITION_ID,
-            &p::encode_player_position(id, pos, 0.0, 0.0),
+            &p::encode_player_position(id, pos, self.yaw, self.pitch),
         )
-        .await
+        .await?;
+        self.moved(true);
+        Ok(())
     }
 
-    async fn change_dimension(&mut self, dimension: Dimension) -> Result<(), FrameError> {
+    pub(super) async fn teleport_and_load(
+        &mut self,
+        pos: (f64, f64, f64),
+    ) -> Result<(), FrameError> {
+        self.teleport(pos).await?;
+        self.update_chunks(false).await
+    }
+
+    pub(super) async fn change_dimension(
+        &mut self,
+        dimension: Dimension,
+    ) -> Result<(), FrameError> {
+        let from = self.dimension;
         self.dimension = dimension;
+        self.server
+            .update_player(self.profile.uuid, |s| s.dimension = dimension);
         self.send(p::RESPAWN_ID, &p::encode_respawn(&self.spawn_info()))
             .await?;
-        self.enter_world().await
+        self.enter_world().await?;
+        self.server.publish(Event::ChangedDimension {
+            from,
+            state: self.state(),
+        });
+        Ok(())
+    }
+
+    pub(super) async fn set_gamemode(&mut self, mode: GameMode) -> std::io::Result<()> {
+        self.gamemode = mode;
+        let body = p::encode_game_event(p::GAME_EVENT_CHANGE_GAME_MODE, mode.id() as f32);
+        self.send(p::GAME_EVENT_ID, &body).await?;
+        self.send(p::PLAYER_ABILITIES_ID, &p::encode_abilities(mode))
+            .await?;
+        self.server
+            .update_player(self.profile.uuid, |s| s.gamemode = mode);
+        self.server.publish(Event::GameModeChanged {
+            uuid: self.profile.uuid,
+            gamemode: mode,
+        });
+        Ok(())
+    }
+
+    /// 내 위치·시선이 바뀌었음을 명단과 다른 사람들에게 알립니다.
+    fn moved(&mut self, on_ground: bool) {
+        let (position, yaw, pitch) = (self.position, self.yaw, self.pitch);
+        self.server.update_player(self.profile.uuid, |s| {
+            s.position = position;
+            s.yaw = yaw;
+            s.pitch = pitch;
+        });
+        self.server.publish(Event::Moved {
+            uuid: self.profile.uuid,
+            entity_id: self.entity_id,
+            dimension: self.dimension,
+            position,
+            yaw,
+            pitch,
+            on_ground,
+        });
     }
 
     /// 플레이어 주변 청크를 맞춥니다: 멀어진 것은 잊게 하고, 새로 들어온 것은 보냅니다.
@@ -221,11 +329,8 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             return Ok(());
         }
         self.center = center;
-        self.send(
-            p::SET_CHUNK_CACHE_CENTER_ID,
-            &p::encode_chunk_xz_varint(center.0, center.1),
-        )
-        .await?;
+        let body = p::encode_chunk_xz_varint(center.0, center.1);
+        self.send(p::SET_CHUNK_CACHE_CENTER_ID, &body).await?;
 
         let r = self.view_distance;
         let in_range =
@@ -269,11 +374,8 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         for body in &bodies {
             self.send(p::LEVEL_CHUNK_WITH_LIGHT_ID, body).await?;
         }
-        self.send(
-            p::CHUNK_BATCH_FINISHED_ID,
-            &p::encode_batch_finished(bodies.len() as i32),
-        )
-        .await?;
+        let body = p::encode_batch_finished(bodies.len() as i32);
+        self.send(p::CHUNK_BATCH_FINISHED_ID, &body).await?;
         self.loaded.extend(wanted);
         Ok(())
     }
@@ -282,11 +384,18 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         match packet.id {
             p::SB_MOVE_PLAYER_POS_ID => {
                 self.position = p::decode_position(&packet.body)?;
+                self.moved(on_ground(&packet.body, 24));
                 self.update_chunks(false).await?;
             }
             p::SB_MOVE_PLAYER_POS_ROT_ID => {
                 self.position = p::decode_position(&packet.body)?;
+                (self.yaw, self.pitch) = p::decode_rotation_after_position(&packet.body)?;
+                self.moved(on_ground(&packet.body, 32));
                 self.update_chunks(false).await?;
+            }
+            p::SB_MOVE_PLAYER_ROT_ID => {
+                (self.yaw, self.pitch) = p::decode_rotation(&packet.body)?;
+                self.moved(on_ground(&packet.body, 8));
             }
             p::SB_ACCEPT_TELEPORTATION_ID => {
                 self.position = p::decode_accept_teleportation(&packet.body)?.1;
@@ -302,46 +411,147 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                 self.command(command.trim()).await?;
             }
             p::SB_CHAT_ID => {
-                let message = p::decode_leading_string(&packet.body)?;
-                self.server.broadcast(Tag::Compound(vec![
-                    (
-                        "text".into(),
-                        Tag::String(format!("<{}> ", self.profile.name)),
-                    ),
-                    ("extra".into(), Tag::List(vec![text::plain(&message)])),
-                ]));
+                let message = sanitize(&p::decode_leading_string(&packet.body)?);
+                if !message.is_empty() {
+                    self.server.publish(Event::Chat {
+                        kind: ChatKind::Chat,
+                        sender: self.profile.name.clone(),
+                        content: message,
+                    });
+                }
             }
-            // 그 밖의 패킷(시선만 바뀐 이동, 클라이언트 틱, 입력, 설정 등)은 아직 쓰지 않습니다.
+            // 그 밖의 패킷(클라이언트 틱, 입력, 설정 등)은 아직 쓰지 않습니다.
             _ => {}
         }
         Ok(())
     }
 
-    async fn command(&mut self, command: &str) -> Result<(), FrameError> {
-        if let Some(dimension) = Dimension::from_command(command) {
-            if dimension == self.dimension {
-                let msg = format!("이미 {}에 있습니다.", dimension.display_name());
-                return Ok(self.message(&text::colored(&msg, "gray")).await?);
+    /// 다른 세션이 알린 소식을 이 클라이언트에 반영합니다.
+    async fn on_event(&mut self, event: Event) -> Result<(), FrameError> {
+        let me = self.profile.uuid;
+        match event {
+            Event::Joined(state) if state.uuid != me => {
+                if self.listed.insert(state.uuid) {
+                    let entry = ListedPlayer {
+                        uuid: state.uuid,
+                        name: &state.name,
+                        gamemode: state.gamemode,
+                    };
+                    let body = p::encode_player_info_add(&[entry]);
+                    self.send(p::PLAYER_INFO_UPDATE_ID, &body).await?;
+                }
+                if state.dimension == self.dimension {
+                    self.show(&state).await?;
+                }
             }
-            self.change_dimension(dimension).await?;
-            let msg = format!("{}(으)로 이동했습니다.", dimension.display_name());
-            return Ok(self.message(&text::colored(&msg, "green")).await?);
-        }
-        match command {
-            "spawn" => {
-                let spawn = terrain::spawn_point(self.dimension, self.server.seed);
-                self.teleport(spawn).await?;
-                self.update_chunks(false).await
+            Event::Left { uuid, .. } if uuid != me => {
+                self.hide(uuid).await?;
+                if self.listed.remove(&uuid) {
+                    self.send(
+                        p::PLAYER_INFO_REMOVE_ID,
+                        &p::encode_player_info_remove(uuid),
+                    )
+                    .await?;
+                }
             }
-            "help" => Ok(self
-                .message(&text::plain(
-                    "/overworld, /nether, /end — 차원 이동 · /spawn — 스폰으로",
-                ))
-                .await?),
-            other => Ok(self
-                .message(&text::colored(&format!("모르는 명령어: /{other}"), "red"))
-                .await?),
+            Event::ChangedDimension { state, .. } if state.uuid != me => {
+                if state.dimension == self.dimension {
+                    self.show(&state).await?;
+                } else {
+                    self.hide(state.uuid).await?;
+                }
+            }
+            Event::Moved {
+                uuid,
+                entity_id,
+                dimension,
+                position,
+                yaw,
+                pitch,
+                on_ground,
+            } if uuid != me && dimension == self.dimension => {
+                if self.visible.contains_key(&uuid) {
+                    let body =
+                        p::encode_teleport_entity(entity_id, position, yaw, pitch, on_ground);
+                    self.send(p::TELEPORT_ENTITY_ID, &body).await?;
+                    self.send(p::ROTATE_HEAD_ID, &p::encode_rotate_head(entity_id, yaw))
+                        .await?;
+                } else if let Some(state) = self.server.find_by_uuid(uuid) {
+                    // 접속 순서가 엇갈려 아직 못 띄운 사람
+                    self.show(&state).await?;
+                }
+            }
+            Event::GameModeChanged { uuid, gamemode } => {
+                if self.listed.contains(&uuid) {
+                    let body = p::encode_player_info_gamemode(uuid, gamemode);
+                    self.send(p::PLAYER_INFO_UPDATE_ID, &body).await?;
+                }
+            }
+            Event::Chat {
+                kind,
+                sender,
+                content,
+            } => {
+                let body = p::encode_disguised_chat(
+                    kind,
+                    &text::plain(&content),
+                    &text::plain(&sender),
+                    None,
+                );
+                self.send(p::DISGUISED_CHAT_ID, &body).await?;
+            }
+            Event::Whisper {
+                to,
+                sender,
+                content,
+            } if to == me => {
+                let body = p::encode_disguised_chat(
+                    ChatKind::WhisperIncoming,
+                    &text::plain(&content),
+                    &text::plain(&sender),
+                    None,
+                );
+                self.send(p::DISGUISED_CHAT_ID, &body).await?;
+            }
+            Event::System(message) => self.message(&message).await?,
+            Event::TimeChanged => self.send_time().await?,
+            _ => {}
         }
+        Ok(())
+    }
+
+    /// 다른 플레이어를 엔티티로 띄웁니다 (이미 떠 있으면 그대로).
+    async fn show(&mut self, other: &PlayerState) -> std::io::Result<()> {
+        if self.visible.contains_key(&other.uuid) || !self.listed.contains(&other.uuid) {
+            return Ok(());
+        }
+        let body = p::encode_add_player_entity(
+            other.entity_id,
+            other.uuid,
+            other.position,
+            other.yaw,
+            other.pitch,
+        );
+        self.send(p::ADD_ENTITY_ID, &body).await?;
+        self.visible.insert(other.uuid, other.entity_id);
+        Ok(())
+    }
+
+    async fn hide(&mut self, uuid: u128) -> std::io::Result<()> {
+        if let Some(entity_id) = self.visible.remove(&uuid) {
+            self.send(
+                p::REMOVE_ENTITIES_ID,
+                &p::encode_remove_entities(&[entity_id]),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn send_time(&mut self) -> std::io::Result<()> {
+        let (game_time, day_time) = self.server.time();
+        self.send(p::SET_TIME_ID, &p::encode_set_time(game_time, day_time))
+            .await
     }
 
     async fn keep_alive(&mut self) -> Result<(), FrameError> {
@@ -359,17 +569,56 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as i64);
         self.pending_keep_alive = Some((id, Instant::now()));
-        Ok(self
-            .send(p::KEEP_ALIVE_ID, &p::encode_keep_alive(id))
-            .await?)
+        self.send(p::KEEP_ALIVE_ID, &p::encode_keep_alive(id))
+            .await?;
+        // 시계가 어긋나지 않도록 가끔 다시 맞춥니다.
+        Ok(self.send_time().await?)
     }
 
-    async fn message(&mut self, content: &Tag) -> std::io::Result<()> {
+    pub(super) async fn message(&mut self, content: &Tag) -> std::io::Result<()> {
         self.send(p::SYSTEM_CHAT_ID, &p::encode_system_chat(content))
             .await
     }
 
-    async fn send_chat(&mut self, content: &Tag) -> std::io::Result<()> {
-        self.message(content).await
+    /// 보낸 사람 쪽에 남는 귓속말 기록 (`You whisper to 대상: 내용`).
+    pub(super) async fn whisper_echo(
+        &mut self,
+        target: &str,
+        content: &str,
+    ) -> std::io::Result<()> {
+        let body = p::encode_disguised_chat(
+            ChatKind::WhisperOutgoing,
+            &text::plain(content),
+            &text::plain(&self.profile.name),
+            Some(&text::plain(target)),
+        );
+        self.send(p::DISGUISED_CHAT_ID, &body).await
+    }
+}
+
+/// 이동 패킷의 마지막 플래그 바이트: 0x01 = 땅에 닿음.
+fn on_ground(body: &[u8], offset: usize) -> bool {
+    body.get(offset).is_some_and(|f| f & 0x01 != 0)
+}
+
+/// 바닐라가 막는 문자(§ 서식 코드, 제어 문자)를 걸러내고 길이를 자릅니다.
+pub(super) fn sanitize(message: &str) -> String {
+    message
+        .chars()
+        .filter(|&c| c != '§' && !c.is_control())
+        .take(MAX_CHAT_LENGTH)
+        .collect::<String>()
+        .trim()
+        .to_owned()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sanitize_strips_formatting_and_controls() {
+        assert_eq!(sanitize("  §c빨강\u{7}  "), "c빨강");
+        assert_eq!(sanitize(&"가".repeat(300)).chars().count(), 256);
     }
 }
