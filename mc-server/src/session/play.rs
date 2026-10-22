@@ -7,14 +7,15 @@
 use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, mpsc};
 
 use super::commands;
 use super::{ClientSettings, Profile};
 use crate::packets::play::{self as p, ChatKind, GameMode, ListedPlayer, Login, SpawnInfo};
 use crate::packets::world::{self as pw, Item};
-use crate::protocol::frame::{FrameError, RawPacket, read_packet, write_packet};
+use crate::protocol::conn::{Conn, PacketWriter};
+use crate::protocol::frame::{FrameError, RawPacket};
 use crate::protocol::nbt::Tag;
 use crate::server::{AlreadyOnline, Event, PlayerState, Server};
 use crate::text;
@@ -30,7 +31,7 @@ const MAX_VIEW_DISTANCE: i32 = 8;
 const MAX_CHAT_LENGTH: usize = 256;
 
 pub async fn run<S>(
-    stream: S,
+    conn: Conn<S>,
     server: &Server,
     profile: Profile,
     settings: ClientSettings,
@@ -38,11 +39,11 @@ pub async fn run<S>(
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let (mut reader, writer) = tokio::io::split(stream);
+    let (mut reader, writer) = conn.into_split();
     let (tx, mut rx) = mpsc::channel::<Result<RawPacket, FrameError>>(256);
     let reader_task = tokio::spawn(async move {
         loop {
-            match read_packet(&mut reader).await {
+            match reader.read_packet().await {
                 Ok(Some(packet)) => {
                     if tx.send(Ok(packet)).await.is_err() {
                         return;
@@ -111,7 +112,7 @@ where
 }
 
 pub(super) struct Session<'a, W> {
-    w: W,
+    w: PacketWriter<W>,
     pub(super) server: &'a Server,
     pub(super) profile: Profile,
     pub(super) entity_id: i32,
@@ -138,7 +139,12 @@ pub(super) struct Session<'a, W> {
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
-    fn new(w: W, server: &'a Server, profile: Profile, settings: ClientSettings) -> Self {
+    fn new(
+        w: PacketWriter<W>,
+        server: &'a Server,
+        profile: Profile,
+        settings: ClientSettings,
+    ) -> Self {
         let dimension = Dimension::Overworld;
         Self {
             w,
@@ -174,6 +180,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             gamemode: self.gamemode,
             main_hand: self.main_hand(),
             off_hand: self.off_hand(),
+            properties: self.profile.properties.clone(),
         }
     }
 
@@ -195,7 +202,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
     }
 
     pub(super) async fn send(&mut self, id: i32, body: &[u8]) -> std::io::Result<()> {
-        write_packet(&mut self.w, id, body).await
+        self.w.write_packet(id, body).await
     }
 
     async fn join(&mut self, others: &[PlayerState]) -> Result<(), FrameError> {
@@ -203,6 +210,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             entity_id: self.entity_id,
             view_distance: self.view_distance,
             spawn: self.spawn_info(),
+            online_mode: self.server.config.online_mode,
         };
         self.send(p::LOGIN_ID, &login.encode()).await?;
         self.send(p::COMMANDS_ID, &commands::tree().encode())
@@ -215,6 +223,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             .map(|s| ListedPlayer {
                 uuid: s.uuid,
                 name: &s.name,
+                properties: &s.properties,
                 gamemode: s.gamemode,
             })
             .collect();
@@ -490,6 +499,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                     let entry = ListedPlayer {
                         uuid: state.uuid,
                         name: &state.name,
+                        properties: &state.properties,
                         gamemode: state.gamemode,
                     };
                     let body = p::encode_player_info_add(&[entry]);

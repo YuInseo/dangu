@@ -1,10 +1,12 @@
 //! 바이트 수준의 프로토콜 코덱. 소켓은 모르고, 바이트 슬라이스와 `Vec<u8>`만 다룹니다.
 //! 소켓과 맞닿는 부분은 [`frame`]에 있습니다.
 
+pub mod conn;
 pub mod frame;
 pub mod nbt;
 pub mod types;
 pub mod varint;
+pub mod zlib;
 
 use std::fmt;
 

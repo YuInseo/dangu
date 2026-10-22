@@ -142,33 +142,11 @@ async fn same_name_twice_is_refused() {
     let addr = start_server().await;
     let (_first, _) = join(addr, "Twin", 2).await;
 
-    // join()은 Play의 첫 청크 묶음을 기다리므로 여기서는 직접 끝까지 가서,
-    // 두 번째 접속이 Play에 들어가자마자 Disconnect를 받는지 봅니다.
+    // 두 번째 접속은 Play에 들어가자마자 Disconnect를 받습니다.
     let result = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        let mut second = tokio::net::TcpStream::connect(addr).await.unwrap();
-        use mc_server::protocol::types::{write_string, write_uuid};
-        use mc_server::protocol::varint::write_varint;
-        let mut hs = Vec::new();
-        write_varint(&mut hs, 777);
-        write_string(&mut hs, "localhost");
-        hs.extend_from_slice(&25565u16.to_be_bytes());
-        write_varint(&mut hs, 2);
-        send(&mut second, 0x00, &hs).await;
-        let mut hello = Vec::new();
-        write_string(&mut hello, "Twin");
-        write_uuid(&mut hello, 1);
-        send(&mut second, 0x00, &hello).await;
-        common::recv(&mut second).await;
-        send(&mut second, 0x03, &[]).await;
-        common::recv_until(&mut second, 0x0F).await;
-        let mut packs = Vec::new();
-        write_varint(&mut packs, 1);
-        for v in ["minecraft", "core", "26.3"] {
-            write_string(&mut packs, v);
-        }
-        send(&mut second, 0x07, &packs).await;
-        common::recv_until(&mut second, 0x03).await;
-        send(&mut second, 0x03, &[]).await;
+        let mut second = common::connect(addr).await;
+        common::login(&mut second, "Twin").await;
+        common::configure(&mut second, 2).await;
         common::recv(&mut second).await
     })
     .await

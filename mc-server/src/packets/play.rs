@@ -133,6 +133,7 @@ pub struct Login {
     pub entity_id: i32,
     pub view_distance: i32,
     pub spawn: SpawnInfo,
+    pub online_mode: bool,
 }
 
 impl Login {
@@ -151,7 +152,7 @@ impl Login {
         write_bool(&mut out, true); // respawn screen
         write_bool(&mut out, false); // limited crafting
         self.spawn.write(&mut out);
-        write_bool(&mut out, false); // 26.2: 암호화된(정품) 연결인가 — 오프라인이므로 false
+        write_bool(&mut out, self.online_mode); // 26.2: 암호화된(정품) 연결인가
         write_bool(&mut out, false); // enforces secure chat
         out
     }
@@ -293,6 +294,8 @@ const INFO_UPDATE_LATENCY: u8 = 0x10;
 pub struct ListedPlayer<'a> {
     pub uuid: u128,
     pub name: &'a str,
+    /// 스킨 등. 서명이 있어야 다른 클라이언트가 그 스킨을 믿고 그립니다.
+    pub properties: &'a [crate::auth::Property],
     pub gamemode: GameMode,
 }
 
@@ -304,7 +307,7 @@ pub fn encode_player_info_add(players: &[ListedPlayer<'_>]) -> Vec<u8> {
     for p in players {
         write_uuid(&mut out, p.uuid);
         write_string(&mut out, p.name);
-        write_varint(&mut out, 0); // 프로필 속성(스킨) 없음 → 기본 스킨
+        crate::packets::login::write_properties(&mut out, p.properties); // 비어 있으면 기본 스킨
         write_varint(&mut out, p.gamemode.id());
         write_bool(&mut out, true); // 목록에 보이기
         write_varint(&mut out, 0); // 핑(ms)

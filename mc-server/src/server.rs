@@ -1,12 +1,14 @@
 //! 연결들이 함께 보는 서버 상태: 접속자 명단, 월드 시간, 그리고 서로에게 알리는 이벤트.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicI32, Ordering};
+use std::sync::{Mutex, OnceLock};
 use std::time::Instant;
 
 use tokio::sync::broadcast;
 
+use crate::auth::{MojangSessionService, Property, SessionService};
+use crate::crypto::rsa::PrivateKey;
 use crate::packets::play::{ChatKind, GameMode};
 use crate::packets::status::ServerInfo;
 use crate::packets::world::{BlockPos, Item};
@@ -28,6 +30,8 @@ pub struct PlayerState {
     /// 손에 든 것 (다른 사람에게 보이는 것).
     pub main_hand: Option<Item>,
     pub off_hand: Option<Item>,
+    /// 프로필 속성 (스킨). 탭 목록에 넣으면 다른 사람에게도 그 스킨으로 보입니다.
+    pub properties: std::sync::Arc<Vec<Property>>,
 }
 
 /// 접속자 사이를 오가는 소식. 모든 세션이 받고, 각자 자기와 관련 있는 것만 처리합니다.
@@ -97,12 +101,38 @@ pub enum Event {
     },
 }
 
+/// `server.properties`에 해당하는 설정.
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// 정품 인증. 켜면 연결을 암호화하고 Mojang 세션 서버로 확인합니다.
+    pub online_mode: bool,
+    /// 이 크기(바이트) 이상인 패킷을 압축합니다. `None`이면 압축하지 않습니다.
+    pub compression_threshold: Option<usize>,
+    /// 오프라인 모드에서도 같은 이름의 정품 계정 스킨을 입힙니다 (Mojang API 조회).
+    pub offline_skins: bool,
+}
+
+impl Default for Config {
+    /// 테스트·개발용 기본값: 오프라인, 압축 켬(바닐라와 같은 256).
+    fn default() -> Self {
+        Self {
+            online_mode: false,
+            compression_threshold: Some(256),
+            offline_skins: false,
+        }
+    }
+}
+
 /// 같은 사람이 이미 접속해 있음.
 #[derive(Debug)]
 pub struct AlreadyOnline;
 
 pub struct Server {
     pub info: ServerInfo,
+    pub config: Config,
+    pub sessions: Box<dyn SessionService>,
+    /// 정품 인증용 RSA 키. 처음 필요할 때 만듭니다 (1024비트, 바닐라와 같음).
+    key: OnceLock<PrivateKey>,
     /// 월드 시드. 세 차원 모두 이 값에서 지형을 만듭니다.
     pub seed: u64,
     /// 플레이어가 바꾼 블록들.
@@ -144,6 +174,9 @@ impl Server {
     fn with_world(info: ServerInfo, seed: u64, world: WorldStore) -> Self {
         Self {
             info,
+            config: Config::default(),
+            sessions: Box::new(MojangSessionService),
+            key: OnceLock::new(),
             seed,
             world,
             players: Mutex::new(HashMap::new()),
@@ -155,6 +188,20 @@ impl Server {
                 day_time_at_start: 1000,
             }),
         }
+    }
+
+    pub fn with_config(mut self, config: Config) -> Self {
+        self.config = config;
+        self
+    }
+
+    pub fn with_session_service(mut self, sessions: impl SessionService + 'static) -> Self {
+        self.sessions = Box::new(sessions);
+        self
+    }
+
+    pub fn key(&self) -> &PrivateKey {
+        self.key.get_or_init(|| PrivateKey::generate(1024))
     }
 
     pub fn online(&self) -> u32 {

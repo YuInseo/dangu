@@ -1,6 +1,8 @@
 //! 프레임워크 없이 tokio만으로 짜는 마인크래프트 Java Edition 26.3 서버.
 
+pub mod auth;
 pub mod connection;
+pub mod crypto;
 pub mod data;
 pub mod json;
 pub mod packets;

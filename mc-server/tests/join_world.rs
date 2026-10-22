@@ -2,90 +2,53 @@
 
 mod common;
 
-use common::{recv, send, start_server};
-use mc_server::protocol::types::{read_string, read_uuid, write_string, write_uuid};
-use mc_server::protocol::varint::{read_varint, write_varint};
+use common::{configure, connect, ids, login, recv, recv_until, send, start_server};
+use mc_server::protocol::types::{read_string, read_uuid, write_string};
+use mc_server::protocol::varint::read_varint;
 use mc_server::uuid::offline_uuid;
-use tokio::net::TcpStream;
-
-async fn recv_until(
-    s: &mut TcpStream,
-    id: i32,
-) -> (mc_server::protocol::frame::RawPacket, Vec<i32>) {
-    let (p, seen) = common::recv_until(s, id).await;
-    (p, common::ids(&seen))
-}
 
 #[tokio::test]
 async fn login_configure_play_and_travel() {
-    let mut s = TcpStream::connect(start_server().await).await.unwrap();
+    let mut s = connect(start_server().await).await;
 
-    // ---- Handshake + Login ----
-    let mut hs = Vec::new();
-    write_varint(&mut hs, 777);
-    write_string(&mut hs, "localhost");
-    hs.extend_from_slice(&25565u16.to_be_bytes());
-    write_varint(&mut hs, 2);
-    send(&mut s, 0x00, &hs).await;
-
-    let mut hello = Vec::new();
-    write_string(&mut hello, "Tester");
-    write_uuid(&mut hello, 12345);
-    send(&mut s, 0x00, &hello).await;
-
-    let finished = recv(&mut s).await;
-    assert_eq!(finished.id, 0x02, "Login Finished");
-    let mut b = finished.body.as_slice();
+    // ---- Login ----
+    let done = login(&mut s, "Tester").await;
+    assert!(done.compressed, "Set Compression before Login Finished");
+    assert!(!done.encrypted, "offline mode does not encrypt");
+    let mut b = done.finished.body.as_slice();
     assert_eq!(read_uuid(&mut b).unwrap(), offline_uuid("Tester"));
     assert_eq!(read_string(&mut b, 16).unwrap(), "Tester");
-    assert_eq!(read_varint(&mut b).unwrap(), 0);
+    assert_eq!(read_varint(&mut b).unwrap(), 0, "no properties offline");
     read_uuid(&mut b).unwrap(); // 26.2 세션 UUID
     assert!(b.is_empty());
-    send(&mut s, 0x03, &[]).await; // Login Acknowledged
 
     // ---- Configuration ----
-    let mut info = Vec::new();
-    write_string(&mut info, "ko_kr");
-    info.push(4); // 시야 거리 4
-    info.extend_from_slice(&[0, 1, 0x7f, 1, 0, 1, 0]);
-    send(&mut s, 0x00, &info).await;
-
-    let (_, before) = recv_until(&mut s, 0x0F).await; // Select Known Packs
-    assert!(
-        before.contains(&0x0D),
-        "enabled features before known packs"
-    );
-    let mut packs = Vec::new();
-    write_varint(&mut packs, 1);
-    for v in ["minecraft", "core", "26.3"] {
-        write_string(&mut packs, v);
-    }
-    send(&mut s, 0x07, &packs).await;
-
-    let (_, config) = recv_until(&mut s, 0x03).await; // Finish Configuration
+    let config = ids(&configure(&mut s, 4).await);
+    assert!(config.contains(&0x0D), "enabled features");
     let registries = config.iter().filter(|&&id| id == 0x07).count();
     assert_eq!(registries, mc_server::data::SYNCED_REGISTRIES.len());
     assert!(config.contains(&0x0E), "update tags");
-    send(&mut s, 0x03, &[]).await;
 
     // ---- Play ----
     let login = recv(&mut s).await;
     assert_eq!(login.id, 0x32, "Login (play)");
-    let mut b = login.body.as_slice();
-    b = &b[4..]; // entity id
     assert_ne!(
         login.body[..4],
         [0, 0, 0, 0],
         "entity id 0 is rejected since 26.2"
     );
-    b = &b[1..];
+    let mut b = &login.body[5..];
     assert_eq!(read_varint(&mut b).unwrap(), 3, "three worlds");
 
     let (_, seen) = recv_until(&mut s, 0x0B).await; // Chunk Batch Finished
+    let seen = ids(&seen);
     assert!(seen.contains(&0x49), "player position");
     assert!(seen.contains(&0x27), "game event 13");
-    let chunks = seen.iter().filter(|&&id| id == 0x2E).count();
-    assert_eq!(chunks, 9 * 9, "view distance 4 → 9×9 chunks");
+    assert_eq!(
+        seen.iter().filter(|&&id| id == 0x2E).count(),
+        9 * 9,
+        "view distance 4 → 9×9 chunks"
+    );
 
     // ---- /nether ----
     let mut cmd = Vec::new();
@@ -96,7 +59,7 @@ async fn login_configure_play_and_travel() {
     read_varint(&mut b).unwrap();
     assert_eq!(read_string(&mut b, 64).unwrap(), "minecraft:the_nether");
     let (_, seen) = recv_until(&mut s, 0x0B).await;
-    assert_eq!(seen.iter().filter(|&&id| id == 0x2E).count(), 81);
+    assert_eq!(ids(&seen).iter().filter(|&&id| id == 0x2E).count(), 81);
 
     // ---- 걸어서 청크 경계 넘기 → 새 줄만 받기 ----
     let mut mv = Vec::new();
@@ -106,6 +69,7 @@ async fn login_configure_play_and_travel() {
     mv.push(1);
     send(&mut s, 0x1E, &mv).await;
     let (_, seen) = recv_until(&mut s, 0x0B).await;
+    let seen = ids(&seen);
     assert!(seen.contains(&0x60), "set center");
     assert!(seen.contains(&0x26), "forget old chunks");
 }
