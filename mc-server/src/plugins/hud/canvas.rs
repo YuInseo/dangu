@@ -45,7 +45,7 @@ impl Canvas {
         }
         // 공백은 앞 조각에 이어 붙임 (HUD 폰트일 때)
         let (font, tint) = match self.runs.last() {
-            Some(r) if r.font.is_some() => (r.font, r.tint),
+            Some(r) => (r.font, r.tint),
             _ => (Some(SPACE_FONT), None),
         };
         let negative = dx < 0;
@@ -95,7 +95,7 @@ impl Canvas {
         x
     }
 
-    /// 바닐라 기본 폰트 글 (줄의 원래 높이에 그려짐; 폭을 모르는 글자는 뺌).
+    /// 바닐라 글자로 쓴 글 ([`art::TEXT_FONT`]; 줄의 원래 높이에 그려짐; 폭을 모르는 글자는 뺌).
     pub fn text(&mut self, tint: Tint, x: i32, s: &str) -> i32 {
         self.move_to(x);
         for c in s.chars() {
@@ -141,9 +141,10 @@ impl Canvas {
             .into_iter()
             .map(|r| {
                 let mut f = vec![("text".into(), Tag::String(r.text))];
-                if let Some(font) = r.font {
-                    f.push(("font".into(), Tag::String(font.into())));
-                }
+                f.push((
+                    "font".into(),
+                    Tag::String(r.font.unwrap_or(art::TEXT_FONT).into()),
+                ));
                 if let Some(t) = r.tint {
                     f.push(("color".into(), Tag::String(t.color())));
                     if r.font.is_none() {
@@ -211,7 +212,7 @@ pub fn walk(tag: &Tag) -> Vec<(Option<String>, Option<Tint>, char)> {
                 _ => None,
             })
         };
-        let font = get("font");
+        let font = get("font").filter(|f| f != art::TEXT_FONT);
         let tint = get("color").and_then(|c| Tint::parse(&c));
         for c in get("text").unwrap().chars() {
             out.push((font.clone(), tint, c));
@@ -223,6 +224,9 @@ pub fn walk(tag: &Tag) -> Vec<(Option<String>, Option<Tint>, char)> {
 /// 그 글자의 폭 (기본 폰트면 기본 폰트 폭).
 #[cfg(test)]
 pub fn advance_in(font: &Option<String>, c: char) -> i32 {
+    if let Some(a) = art::space_advance(c) {
+        return a;
+    }
     match font {
         None => art::default_advance(c).unwrap_or(0),
         Some(_) => art::advance(c),

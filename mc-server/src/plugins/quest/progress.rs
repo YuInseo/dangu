@@ -320,6 +320,7 @@ impl Progress {
     }
 
     /// 내기 퀘스트에 아이템을 냅니다: `have`개 있을 때 받아 간 수와 끝났으면 그 퀘스트.
+    #[allow(clippy::too_many_arguments)]
     pub fn deliver(
         &mut self,
         uuid: u128,

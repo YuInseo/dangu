@@ -169,6 +169,11 @@ pub const HP: RowFont = row("dangu:hud/hp", 33);
 /// 그 위 바닐라 갑옷 아이콘 자리.
 pub const MP: RowFont = row("dangu:hud/mp", 23);
 
+/// 바뀌는 글(퀘스트 이름 등)의 폰트: 바닐라 기본 폰트의 글자들을 그대로 참조하되, 바닐라와 달리
+/// "유니코드 글꼴 강제" 옵션(`uniform` 거르기)을 타지 않아 폭이 늘 [`default_advance`]와 같습니다.
+/// 줄의 원래 높이(위쪽 = 줄 위쪽)에 그려지고, HUD 공백 글자도 들어 있습니다.
+pub const TEXT_FONT: &str = "dangu:hud/text";
+
 pub fn all_rows() -> Vec<&'static RowFont> {
     let mut v = vec![&T0, &T1, &T2, &TQ, &TB, &HP, &MP];
     v.extend(BOTTOM.iter());
@@ -630,7 +635,7 @@ pub fn advance(c: char) -> i32 {
     t.get(&c).copied().unwrap_or(0)
 }
 
-fn font_json(row: &RowFont) -> String {
+fn space_provider() -> String {
     let mut spaces = Vec::new();
     for k in 0..=10u32 {
         for neg in [false, true] {
@@ -642,10 +647,14 @@ fn font_json(row: &RowFont) -> String {
             ));
         }
     }
-    let mut providers = vec![format!(
+    format!(
         "{{\"type\":\"space\",\"advances\":{{{}}}}}",
         spaces.join(",")
-    )];
+    )
+}
+
+fn font_json(row: &RowFont) -> String {
+    let mut providers = vec![space_provider()];
     for s in sheets().iter().filter(|s| s.fits(row)) {
         providers.push(format!(
             "{{\"type\":\"bitmap\",\"file\":\"{}\",\"ascent\":{},\"height\":{},\"chars\":{}}}",
@@ -656,6 +665,15 @@ fn font_json(row: &RowFont) -> String {
         ));
     }
     format!("{{\"providers\":[{}]}}", providers.join(","))
+}
+
+fn text_font_json() -> String {
+    format!(
+        "{{\"providers\":[{},{{\"type\":\"reference\",\"id\":\"minecraft:include/space\"}},\
+         {{\"type\":\"reference\",\"id\":\"minecraft:include/default\"}},\
+         {{\"type\":\"reference\",\"id\":\"minecraft:include/unifont\"}}]}}",
+        space_provider()
+    )
 }
 
 fn palette_glsl() -> String {
@@ -808,6 +826,13 @@ pub fn pack() -> Pack {
         ));
     }
     files.push((
+        format!(
+            "assets/dangu/font/{}.json",
+            TEXT_FONT.trim_start_matches("dangu:")
+        ),
+        text_font_json().into_bytes(),
+    ));
+    files.push((
         "assets/dangu/textures/font/hud/label_LICENSE.txt".into(),
         b"label.png glyphs: GNU Unifont 17.0.01, SIL Open Font License 1.1 (https://openfontlicense.org)\n"
             .to_vec(),
@@ -905,7 +930,29 @@ mod tests {
                 assert!(ascent <= height, "{} {ascent} > {height}", row.id);
             }
         }
+        let t = crate::json::parse(&text_font_json()).unwrap();
+        let refs: Vec<&str> = t
+            .get("providers")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|p| p.get("id").and_then(|i| i.as_str()))
+            .collect();
+        assert_eq!(
+            refs,
+            [
+                "minecraft:include/space",
+                "minecraft:include/default",
+                "minecraft:include/unifont"
+            ]
+        );
         let p = pack();
+        assert!(
+            p.files
+                .iter()
+                .any(|(n, _)| n == "assets/dangu/font/hud/text.json")
+        );
         let vsh = p
             .files
             .iter()

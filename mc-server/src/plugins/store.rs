@@ -162,6 +162,7 @@ pub fn data_path(env: &str, file: &str) -> PathBuf {
 mod tests {
     use super::*;
 
+    #[allow(clippy::ptr_arg)] // JsonFile<Vec<i64>>의 fn(&T) 모양에 맞춤
     fn enc(v: &Vec<i64>) -> Json {
         Json::Array(v.iter().map(|&n| Json::Number(n as f64)).collect())
     }

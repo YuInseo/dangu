@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dangu 관리</title>
+<style>
+:root {
+  --bg: #f4f5f8; --panel: #fff; --ink: #1d2030; --muted: #6b7088; --line: #dfe2ea;
+  --accent: #4f6bed; --accent-ink: #fff; --ok: #1f9d55; --bad: #d64545; --chip: #eef1fb;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14151c; --panel: #1d1f29; --ink: #e8e9f0; --muted: #9096ad; --line: #2e3140;
+    --accent: #7b8ff7; --accent-ink: #10121a; --chip: #262a3a; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 14px/1.5 system-ui, -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif; }
+header { position: sticky; top: 0; z-index: 5; background: var(--panel); border-bottom: 1px solid var(--line);
+  display: flex; gap: 12px; align-items: center; padding: 10px 16px; flex-wrap: wrap; }
+header h1 { font-size: 16px; margin: 0 8px 0 0; }
+nav button { border: 0; background: none; color: var(--muted); padding: 6px 10px; border-radius: 8px; cursor: pointer; font: inherit; }
+nav button.on { background: var(--chip); color: var(--ink); font-weight: 600; }
+.spacer { flex: 1; }
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+section.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+section.card h2 { font-size: 15px; margin: 0 0 4px; }
+.hint { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; min-width: 640px; }
+th, td { padding: 4px 6px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+th { font-weight: 600; color: var(--muted); font-size: 12.5px; }
+input, select, textarea { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 6px; }
+input[type=number] { width: 96px; }
+input.wide, textarea.wide { width: 100%; }
+textarea.code { width: 100%; min-height: 420px; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+button.btn { border: 1px solid var(--line); background: var(--panel); color: var(--ink); border-radius: 8px;
+  padding: 6px 12px; cursor: pointer; font: inherit; }
+button.btn:hover { border-color: var(--accent); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+button.small { padding: 2px 8px; font-size: 12.5px; }
+button.danger { color: var(--bad); }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 16px; }
+.grid label { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; color: var(--muted); }
+.grid label input { width: 100%; }
+.quest { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+.quest .grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.quest .head { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+.quest .head b { font-size: 14px; }
+.quest .desc { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; color: var(--muted); }
+.chip { background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
+#status { font-size: 13px; }
+#status.ok { color: var(--ok); } #status.bad { color: var(--bad); }
+.dirty::after { content: " ●"; color: var(--accent); }
+.login { max-width: 420px; margin: 80px auto; }
+@media (max-width: 640px) { main { padding: 10px; } section.card { padding: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>dangu 관리</h1>
+  <nav>
+    <button data-tab="guild" class="on">길드</button>
+    <button data-tab="quests">퀘스트</button>
+    <button data-tab="raw">JSON</button>
+  </nav>
+  <span class="spacer"></span>
+  <span id="status"></span>
+  <button class="btn" id="reload">다시 불러오기</button>
+  <button class="btn primary" id="save">저장</button>
+</header>
+
+<main id="app">
+  <section class="card login" id="login" hidden>
+    <h2>토큰</h2>
+    <p class="hint">서버를 켤 때 찍힌 주소(<code>#token=…</code>)로 들어오거나, <code>world/admin_token.txt</code>의 값을 넣으세요.</p>
+    <div class="row"><input class="wide" id="token" autocomplete="off"><button class="btn primary" id="login-go">들어가기</button></div>
+  </section>
+
+  <div id="tab-guild" hidden>
+    <section class="card">
+      <h2>길드 레벨별 효과</h2>
+      <p class="hint">누적 경험치에 닿으면 그 레벨이 됩니다. 최대 인원·땅·창고 쪽수는 이 값에 강화 보너스가 더해집니다.
+        직업 경험치 보너스는 %, 희귀 보너스는 희귀 드롭 확률에 더하는 %p입니다.</p>
+      <div class="scroll"><table id="levels"></table></div>
+      <div class="row" style="margin-top:8px"><button class="btn small" id="add-level">레벨 추가</button></div>
+    </section>
+    <section class="card">
+      <h2>강화</h2>
+      <p class="hint">강화 n단계 비용 = 기본 비용 × n, 필요 길드 레벨 = n + 레벨 차이.</p>
+      <div class="scroll"><table id="upgrades"></table></div>
+    </section>
+    <section class="card">
+      <h2>청크 작물 단계</h2>
+      <p class="hint">작물 성장 촉진제를 쓸 때마다 그 청크의 단계가 1 오릅니다. 0단계는 길드 땅이 아니거나 아직 쓰지 않은 청크 (보통 1.0).</p>
+      <div class="row" id="crops"></div>
+      <div class="row" style="margin-top:8px"><button class="btn small" id="add-crop">단계 추가</button><button class="btn small danger" id="del-crop">마지막 단계 빼기</button></div>
+    </section>
+    <section class="card">
+      <h2>길드 창고를 막을 인스턴스</h2>
+      <p class="hint">한 줄에 하나. 여기 있는 인스턴스(세션)에서는 길드 창고가 열리지 않습니다. 비우면 모두 허용.</p>
+      <textarea class="wide" id="blocked" rows="3" placeholder="예: pvp&#10;event"></textarea>
+    </section>
+    <section class="card">
+      <h2>그 밖의 값</h2>
+      <div class="grid" id="misc"></div>
+    </section>
+    <div class="row"><button class="btn" id="guild-default">기본값으로 채우기 (저장 전)</button></div>
+  </div>
+
+  <div id="tab-quests" hidden>
+    <section class="card">
+      <h2>퀘스트 설정</h2>
+      <p class="hint">주간·길드 주간은 후보 중에서 매주 월요일 0시(한국)에 정해진 개수를 뽑습니다 (모두 같은 퀘스트).
+        목표: mine 아무 블록 캐기 · ores 광석 · logs 통나무 · harvest 다 자란 작물 · kill 몹 잡기 · deliver 아이템 내기.
+        거르기는 쉼표로, <code>*</code> 하나를 쓸 수 있습니다 (예: <code>*_ore</code>).</p>
+      <div class="grid" id="quest-counts"></div>
+    </section>
+    <section class="card"><h2>일반 <span class="chip" id="n-normal"></span></h2><div id="q-normal"></div>
+      <button class="btn small" data-add="normal">일반 퀘스트 추가</button></section>
+    <section class="card"><h2>주간 후보 <span class="chip" id="n-weekly"></span></h2><div id="q-weekly"></div>
+      <button class="btn small" data-add="weekly">주간 퀘스트 추가</button></section>
+    <section class="card"><h2>길드 주간 후보 <span class="chip" id="n-guild_weekly"></span></h2>
+      <p class="hint">길드원 모두의 진행이 합쳐집니다. 보상의 GP는 길드에, 돈·아이템·직업 경험치는 마지막에 채운 길드원에게 갑니다.</p>
+      <div id="q-guild_weekly"></div>
+      <button class="btn small" data-add="guild_weekly">길드 주간 퀘스트 추가</button></section>
+    <div class="row"><button class="btn" id="quests-default">기본값으로 채우기 (저장 전)</button></div>
+  </div>
+
+  <div id="tab-raw" hidden>
+    <section class="card">
+      <h2>길드 설정 JSON <span class="chip">world/guild_config.json</span></h2>
+      <p class="hint">위 화면에 없는 것도 그대로 고칠 수 있습니다. 저장하면 이 JSON이 쓰입니다.</p>
+      <textarea class="code" id="raw-guild" spellcheck="false"></textarea>
+    </section>
+    <section class="card">
+      <h2>퀘스트 JSON <span class="chip">world/quests.json</span></h2>
+      <textarea class="code" id="raw-quests" spellcheck="false"></textarea>
+    </section>
+  </div>
+</main>
+
+<script>
+"use strict";
+const $ = (s, el = document) => el.querySelector(s);
+const $$ = (s, el = document) => [...el.querySelectorAll(s)];
+let token = "";
+let guild = null, quests = null;
+let tab = "guild";
+let dirty = false;
+
+const LEVEL_COLS = [
+  ["level", "레벨", 1], ["exp", "누적 경험치", 1], ["max_members", "최대 인원", 1], ["max_lands", "최대 땅", 1],
+  ["storage_pages", "창고 쪽수", 1], ["beacon_slots", "신호기 칸", 1], ["job_xp_bonus", "직업 경험치 +%", 0.1],
+  ["rare_bonus", "희귀 +%p", 0.1],
+];
+const UPGRADE_NAMES = { land: "땅", members: "인원", storage: "창고" };
+const UPGRADE_COLS = [
+  ["max_level", "최대 단계", 1], ["per_level", "단계마다 +", 1], ["base_cost", "기본 비용", 1],
+  ["required_level_offset", "필요 레벨 차이", 1],
+];
+const MISC = [
+  ["create_cost", "길드 만들기 비용", 1], ["land_price", "청크 값", 1], ["land_refund", "땅 팔 때 돌려받는 비율 (0~1)", 0.05],
+  ["event_cost_gp", "길드 이벤트 비용 (GP)", 1], ["event_minutes", "길드 이벤트 시간 (분)", 1], ["max_officers", "부길드장 수", 1],
+];
+const KINDS = ["mine", "ores", "logs", "harvest", "kill", "deliver"];
+const KIND_NAMES = { mine: "캐기", ores: "광석", logs: "통나무", harvest: "수확", kill: "잡기", deliver: "내기" };
+const LISTS = ["normal", "weekly", "guild_weekly"];
+
+function el(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === "on") for (const [ev, f] of Object.entries(v)) e.addEventListener(ev, f);
+    else if (k in e && k !== "list") e[k] = v; else e.setAttribute(k, v);
+  }
+  for (const k of kids) e.append(k);
+  return e;
+}
+function num(value, step, onchange) {
+  return el("input", { type: "number", step, value: value ?? 0, on: { input: e => { onchange(parseFloat(e.target.value) || 0); markDirty(); } } });
+}
+function text(value, onchange, attrs = {}) {
+  return el("input", { value: value ?? "", ...attrs, on: { input: e => { onchange(e.target.value); markDirty(); } } });
+}
+function status(msg, kind = "") { const s = $("#status"); s.textContent = msg; s.className = kind; }
+function markDirty() { dirty = true; $("#save").classList.add("dirty"); }
+function clean() { dirty = false; $("#save").classList.remove("dirty"); }
+
+async function api(method, path, body, dry = false) {
+  const r = await fetch("/api/" + path, {
+    method, headers: { "Authorization": "Bearer " + token, ...(body ? { "Content-Type": "application/json" } : {}), ...(dry ? { "X-Dry-Run": "1" } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await r.json().catch(() => ({ error: "응답을 읽지 못했습니다" }));
+  if (r.status === 401) { showLogin(); throw new Error(j.error); }
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+// ---- 길드 ----
+function renderGuild() {
+  const t = $("#levels");
+  t.replaceChildren(el("tr", {}, ...LEVEL_COLS.map(c => el("th", {}, c[1])), el("th")));
+  guild.levels.sort((a, b) => a.level - b.level);
+  guild.levels.forEach((row, i) => {
+    t.append(el("tr", {},
+      ...LEVEL_COLS.map(([k, , step]) => el("td", {}, num(row[k], step, v => row[k] = v))),
+      el("td", {}, el("button", { className: "btn small danger", textContent: "빼기",
+        on: { click: () => { guild.levels.splice(i, 1); markDirty(); renderGuild(); } } }))));
+  });
+  const u = $("#upgrades");
+  u.replaceChildren(el("tr", {}, el("th", {}, "강화"), ...UPGRADE_COLS.map(c => el("th", {}, c[1]))));
+  for (const row of guild.upgrades) {
+    u.append(el("tr", {}, el("td", {}, UPGRADE_NAMES[row.kind] || row.kind),
+      ...UPGRADE_COLS.map(([k, , step]) => el("td", {}, num(row[k], step, v => row[k] = v)))));
+  }
+  const crops = $("#crops");
+  crops.replaceChildren(...guild.crop_levels.map((m, i) =>
+    el("label", { className: "chip" }, `${i}단계 ×`, num(m, 0.05, v => guild.crop_levels[i] = v))));
+  $("#blocked").value = (guild.storage_blocked_instances || []).join("\n");
+  $("#misc").replaceChildren(...MISC.map(([k, label, step]) => el("label", {}, label, num(guild[k], step, v => guild[k] = v))));
+}
+$("#add-level").onclick = () => {
+  const last = guild.levels[guild.levels.length - 1] || { level: 0, exp: 0, max_members: 10, max_lands: 4, storage_pages: 1, beacon_slots: 1, job_xp_bonus: 0, rare_bonus: 0 };
+  guild.levels.push({ ...last, level: last.level + 1, exp: last.exp + 1000 });
+  markDirty(); renderGuild();
+};
+$("#add-crop").onclick = () => { const l = guild.crop_levels; l.push(+(l[l.length - 1] + 0.25).toFixed(2)); markDirty(); renderGuild(); };
+$("#del-crop").onclick = () => { if (guild.crop_levels.length > 1) { guild.crop_levels.pop(); markDirty(); renderGuild(); } };
+$("#blocked").oninput = e => { guild.storage_blocked_instances = e.target.value.split("\n").map(s => s.trim()).filter(Boolean); markDirty(); };
+$("#guild-default").onclick = async () => { guild = await api("GET", "guild-config/default"); markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다."); };
+
+// ---- 퀘스트 ----
+const csv = a => (a || []).join(", ");
+const uncsv = s => s.split(",").map(x => x.trim()).filter(Boolean);
+const pairs = (a, k, v) => (a || []).map(p => `${p[k]}:${p[v]}`).join(", ");
+const unpairs = (s, k, v) => uncsv(s).map(x => { const i = x.lastIndexOf(":"); return i < 0 ? null : { [k]: x.slice(0, i).trim(), [v]: parseFloat(x.slice(i + 1)) || 0 }; }).filter(Boolean);
+
+function questCard(list, q, i) {
+  q.objective ||= { kind: "mine", filter: [] };
+  q.rewards ||= {};
+  const arr = quests[list];
+  const kind = el("select", { on: { change: e => { q.objective.kind = e.target.value; markDirty(); } } },
+    ...KINDS.map(k => el("option", { value: k, textContent: `${KIND_NAMES[k]} (${k})`, selected: q.objective.kind === k })));
+  const move = d => () => { const j = i + d; if (j < 0 || j >= arr.length) return; [arr[i], arr[j]] = [arr[j], arr[i]]; markDirty(); renderQuests(); };
+  const fields = [
+    el("label", {}, "id (겹치면 안 됨)", text(q.id, v => q.id = v)),
+    el("label", {}, "이름", text(q.name, v => { q.name = v; title.textContent = v || "(이름 없음)"; })),
+    el("label", {}, "목표", kind),
+    el("label", {}, "목표 수", num(q.target, 1, v => q.target = Math.max(1, Math.round(v)))),
+    el("label", {}, "거르기 (쉼표)", text(csv(q.objective.filter), v => q.objective.filter = uncsv(v), { placeholder: "비우면 아무거나" })),
+    el("label", {}, "보상 돈", num(q.rewards.money, 1, v => q.rewards.money = v)),
+    el("label", {}, "보상 캐시", num(q.rewards.cash, 1, v => q.rewards.cash = v)),
+    el("label", {}, "보상 아이템 (id:개수, …)", text(pairs(q.rewards.items, "item", "count"), v => q.rewards.items = unpairs(v, "item", "count"), { placeholder: "bread:8, dangu:crop_booster:1" })),
+    el("label", {}, "직업 경험치 (직업:경험치, …)", text(pairs(q.rewards.job_xp, "job", "xp"), v => q.rewards.job_xp = unpairs(v, "job", "xp"), { placeholder: "광부:200" })),
+  ];
+  if (list === "guild_weekly") fields.push(el("label", {}, "길드 GP", num(q.rewards.gp, 1, v => q.rewards.gp = v)));
+  if (list === "normal") fields.push(el("label", {}, "다시 받기",
+    el("select", { on: { change: e => { q.repeatable = e.target.value === "1"; markDirty(); } } },
+      el("option", { value: "0", textContent: "한 번만", selected: !q.repeatable }), el("option", { value: "1", textContent: "반복 가능", selected: !!q.repeatable }))));
+  const title = el("b", { textContent: q.name || "(이름 없음)" });
+  return el("div", { className: "quest" },
+    el("div", { className: "head" }, title, el("span", { className: "chip", textContent: q.id || "id 없음" }), el("span", { className: "spacer" }),
+      el("button", { className: "btn small", textContent: "↑", title: "위로", on: { click: move(-1) } }),
+      el("button", { className: "btn small", textContent: "↓", title: "아래로", on: { click: move(1) } }),
+      el("button", { className: "btn small danger", textContent: "지우기", on: { click: () => { if (confirm(`'${q.name}' 퀘스트를 지울까요?`)) { arr.splice(i, 1); markDirty(); renderQuests(); } } } })),
+    el("label", { className: "desc" }, "설명", text(q.description, v => q.description = v, { className: "wide" })),
+    el("div", { className: "grid", style: "margin-top:8px" }, ...fields));
+}
+function renderQuests() {
+  $("#quest-counts").replaceChildren(
+    el("label", {}, "주간 퀘스트 수 (매주 뽑음)", num(quests.weekly_count, 1, v => quests.weekly_count = Math.max(0, Math.round(v)))),
+    el("label", {}, "길드 주간 퀘스트 수", num(quests.guild_weekly_count, 1, v => quests.guild_weekly_count = Math.max(0, Math.round(v)))),
+    el("label", {}, "HUD에 띄우는 퀘스트 수 (1~3)", num(quests.max_tracked, 1, v => quests.max_tracked = Math.min(3, Math.max(1, Math.round(v))))));
+  for (const l of LISTS) {
+    quests[l] ||= [];
+    $("#q-" + l).replaceChildren(...quests[l].map((q, i) => questCard(l, q, i)));
+    $("#n-" + l).textContent = quests[l].length + "개";
+  }
+}
+$$("[data-add]").forEach(b => b.onclick = () => {
+  const l = b.dataset.add;
+  let n = quests[l].length + 1, id;
+  do id = `${l}_${n++}`; while (LISTS.some(k => quests[k].some(q => q.id === id)));
+  quests[l].push({ id, name: "새 퀘스트", description: "", objective: { kind: "mine", filter: [] }, target: 10, rewards: { money: 100, cash: 0, gp: 0, items: [], job_xp: [] }, repeatable: false });
+  markDirty(); renderQuests();
+});
+$("#quests-default").onclick = async () => { quests = await api("GET", "quests/default"); markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다."); };
+
+// ---- JSON / 탭 ----
+function renderRaw() {
+  $("#raw-guild").value = JSON.stringify(guild, null, 2);
+  $("#raw-quests").value = JSON.stringify(quests, null, 2);
+}
+$("#raw-guild").oninput = markDirty;
+$("#raw-quests").oninput = markDirty;
+function readRaw() {
+  // JSON 탭에서 고친 것을 폼에 반영 (망가졌으면 알림)
+  try { guild = JSON.parse($("#raw-guild").value); } catch (e) { throw new Error("길드 JSON: " + e.message); }
+  try { quests = JSON.parse($("#raw-quests").value); } catch (e) { throw new Error("퀘스트 JSON: " + e.message); }
+}
+function renderAll() { renderGuild(); renderQuests(); renderRaw(); }
+function show(t) {
+  if (tab === "raw" && t !== "raw") { try { readRaw(); renderGuild(); renderQuests(); } catch (e) { status(e.message, "bad"); return; } }
+  if (t === "raw") renderRaw();
+  tab = t;
+  $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
+  for (const k of ["guild", "quests", "raw"]) $("#tab-" + k).hidden = k !== t;
+}
+$$("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
+
+async function load() {
+  status("불러오는 중…");
+  [guild, quests] = await Promise.all([api("GET", "guild-config"), api("GET", "quests")]);
+  renderAll(); clean(); show(tab);
+  status("불러왔습니다", "ok");
+}
+$("#reload").onclick = () => { if (!dirty || confirm("저장하지 않은 것을 버릴까요?")) load().catch(e => status(e.message, "bad")); };
+$("#save").onclick = async () => {
+  try {
+    if (tab === "raw") readRaw();
+    status("확인하는 중…");
+    // 둘 다 통과해야 저장 (하나만 저장되는 일이 없게)
+    await api("PUT", "guild-config", guild, true).catch(e => { throw new Error("길드: " + e.message); });
+    await api("PUT", "quests", quests, true).catch(e => { throw new Error("퀘스트: " + e.message); });
+    status("저장하는 중…");
+    const g = await api("PUT", "guild-config", guild);
+    const q = await api("PUT", "quests", quests);
+    guild = g.saved; quests = q.saved;
+    renderAll(); clean();
+    status("저장했습니다 — 모든 인스턴스에 곧바로 적용", "ok");
+  } catch (e) { status("저장 못 함: " + e.message, "bad"); }
+};
+window.addEventListener("beforeunload", e => { if (dirty) e.preventDefault(); });
+
+function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "raw"]) $("#tab-" + k).hidden = true; }
+$("#login-go").onclick = () => {
+  token = $("#token").value.trim();
+  try { sessionStorage.setItem("dangu-token", token); } catch {}
+  $("#login").hidden = true;
+  load().catch(e => status(e.message, "bad"));
+};
+
+(function start() {
+  const m = location.hash.match(/token=([^&]+)/);
+  if (m) {
+    token = decodeURIComponent(m[1]);
+    try { sessionStorage.setItem("dangu-token", token); } catch {}
+    history.replaceState(null, "", location.pathname);
+  } else {
+    try { token = sessionStorage.getItem("dangu-token") || ""; } catch {}
+  }
+  if (!token) return showLogin();
+  load().catch(e => status(e.message, "bad"));
+})();
+</script>
+</body>
+</html>

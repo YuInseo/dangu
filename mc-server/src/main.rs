@@ -56,6 +56,18 @@ async fn main() -> std::io::Result<()> {
             }
         }
     }
+    // 웹 관리 화면 (MC_ADMIN_PORT, 기본 127.0.0.1:25580). 담비 자식은 마스터 것을 같이 씀
+    if !mc_server::dambi::child::active()
+        && let Some((addr, token)) = mc_server::plugins::webadmin::settings()
+    {
+        match TcpListener::bind(&addr).await {
+            Ok(l) => {
+                println!("웹 관리 화면: http://{addr}/#token={token}");
+                tokio::spawn(mc_server::plugins::webadmin::serve(l, token));
+            }
+            Err(e) => eprintln!("웹 관리 화면 {addr}을 열지 못했습니다: {e}"),
+        }
+    }
     if master {
         mc_server::dambi::master::run().await?;
         // CLI가 표준 입력을 막고(블로킹 스레드) 있어 런타임이 스스로 끝나지 않으므로
