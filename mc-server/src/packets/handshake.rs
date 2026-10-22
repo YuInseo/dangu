@@ -30,7 +30,9 @@ pub struct Handshake {
 impl Handshake {
     pub fn decode(mut buf: &[u8]) -> Result<Self, DecodeError> {
         let protocol_version = read_varint(&mut buf)?;
-        let server_address = read_string(&mut buf, 255)?;
+        // 바닐라는 255자지만, 프록시·모드 로더(Forge `\0FML3\0`, BungeeCord IP 전달, TCPShield 등)가
+        // 덧붙이는 것까지 받습니다.
+        let server_address = read_string(&mut buf, 32767)?;
         let server_port = read_u16(&mut buf)?;
         let intent = match read_varint(&mut buf)? {
             1 => Intent::Status,
@@ -38,9 +40,7 @@ impl Handshake {
             3 => Intent::Transfer,
             _ => return Err(DecodeError::InvalidValue("handshake intent")),
         };
-        if !buf.is_empty() {
-            return Err(DecodeError::InvalidValue("trailing bytes after handshake"));
-        }
+        // 뒤에 남는 바이트는 무시합니다 (몇몇 클라이언트·프록시가 덧붙임).
         Ok(Self {
             protocol_version,
             server_address,
@@ -73,6 +73,20 @@ mod tests {
                 intent: Intent::Status,
             })
         );
+    }
+
+    #[test]
+    fn tolerates_long_addresses_and_extra_bytes() {
+        let mut body = Vec::new();
+        write_varint(&mut body, 777);
+        let long = format!("play.example.com\0{}", "x".repeat(400));
+        write_string(&mut body, &long);
+        body.extend_from_slice(&25565u16.to_be_bytes());
+        write_varint(&mut body, 2);
+        body.extend_from_slice(&[1, 2, 3]);
+        let h = Handshake::decode(&body).unwrap();
+        assert_eq!(h.server_address, long);
+        assert_eq!(h.intent, Intent::Login);
     }
 
     #[test]

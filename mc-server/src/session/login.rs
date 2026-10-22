@@ -26,7 +26,17 @@ where
     if packet.id != login::HELLO_ID {
         return Err(unknown("login", packet.id));
     }
-    let hello = Hello::decode(&packet.body)?;
+    let hello = match Hello::decode(&packet.body) {
+        Ok(h) => h,
+        Err(e) => {
+            // 조용히 끊지 않고 이유를 보여 줌
+            let reason =
+                format!("접속 정보를 읽지 못했습니다 ({e}). 이름은 영문·숫자·_ 16자까지입니다.");
+            conn.write_packet(login::DISCONNECT_ID, &login::encode_disconnect(&reason))
+                .await?;
+            return Ok(None);
+        }
+    };
 
     let profile = if server.config.online_mode {
         match authenticate(conn, server, &hello.name).await? {
@@ -77,11 +87,29 @@ where
     conn.write_packet(login::LOGIN_FINISHED_ID, &finished)
         .await?;
 
-    let packet = next(conn).await?.ok_or(eof())?;
-    if packet.id != login::LOGIN_ACKNOWLEDGED_ID {
-        return Err(unknown("login", packet.id));
-    }
+    expect(conn, login::LOGIN_ACKNOWLEDGED_ID).await?;
     Ok(Some(profile))
+}
+
+/// `id` 패킷이 올 때까지 읽습니다. 그 사이 온 다른 Login 패킷(묻지 않은 플러그인 응답·쿠키 응답
+/// 같은 것, 일부 클라이언트가 보냄)은 몇 개까지 건너뜁니다.
+async fn expect<S>(
+    conn: &mut Conn<S>,
+    id: i32,
+) -> Result<crate::protocol::frame::RawPacket, FrameError>
+where
+    S: AsyncRead + AsyncWrite + Unpin,
+{
+    for _ in 0..32 {
+        let packet = next(conn).await?.ok_or(eof())?;
+        if packet.id == id {
+            return Ok(packet);
+        }
+        if packet.id == login::HELLO_ID {
+            return Err(unknown("login", packet.id));
+        }
+    }
+    Err(unknown("login", id))
 }
 
 /// 밴·IP 밴·화이트리스트 확인. 처음 들어온 `initial_ops`는 여기서 OP 4가 됩니다.
@@ -162,10 +190,7 @@ where
     )
     .await?;
 
-    let packet = next(conn).await?.ok_or(eof())?;
-    if packet.id != login::ENCRYPTION_RESPONSE_ID {
-        return Err(unknown("login", packet.id));
-    }
+    let packet = expect(conn, login::ENCRYPTION_RESPONSE_ID).await?;
     let (secret_enc, token_enc) = login::decode_encryption_response(&packet.body)?;
     let Some(echoed) = key.decrypt(&token_enc) else {
         return Ok(Err("암호화 응답을 풀 수 없습니다.".into()));

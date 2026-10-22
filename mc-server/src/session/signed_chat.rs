@@ -27,7 +27,8 @@ pub struct ChatState {
     received: i32,
 }
 
-/// 받아 두지 않은 서명된 메시지가 이만큼 쌓이면 끊습니다 (바닐라와 같은 4096).
+/// 받았다는 답(Chat Ack)이 없는 서명된 메시지가 이만큼 쌓이면, 바닐라처럼 끊지 않고 그 사람에게는
+/// 서명 없이 보냅니다 (답을 보내지 않는 클라이언트·모드가 있음).
 const MAX_PENDING: usize = 4096;
 
 fn now_ms() -> i64 {
@@ -153,6 +154,11 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         last_seen: &[chat::Signature],
     ) -> Result<(), FrameError> {
         let name = text::plain(sender_name);
+        if self.chat.last_seen.pending_count() >= MAX_PENDING {
+            let body = p::encode_disguised_chat(ChatKind::Chat, &text::plain(content), &name, None);
+            self.send(p::DISGUISED_CHAT_ID, &body).await?;
+            return Ok(());
+        }
         let body = pch::encode_player_chat(&SignedChat {
             global_index: self.chat.received,
             sender,
@@ -168,12 +174,6 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         self.chat.received += 1;
         self.chat.last_seen.add_pending(*signature);
         self.send(pch::PLAYER_CHAT_ID, &body).await?;
-        if self.chat.last_seen.pending_count() > MAX_PENDING {
-            let reason = text::plain("확인하지 않은 채팅 메시지가 너무 많습니다.");
-            self.send(p::DISCONNECT_ID, &p::encode_disconnect(&reason))
-                .await?;
-            return Err(FrameError::Io(std::io::ErrorKind::ConnectionAborted.into()));
-        }
         Ok(())
     }
 

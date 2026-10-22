@@ -206,8 +206,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 }
             }
             Event::ResourcePackChanged => {
-                if let Some((uuid, url, hash, forced)) = crate::resource_pack::offer(&self.origin.0)
-                {
+                if let Some((uuid, url, hash, forced)) = crate::resource_pack::offer(&self.origin) {
                     let prompt = text::colored("서버 아이템 그림이 바뀌었습니다", "gold");
                     let body = crate::packets::configuration::encode_add_resource_pack(
                         uuid,

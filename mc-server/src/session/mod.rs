@@ -82,6 +82,8 @@ pub struct ClientSettings {
     pub origin: (String, u16),
     /// 서버 리소스 팩을 이미 적용함 (인스턴스를 옮겨 다시 설정할 때 또 묻지 않음).
     pub pack_loaded: bool,
+    /// 리소스 팩을 받거나 적용하지 못한 이유 (들어온 뒤 알려 줌).
+    pub pack_problem: Option<String>,
 }
 
 impl ClientSettings {
@@ -93,6 +95,7 @@ impl ClientSettings {
             ip,
             origin: ("localhost".into(), 25565),
             pack_loaded: false,
+            pack_problem: None,
         }
     }
 }

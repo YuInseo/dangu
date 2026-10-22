@@ -55,6 +55,11 @@ pub async fn serve_network(
         stream.set_nodelay(true)?;
         let net = Arc::clone(&net);
         tokio::spawn(async move {
+            // 리소스 팩 주소가 게임 포트를 가리킬 때: 같은 포트로 온 HTTP 요청에 팩을 줌
+            if resource_pack::enabled() && resource_pack::looks_like_http(&stream).await {
+                resource_pack::answer(stream).await;
+                return;
+            }
             if let Err(e) = connection::handle(stream, &net, peer.ip().to_string()).await {
                 eprintln!("[{peer}] 연결 종료: {e}");
             }

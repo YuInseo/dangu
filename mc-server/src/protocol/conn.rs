@@ -123,10 +123,12 @@ impl<R: AsyncRead + Unpin> PacketReader<R> {
 
         let mut buf: &[u8] = frame;
         let inflated;
-        if let Some(threshold) = self.threshold {
+        if self.threshold.is_some() {
             let data_len = read_varint(&mut buf)?;
             if data_len != 0 {
-                if (data_len as usize) < threshold || data_len as usize > zlib::MAX_INFLATED {
+                // 바닐라는 기준보다 작은데 압축한 패킷을 거부하지만, 몇몇 클라이언트(다른 압축
+                // 라이브러리를 쓰는 모드)는 그렇게 보내기도 하므로 받아 줍니다.
+                if data_len < 0 || data_len as usize > zlib::MAX_INFLATED {
                     return Err(DecodeError::InvalidValue("compressed length").into());
                 }
                 inflated = zlib::decompress(buf, data_len as usize)
@@ -191,6 +193,12 @@ impl<W: AsyncWrite + Unpin> PacketWriter<W> {
         out
     }
 
+    /// 프레임 없이 그대로 (레거시 핑 답).
+    pub async fn write_raw(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        self.inner.write_all(bytes).await?;
+        self.inner.flush().await
+    }
+
     pub async fn write_packet(&mut self, id: i32, body: &[u8]) -> std::io::Result<()> {
         let mut bytes = self.encode(id, body);
         if let Some(c) = &mut self.cipher {
@@ -228,6 +236,10 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Conn<S> {
 
     pub async fn write_packet(&mut self, id: i32, body: &[u8]) -> std::io::Result<()> {
         self.w.write_packet(id, body).await
+    }
+
+    pub async fn write_raw(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        self.w.write_raw(bytes).await
     }
 
     pub fn enable_encryption(&mut self, shared_secret: &[u8; 16]) {
@@ -283,8 +295,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_undersized_compressed_packets() {
-        // 압축했다고 하면서 원래 길이가 기준보다 작으면 거부 (바닐라와 같음)
+    async fn accepts_undersized_compressed_packets() {
+        // 기준보다 작은데 압축한 패킷: 바닐라는 끊지만 몇몇 클라이언트가 보내므로 받아 줌
         let (a, b) = tokio::io::duplex(4096);
         let mut server = Conn::new(b);
         server.set_compression(Some(256));
@@ -295,6 +307,7 @@ mod tests {
         raw.extend_from_slice(&z);
         let (_, mut w) = tokio::io::split(a);
         w.write_all(&raw).await.unwrap();
-        assert!(server.read_packet().await.is_err());
+        let p = server.read_packet().await.unwrap().unwrap();
+        assert_eq!((p.id, p.body), (0, vec![1, 2]));
     }
 }

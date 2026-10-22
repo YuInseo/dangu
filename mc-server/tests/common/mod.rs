@@ -123,6 +123,11 @@ pub struct LoggedIn {
 /// Handshake → Hello → (암호화) → (압축) → Login Finished → Acknowledged.
 pub async fn login(s: &mut Client, name: &str) -> LoggedIn {
     send(s, 0x00, &handshake_body(2)).await;
+    login_after_handshake(s, name).await
+}
+
+/// 핸드셰이크를 따로 보낸 뒤의 Login.
+pub async fn login_after_handshake(s: &mut Client, name: &str) -> LoggedIn {
     let mut hello = Vec::new();
     write_string(&mut hello, name);
     write_uuid(&mut hello, 12345);

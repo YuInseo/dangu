@@ -1,5 +1,6 @@
-//! 서버 리소스 팩: Configuration에서 Add Resource Pack을 받고, 그 주소에서 실제로 내려받은
-//! 파일의 SHA-1이 알려 준 것과 같은지. 적용하면 Play로, 강제인데 거절하면 접속 끊김.
+//! 서버 리소스 팩: Configuration에서 Add Resource Pack을 받고, 그 주소(기본: 게임 포트)에서 실제로
+//! 내려받은 파일의 SHA-1이 알려 준 것과 같은지. 적용하면 Play로, 강제인데 거절하면 접속 끊김,
+//! 받기 실패면 끊지 않고 팩 없이 Play로 (알림).
 
 mod common;
 
@@ -75,11 +76,13 @@ async fn pack_is_offered_downloadable_and_required() {
     login(&mut s, "Packer").await;
     let (uuid, url, hash, forced) = until_pack_offer(&mut s).await;
     assert!(forced);
-    assert!(
-        url.starts_with(&format!("http://localhost:{port}/")),
-        "{url}"
-    );
-    let zip = http_get(&url).await;
+    // 게임 포트로 받는 주소 (호스팅에서 포트 하나만 열어 둔 곳에서도 되게). 포트는 클라이언트가
+    // 핸드셰이크에 적은 것 (테스트 도우미는 25565)
+    assert!(url.starts_with("http://localhost:25565/"), "{url}");
+    let zip = http_get(&url.replace("localhost:25565", &addr.to_string())).await;
+    // 따로 연 팩 포트에서도 같은 것
+    let other = url.replace("localhost:25565", &format!("127.0.0.1:{port}"));
+    assert_eq!(http_get(&other).await, zip);
     let sha: String = mc_server::crypto::sha1::sha1(&zip)
         .iter()
         .map(|b| format!("{b:02x}"))
@@ -100,4 +103,18 @@ async fn pack_is_offered_downloadable_and_required() {
     respond(&mut d, uuid, 1).await;
     let (bye, _) = recv_until(&mut d, 0x02).await;
     assert!(String::from_utf8_lossy(&bye.body).contains("리소스 팩"));
+
+    // 받기 실패(2) → 강제여도 끊지 않고 팩 없이 들어가며 알려 줌
+    let mut f = connect(addr).await;
+    login(&mut f, "Failer").await;
+    let (uuid, ..) = until_pack_offer(&mut f).await;
+    respond(&mut f, uuid, 3).await;
+    respond(&mut f, uuid, 2).await;
+    recv_until(&mut f, 0x03).await;
+    send(&mut f, 0x03, &[]).await;
+    let note = recv_where(&mut f, |p| {
+        p.id == 0x7C && String::from_utf8_lossy(&p.body).contains("리소스 팩을 쓰지 못했")
+    })
+    .await;
+    assert_eq!(note.id, 0x7C);
 }

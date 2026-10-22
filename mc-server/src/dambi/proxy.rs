@@ -28,6 +28,13 @@ pub async fn serve(listener: TcpListener, master: Arc<Master>) -> std::io::Resul
         stream.set_nodelay(true)?;
         let m = Arc::clone(&master);
         tokio::spawn(async move {
+            // 리소스 팩 (게임 포트로 받는 주소일 때)
+            if crate::resource_pack::enabled()
+                && crate::resource_pack::looks_like_http(&stream).await
+            {
+                crate::resource_pack::answer(stream).await;
+                return;
+            }
             if let Err(e) = handle(stream, peer.ip().to_string(), &m).await {
                 eprintln!("[프록시] {peer}: {e}");
             }
@@ -79,7 +86,9 @@ fn split_id(packet: &[u8]) -> std::io::Result<(i32, &[u8])> {
 pub fn forwarded_handshake(h: &Handshake, ip: &str) -> Vec<u8> {
     let mut body = Vec::new();
     write_varint(&mut body, h.protocol_version);
-    write_string(&mut body, &format!("{}\0{ip}", h.server_address));
+    // Forge 등이 붙인 `\0…`는 떼고 붙임 (그대로 두면 인스턴스가 그 뒤를 IP로 읽음)
+    let host = h.server_address.split('\0').next().unwrap_or("");
+    write_string(&mut body, &format!("{host}\0{ip}"));
     body.extend_from_slice(&h.server_port.to_be_bytes());
     write_varint(
         &mut body,
@@ -93,6 +102,17 @@ pub fn forwarded_handshake(h: &Handshake, ip: &str) -> Vec<u8> {
 }
 
 async fn handle(mut client: TcpStream, ip: String, master: &Master) -> std::io::Result<()> {
+    let mut first = [0u8; 1];
+    if client.peek(&mut first).await? == 1 && first[0] == 0xFE {
+        // 레거시 서버 목록 핑
+        let reply = crate::connection::legacy_ping_reply(
+            &master.info.description,
+            master.online_total(),
+            master.info.max_players,
+        );
+        client.write_all(&reply).await?;
+        return Ok(());
+    }
     let (packet, _) = timeout(FIRST_PACKETS_TIMEOUT, read_frame(&mut client))
         .await
         .map_err(|_| std::io::Error::other("핸드셰이크 시간 초과"))??;

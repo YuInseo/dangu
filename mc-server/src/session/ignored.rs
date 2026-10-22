@@ -104,3 +104,14 @@ pub fn note(id: i32) {
         eprintln!("처리하지 않는 Play 패킷 0x{id:02X}");
     }
 }
+
+static MALFORMED_SEEN: Mutex<Vec<i32>> = Mutex::new(Vec::new());
+
+/// 모양을 읽지 못한 Play 패킷 (그 패킷만 버림). 패킷 번호마다 한 번 알립니다.
+pub fn malformed(id: i32, e: &crate::protocol::DecodeError) {
+    let mut seen = MALFORMED_SEEN.lock().unwrap();
+    if !seen.contains(&id) {
+        seen.push(id);
+        eprintln!("읽지 못한 Play 패킷 0x{id:02X}: {e} (그 패킷만 버림)");
+    }
+}

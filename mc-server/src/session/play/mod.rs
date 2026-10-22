@@ -57,7 +57,7 @@ pub enum Outcome<S> {
 }
 
 /// 재구성 요청 뒤 클라이언트의 확인을 기다리는 시간.
-const TRANSFER_TIMEOUT: Duration = Duration::from_secs(10);
+const TRANSFER_TIMEOUT: Duration = Duration::from_secs(30);
 
 pub async fn run<S>(
     conn: Conn<S>,
@@ -95,6 +95,7 @@ where
 
     // 명단에 오르기 전에 구독해야 그 사이의 소식을 놓치지 않습니다.
     let mut events = server.subscribe();
+    let pack_problem = settings.pack_problem.clone();
     let mut session = Session::new(writer, server, profile, settings);
     let others = match server.add_player(session.state()) {
         Ok(others) => others,
@@ -110,6 +111,13 @@ where
 
     let result = async {
         session.join(&others).await?;
+        if let Some(why) = &pack_problem {
+            let msg = format!(
+                "서버 리소스 팩을 쓰지 못했습니다 ({why}). 아이템 그림·HUD가 보이지 않을 수 있어요. \
+                 다시 접속하거나 관리자에게 알려 주세요."
+            );
+            session.message(&text::colored(&msg, "yellow")).await?;
+        }
         server.publish(Event::System(text::colored(
             &format!("{}님이 들어왔습니다", session.profile.name),
             "yellow",
@@ -124,7 +132,17 @@ where
                 _ = survival.tick() => session.survival_tick().await?,
                 _ = hud.tick() => session.hud_tick().await?,
                 packet = rx.recv() => match packet {
-                    Some(Ok(packet)) => session.handle(packet).await?,
+                    Some(Ok(packet)) => {
+                        let id = packet.id;
+                        match session.handle(packet).await {
+                            // 패킷 하나의 모양이 예상과 달라도(모드·다른 클라이언트) 프레임은
+                            // 따로 읽으므로 그 패킷만 버리고 이어 갑니다.
+                            Err(FrameError::Decode(e)) => {
+                                crate::session::ignored::malformed(id, &e)
+                            }
+                            r => r?,
+                        }
+                    }
                     Some(Err(e)) => return Err(e),
                     None => return Ok(()), // 클라이언트가 연결을 닫음
                 },
@@ -325,6 +343,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             ip: self.ip.clone(),
             origin: self.origin.clone(),
             pack_loaded: self.pack_loaded,
+            pack_problem: None,
         }
     }
 

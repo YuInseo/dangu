@@ -552,3 +552,38 @@ mod tests {
             .collect()
     }
 }
+
+/// 다른 압축기(zlib 모든 단계·전략, libdeflate)가 만든 스트림을 풀어 봅니다.
+/// `MC_ZLIB_CORPUS=<폴더> cargo test zlib_corpus -- --ignored` (폴더: `N.z` + 원본 `N.raw`).
+#[cfg(test)]
+#[test]
+#[ignore]
+fn zlib_corpus() {
+    let Ok(dir) = std::env::var("MC_ZLIB_CORPUS") else {
+        return;
+    };
+    let mut bad = Vec::new();
+    let mut n = 0;
+    for e in std::fs::read_dir(&dir).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().is_some_and(|x| x == "z") {
+            let z = std::fs::read(&p).unwrap();
+            let raw = std::fs::read(p.with_extension("raw")).unwrap();
+            n += 1;
+            match decompress(&z, MAX_INFLATED) {
+                Ok(out) if out == raw => {}
+                other => bad.push((
+                    p.display().to_string(),
+                    format!("{:?}", other.map(|o| o.len())),
+                )),
+            }
+        }
+    }
+    assert!(
+        bad.is_empty(),
+        "{n}개 중 {}개 실패: {:?}",
+        bad.len(),
+        &bad[..bad.len().min(10)]
+    );
+    println!("{n}개 모두 풀림");
+}

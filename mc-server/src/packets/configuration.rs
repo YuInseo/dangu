@@ -14,6 +14,8 @@ use crate::protocol::varint::{read_varint, write_varint};
 pub const CUSTOM_PAYLOAD_ID: i32 = 0x01;
 pub const DISCONNECT_ID: i32 = 0x02;
 pub const FINISH_CONFIGURATION_ID: i32 = 0x03;
+/// `Keep Alive` (long): 오래 기다릴 때 클라이언트가 시간 초과로 끊지 않게.
+pub const KEEP_ALIVE_ID: i32 = 0x04;
 pub const REGISTRY_DATA_ID: i32 = 0x07;
 pub const UPDATE_ENABLED_FEATURES_ID: i32 = 0x0D;
 pub const UPDATE_TAGS_ID: i32 = 0x0E;

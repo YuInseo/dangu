@@ -36,7 +36,15 @@ where
         .await
         .map_err(|_| timed_out())??;
     if first == Some(LEGACY_PING) {
-        // 아주 오래된 클라이언트나 일부 스캐너. 답하지 않고 닫습니다.
+        // 1.6 이하 형식의 서버 목록 핑 (오래된 런처·서버 목록 사이트·일부 클라이언트의 첫 시도).
+        // 그 형식대로 답해 두면 버전이 맞지 않는다고 보여 줍니다.
+        let info = &net.default_instance();
+        let reply = legacy_ping_reply(
+            &info.info.description,
+            info.online_total(),
+            info.info.max_players,
+        );
+        conn.write_raw(&reply).await?;
         return Ok(());
     }
 
@@ -60,9 +68,31 @@ where
                 return Ok(());
             }
             let (host, ip) = forwarded(&handshake.server_address, ip);
-            session::run(conn, net, ip, (host, handshake.server_port)).await
+            session::run(conn, net, ip, (clean_host(&host), handshake.server_port)).await
         }
     }
+}
+
+/// 레거시 핑 답: `0xFF`, UTF-16BE 글자 수, `§1\0프로토콜\0버전\0설명\0접속자\0최대`.
+pub(crate) fn legacy_ping_reply(motd: &str, online: u32, max: u32) -> Vec<u8> {
+    let s = format!("§1\0{PROTOCOL_VERSION}\0{VERSION_NAME}\0{motd}\0{online}\0{max}");
+    let units: Vec<u16> = s.encode_utf16().collect();
+    let mut out = vec![0xFF];
+    out.extend_from_slice(&(units.len() as u16).to_be_bytes());
+    for u in units {
+        out.extend_from_slice(&u.to_be_bytes());
+    }
+    out
+}
+
+/// 클라이언트가 친 주소에서 덧붙은 것을 뗍니다: Forge `\0FML3\0`, 끝의 `.`(SRV로 푼 이름), 공백.
+fn clean_host(host: &str) -> String {
+    host.split('\0')
+        .next()
+        .unwrap_or("")
+        .trim()
+        .trim_end_matches('.')
+        .to_owned()
 }
 
 /// 담비 마스터 프록시 뒤라면 핸드셰이크 주소 칸이 `원래주소\0진짜IP`입니다. 프록시 뒤에서만
@@ -132,4 +162,28 @@ fn timed_out() -> FrameError {
 
 pub(crate) fn unknown(state: &'static str, id: i32) -> FrameError {
     DecodeError::UnknownPacket { state, id }.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hosts_and_legacy_ping() {
+        assert_eq!(clean_host("play.example.com\0FML3\0"), "play.example.com");
+        assert_eq!(clean_host("mc.example.com."), "mc.example.com");
+        assert_eq!(clean_host(" localhost "), "localhost");
+        let r = legacy_ping_reply("Dangu", 3, 100);
+        assert_eq!(r[0], 0xFF);
+        let n = u16::from_be_bytes([r[1], r[2]]) as usize;
+        assert_eq!(r.len(), 3 + n * 2);
+        let text: String =
+            char::decode_utf16(r[3..].chunks(2).map(|c| u16::from_be_bytes([c[0], c[1]])))
+                .map(|c| c.unwrap())
+                .collect();
+        assert!(
+            text.starts_with("§1\0") && text.ends_with("\u{0}3\u{0}100"),
+            "{text:?}"
+        );
+    }
 }

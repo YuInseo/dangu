@@ -285,10 +285,33 @@ ItemsAdder 위키 기준으로 무엇이 되는지 (켤 때 안 되는 키는 "�
 
 ## 서버 리소스 팩
 
-서버가 팩을 코드로 만들어(PNG·ZIP 직접 인코딩) `MC_PACK_PORT`(기본 25566)의 내장 HTTP로
-내려 주고, Configuration 단계에서 클라이언트에게 권합니다. `MC_PACK_REQUIRED`(기본 켬)면
-거절할 때 접속을 끊습니다. `MC_PACK_URL`로 다른 곳(CDN)에 올린 주소를 줄 수도 있습니다.
-`cargo run --example resource_pack -- dangu.zip`으로 팩을 파일로 볼 수 있습니다.
+서버가 팩을 코드로 만들어(PNG·ZIP 직접 인코딩) 내장 HTTP로 내려 주고, Configuration 단계에서
+클라이언트에게 권합니다.
+
+- 주소는 기본으로 **게임 포트**(`http://<접속한 주소>:<게임 포트>/…`): 게임 포트로 온 연결이 `GET`으로
+  시작하면 마인크래프트 대신 HTTP로 답합니다 (호스팅에서 포트 하나만 열어 둔 곳에서도 됨). 담비
+  마스터 프록시도 같음. `MC_PACK_PORT`(기본 25566, 0이면 팩 끔)에도 따로 엽니다.
+- 게임 포트 앞에 마인크래프트 전용 프록시(Velocity·BungeeCord·TCPShield …)가 있으면 HTTP가 지나가지
+  못하므로 `MC_PACK_VIA_GAME_PORT=0`(→ `MC_PACK_PORT` 주소)이나 `MC_PACK_URL`(CDN 주소)을 쓰세요.
+- `MC_PACK_REQUIRED`(기본 켬)면 **거절**할 때만 접속을 끊습니다. 받기·적용에 실패하면 끊지 않고 팩 없이
+  들어가게 하고 채팅으로 알립니다 (그 사람은 HUD·아이템 그림이 안 보임).
+- `cargo run --example resource_pack -- dangu.zip`으로 팩을 파일로 볼 수 있습니다.
+
+## 다른 클라이언트 (Lunar · Feather · Badlion · 모드 클라이언트)
+
+바닐라보다 너그럽게 받습니다 (`tests/client_compat.rs`):
+
+- 핸드셰이크: 주소에 붙은 것(Forge `\0FML3\0`, 프록시 정보, 끝의 `.`)을 떼고, 길이·뒤에 남는 바이트에
+  너그럽게. 레거시(0xFE) 서버 목록 핑에도 답함.
+- Login: 묻지 않은 플러그인·쿠키 응답은 건너뜀. 이름을 못 읽으면 조용히 끊지 않고 이유를 보여 줌.
+- Configuration: 쿠키 응답·플러그인 채널·대화 상자 버튼·행동 강령 동의 등 모르는 패킷은 건너뛰고,
+  기다리는 동안 10초마다 keep-alive (클라이언트는 30초 동안 아무것도 못 받으면 끊음). 팩 받기는 5분까지.
+- Play: 모양이 다른 패킷 하나는 그것만 버리고 이어 감 (패킷 번호마다 한 번 로그). 기준보다 작은데
+  압축한 패킷도 받음. 채팅 확인(Chat Ack)을 보내지 않는 클라이언트도 끊지 않고 서명 없이 전함.
+- 압축 풀기는 zlib 모든 단계·전략과 libdeflate(Lunar·성능 모드가 쓰는 것) 0~12단계로 만든 8,541개
+  스트림으로 확인 (`MC_ZLIB_CORPUS=… cargo test zlib_corpus -- --ignored`).
+- **버전**: 26.3(프로토콜 777)만 받습니다. Lunar 등에서 다른 버전을 고르고 들어오면 버전 안내와 함께
+  거절합니다. 여러 버전을 받으려면 ViaVersion/ViaBackwards 같은 변환이 필요한데 아직 없습니다.
 
 ## 되는 것
 

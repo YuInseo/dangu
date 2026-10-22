@@ -172,10 +172,20 @@ struct Settings {
     forced: bool,
 }
 
+/// 팩 주소에 게임 포트를 쓸까 (`MC_PACK_VIA_GAME_PORT`, 기본 켬). 호스팅에서 게임 포트 하나만 열어 둔
+/// 곳이 많아서입니다. 게임 포트 앞에 마인크래프트 전용 프록시(Velocity·BungeeCord·TCPShield 등)가
+/// 있으면 HTTP가 지나가지 못하므로 끄거나 `MC_PACK_URL`을 정하세요.
+fn via_game_port() -> bool {
+    !matches!(
+        std::env::var("MC_PACK_VIA_GAME_PORT").as_deref(),
+        Ok("0" | "false" | "off" | "no")
+    )
+}
+
 static SETTINGS: OnceLock<Settings> = OnceLock::new();
 
 /// 이 프로세스가 클라이언트에게 팩을 권하게 합니다. `url`이 없으면
-/// `http://<클라이언트가 접속한 주소>:<port>/…`.
+/// `http://<클라이언트가 접속한 주소>:<게임 포트 또는 port>/…`.
 pub fn enable(port: u16, url: Option<String>, forced: bool) {
     let _ = SETTINGS.set(Settings { port, url, forced });
 }
@@ -184,15 +194,29 @@ pub fn enabled() -> bool {
     SETTINGS.get().is_some()
 }
 
-/// 클라이언트에게 보낼 것: (UUID, 주소, SHA-1, 강제 여부).
-pub fn offer(origin_host: &str) -> Option<(u128, String, String, bool)> {
+/// IPv6 주소는 대괄호로.
+fn url_host(host: &str) -> String {
+    if host.contains(':') && !host.starts_with('[') {
+        format!("[{host}]")
+    } else {
+        host.to_owned()
+    }
+}
+
+/// 클라이언트에게 보낼 것: (UUID, 주소, SHA-1, 강제 여부). `origin`은 클라이언트가 접속한 주소와 포트.
+pub fn offer(origin: &(String, u16)) -> Option<(u128, String, String, bool)> {
     let s = SETTINGS.get()?;
     let p = pack();
+    let port = if via_game_port() && origin.1 != 0 {
+        origin.1
+    } else {
+        s.port
+    };
     let url = match &s.url {
         Some(u) => u.clone(),
         None => format!(
-            "http://{origin_host}:{}/dangu-{}.zip",
-            s.port,
+            "http://{}:{port}/dangu-{}.zip",
+            url_host(&origin.0),
             &p.sha1_hex[..12]
         ),
     };
@@ -201,49 +225,86 @@ pub fn offer(origin_host: &str) -> Option<(u128, String, String, bool)> {
 
 /// 팩을 내려 주는 아주 작은 HTTP 서버 (GET만, `.zip`이면 팩).
 pub async fn serve(listener: tokio::net::TcpListener) -> std::io::Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
     loop {
-        let (mut s, _) = listener.accept().await?;
-        tokio::spawn(async move {
-            let mut buf = vec![0u8; 4096];
-            let mut len = 0;
-            while len < buf.len() {
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
-                    s.read(&mut buf[len..]),
-                )
-                .await
-                {
-                    Ok(Ok(0)) | Err(_) | Ok(Err(_)) => break,
-                    Ok(Ok(n)) => len += n,
-                }
-                if buf[..len].windows(4).any(|w| w == b"\r\n\r\n") {
-                    break;
-                }
-            }
-            let req = String::from_utf8_lossy(&buf[..len]);
-            let path = req.split_whitespace().nth(1).unwrap_or("");
-            let ok = req.starts_with("GET ") && path.ends_with(".zip");
-            let current = pack();
-            let (status, body, kind): (&str, &[u8], &str) = if ok {
-                ("200 OK", &current.bytes, "application/zip")
-            } else {
-                ("404 Not Found", b"not found", "text/plain")
-            };
-            let head = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-                body.len()
-            );
-            let _ = s.write_all(head.as_bytes()).await;
-            let _ = s.write_all(body).await;
-            let _ = s.shutdown().await;
-        });
+        let (s, _) = listener.accept().await?;
+        tokio::spawn(answer(s));
     }
+}
+
+/// 게임 포트로 온 연결이 HTTP 요청인가 (`GET `·`HEAD`로 시작). 마인크래프트 핸드셰이크는 첫
+/// 바이트가 길이, 둘째가 패킷 번호 0이라 `GE`·`HE`와 겹치지 않습니다.
+pub async fn looks_like_http(s: &tokio::net::TcpStream) -> bool {
+    let mut b = [0u8; 2];
+    for _ in 0..50 {
+        match s.peek(&mut b).await {
+            Ok(2) => return &b == b"GE" || &b == b"HE",
+            Ok(1) if !matches!(b[0], b'G' | b'H') => return false,
+            Ok(0) | Err(_) => return false,
+            _ => tokio::time::sleep(std::time::Duration::from_millis(20)).await,
+        }
+    }
+    false
+}
+
+/// HTTP 연결 하나에 답합니다.
+pub async fn answer(mut s: tokio::net::TcpStream) {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let mut buf = vec![0u8; 4096];
+    let mut len = 0;
+    while len < buf.len() {
+        match tokio::time::timeout(std::time::Duration::from_secs(10), s.read(&mut buf[len..]))
+            .await
+        {
+            Ok(Ok(0)) | Err(_) | Ok(Err(_)) => break,
+            Ok(Ok(n)) => len += n,
+        }
+        if buf[..len].windows(4).any(|w| w == b"\r\n\r\n") {
+            break;
+        }
+    }
+    let reply = http_reply(&String::from_utf8_lossy(&buf[..len]));
+    let _ = s.write_all(&reply).await;
+    let _ = s.shutdown().await;
+}
+
+/// 요청 머리에 대한 HTTP 답 전체.
+pub fn http_reply(req: &str) -> Vec<u8> {
+    let path = req.split_whitespace().nth(1).unwrap_or("");
+    let head_only = req.starts_with("HEAD ");
+    let ok = (req.starts_with("GET ") || head_only) && path.ends_with(".zip");
+    let current = pack();
+    let (status, body, kind): (&str, &[u8], &str) = if ok {
+        ("200 OK", &current.bytes, "application/zip")
+    } else {
+        ("404 Not Found", b"not found", "text/plain")
+    };
+    let mut out = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    )
+    .into_bytes();
+    if !head_only {
+        out.extend_from_slice(body);
+    }
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn http_answers() {
+        let r = String::from_utf8_lossy(&http_reply("GET /dangu-abc.zip HTTP/1.1\r\n\r\n"))
+            .into_owned();
+        assert!(r.starts_with("HTTP/1.1 200") && r.contains("application/zip"));
+        let h = http_reply("HEAD /dangu-abc.zip HTTP/1.1\r\n\r\n");
+        assert!(h.ends_with(b"\r\n\r\n"), "HEAD에는 본문 없음");
+        let n = String::from_utf8_lossy(&http_reply("GET / HTTP/1.1\r\n\r\n")).into_owned();
+        assert!(n.starts_with("HTTP/1.1 404"));
+        assert_eq!(url_host("::1"), "[::1]");
+        assert_eq!(url_host("play.example.com"), "play.example.com");
+    }
 
     #[test]
     fn png_decodes_back() {
