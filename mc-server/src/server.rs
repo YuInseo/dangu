@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicI32, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock, Weak};
 use std::time::Instant;
 
 use tokio::sync::broadcast;
@@ -344,24 +344,30 @@ pub struct Server {
     pub name: String,
     pub info: ServerInfo,
     pub config: Config,
-    pub sessions: Box<dyn SessionService>,
+    // ---- 인스턴스끼리 나누는 것 (Arc) ----
+    pub sessions: Arc<dyn SessionService>,
     /// 정품 인증용 RSA 키. 처음 필요할 때 만듭니다 (1024비트, 바닐라와 같음).
-    key: OnceLock<PrivateKey>,
+    key: Arc<OnceLock<PrivateKey>>,
     /// 플레이어 채팅 키에 서명하는 Mojang 공개 키들 (`/publickeys`). 비어 있으면 서명된
     /// 채팅을 확인할 수 없어 모두 서명 없는 채팅으로 전합니다.
-    pub chat_keys: Mutex<Vec<crate::crypto::rsa::PublicKey>>,
+    pub chat_keys: Arc<Mutex<Vec<crate::crypto::rsa::PublicKey>>>,
+    /// OP·권한·밴은 네트워크 전체에 하나.
+    pub perms: Arc<crate::perms::Permissions>,
+    /// `/stop`이 울리면 main이 저장하고 끕니다.
+    pub shutdown: Arc<tokio::sync::Notify>,
+    /// 이 인스턴스가 속한 네트워크 (없으면 혼자).
+    network: OnceLock<Weak<crate::network::Network>>,
+
+    // ---- 인스턴스마다 따로 ----
     /// 월드 시드. 세 차원 모두 이 값에서 지형을 만듭니다.
     pub seed: u64,
     /// 플레이어가 바꾼 블록들.
     pub world: WorldStore,
     /// 떨어진 아이템과 몹.
     pub entities: crate::game::entities::Entities,
-    pub perms: crate::perms::Permissions,
     difficulty: std::sync::atomic::AtomicU8,
     /// 난이도 잠금 (설정 화면의 자물쇠). 잠그면 다시 풀 수 없습니다.
     difficulty_locked: std::sync::atomic::AtomicBool,
-    /// `/stop`이 울리면 main이 저장하고 끕니다.
-    pub shutdown: tokio::sync::Notify,
     pub containers: crate::game::containers::Containers,
     /// 플레이어 저장 위치 (없으면 저장하지 않음).
     pub data_dir: Option<std::path::PathBuf>,
@@ -397,12 +403,94 @@ impl Server {
     /// `dir`에 월드를 저장하는 서버. 있던 저장을 읽어 들입니다.
     pub fn open(info: ServerInfo, seed: u64, dir: std::path::PathBuf) -> std::io::Result<Self> {
         crate::game::custom_items::load(Some(&dir)).map_err(std::io::Error::other)?;
+        let mut s = Self::open_instance(info, seed, dir.clone())?;
+        s.perms = Arc::new(
+            crate::perms::Permissions::open(Some(dir), s.config.everyone_op)
+                .map_err(std::io::Error::other)?,
+        );
+        Ok(s)
+    }
+
+    /// 월드·상자·플레이어만 `dir`에서 읽는 인스턴스. 권한 등은 [`Self::share_from`]으로.
+    pub fn open_instance(
+        info: ServerInfo,
+        seed: u64,
+        dir: std::path::PathBuf,
+    ) -> std::io::Result<Self> {
         let world = WorldStore::open(seed, Some(dir.clone()))?;
         let mut s = Self::with_world(info, seed, world, Some(dir.clone()));
-        s.perms = crate::perms::Permissions::open(Some(dir.clone()), s.config.everyone_op)
-            .map_err(std::io::Error::other)?;
         s.containers = crate::game::containers::Containers::open(Some(dir))?;
         Ok(s)
+    }
+
+    /// 다른 인스턴스와 권한·인증·키·끄기 신호를 함께 씁니다.
+    pub fn share_from(mut self, other: &Server) -> Self {
+        self.sessions = Arc::clone(&other.sessions);
+        self.key = Arc::clone(&other.key);
+        self.chat_keys = Arc::clone(&other.chat_keys);
+        self.perms = Arc::clone(&other.perms);
+        self.shutdown = Arc::clone(&other.shutdown);
+        self
+    }
+
+    pub fn named(mut self, name: &str) -> Self {
+        self.name = name.to_owned();
+        self
+    }
+
+    pub(crate) fn attach(&self, network: &Arc<crate::network::Network>) {
+        let _ = self.network.set(Arc::downgrade(network));
+    }
+
+    pub fn network(&self) -> Option<Arc<crate::network::Network>> {
+        self.network.get().and_then(Weak::upgrade)
+    }
+
+    /// 같은 네트워크의 모든 인스턴스 (네트워크가 없으면 자기 자신만 — 이때는 빈 목록 대신
+    /// 호출한 쪽이 `self`를 씁니다).
+    pub fn instances(&self) -> Vec<Arc<Server>> {
+        self.network().map(|n| n.all()).unwrap_or_default()
+    }
+
+    /// 모든 인스턴스에 알립니다 (혼자면 자기에게만).
+    pub fn publish_all(&self, event: Event) {
+        let all = self.instances();
+        if all.is_empty() {
+            self.publish(event);
+        } else {
+            for s in all {
+                s.publish(event.clone());
+            }
+        }
+    }
+
+    /// 어느 인스턴스에서든 이름으로 찾기.
+    pub fn find_anywhere(&self, name: &str) -> Option<(Arc<Server>, PlayerState)> {
+        self.instances()
+            .into_iter()
+            .find_map(|s| s.find_player(name).map(|p| (s, p)))
+    }
+
+    pub fn find_player_anywhere(&self, name: &str) -> Option<PlayerState> {
+        self.find_player(name)
+            .or_else(|| self.find_anywhere(name).map(|(_, p)| p))
+    }
+
+    /// 네트워크 전체 접속자 (혼자면 이 인스턴스).
+    pub fn players_anywhere(&self) -> Vec<PlayerState> {
+        let all = self.instances();
+        if all.is_empty() {
+            return self.players();
+        }
+        all.iter().flat_map(|s| s.players()).collect()
+    }
+
+    /// 네트워크 전체 접속자 수.
+    pub fn online_total(&self) -> u32 {
+        match self.network() {
+            Some(n) => n.all().iter().map(|s| s.online()).sum(),
+            None => self.online(),
+        }
     }
 
     fn with_world(
@@ -414,17 +502,20 @@ impl Server {
         Self {
             name: "main".into(),
             entities: Default::default(),
-            perms: crate::perms::Permissions::open(None, true).expect("memory permissions"),
+            perms: Arc::new(
+                crate::perms::Permissions::open(None, true).expect("memory permissions"),
+            ),
+            network: OnceLock::new(),
             difficulty: std::sync::atomic::AtomicU8::new(Difficulty::Normal as u8),
             difficulty_locked: std::sync::atomic::AtomicBool::new(false),
-            shutdown: tokio::sync::Notify::new(),
+            shutdown: Arc::new(tokio::sync::Notify::new()),
             containers: crate::game::containers::Containers::open(None).expect("memory containers"),
             data_dir,
             info,
             config: Config::default(),
-            sessions: Box::new(MojangSessionService),
-            key: OnceLock::new(),
-            chat_keys: Mutex::new(Vec::new()),
+            sessions: Arc::new(MojangSessionService),
+            key: Arc::new(OnceLock::new()),
+            chat_keys: Arc::new(Mutex::new(Vec::new())),
             seed,
             world,
             players: Mutex::new(HashMap::new()),
@@ -439,7 +530,7 @@ impl Server {
     }
 
     pub fn with_config(mut self, config: Config) -> Self {
-        self.perms.everyone_op = config.everyone_op;
+        self.perms.set_everyone_op(config.everyone_op);
         self.difficulty
             .store(config.difficulty as u8, Ordering::Relaxed);
         self.config = config;
@@ -447,7 +538,7 @@ impl Server {
     }
 
     pub fn with_session_service(mut self, sessions: impl SessionService + 'static) -> Self {
-        self.sessions = Box::new(sessions);
+        self.sessions = Arc::new(sessions);
         self
     }
 
@@ -520,6 +611,14 @@ impl Server {
     /// 명단에 올리고, 이미 있던 사람들을 돌려줍니다. 같은 이름(=같은 오프라인 UUID)이
     /// 이미 접속해 있으면 `Err(AlreadyOnline)`.
     pub fn add_player(&self, state: PlayerState) -> Result<Vec<PlayerState>, AlreadyOnline> {
+        // 다른 인스턴스에 있어도 중복 (옮기는 중이면 이미 그쪽에서 빠졌습니다).
+        if self
+            .instances()
+            .iter()
+            .any(|s| !std::ptr::eq(s.as_ref(), self) && s.find_by_uuid(state.uuid).is_some())
+        {
+            return Err(AlreadyOnline);
+        }
         let mut players = self.players.lock().unwrap();
         if players.contains_key(&state.uuid) {
             return Err(AlreadyOnline);

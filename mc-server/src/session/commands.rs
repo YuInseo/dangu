@@ -137,6 +137,14 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
                 t.argument_with(s, "target", STRING, WORD, true);
             }
         }
+        "server" => {
+            let c = t.literal(ROOT, name, true);
+            t.argument_ask_server(c, "instance", STRING, WORD, true);
+        }
+        "instance" => {
+            let c = t.literal(ROOT, name, true);
+            t.argument_ask_server(c, "args", STRING, GREEDY, true);
+        }
         "perm" => {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "args", STRING, GREEDY, true);
@@ -175,6 +183,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             return self.travel(dimension).await;
         }
         match spec.name {
+            "server" => self.server_command(args.first().copied()).await,
             "help" => {
                 for s in admin::COMMANDS
                     .iter()
@@ -348,6 +357,48 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
         }
         Ok(total - left)
+    }
+
+    /// `/server`: 목록 또는 이동.
+    async fn server_command(&mut self, name: Option<&str>) -> Result<(), FrameError> {
+        let Some(net) = self.server.network() else {
+            return self.error("다른 인스턴스가 없습니다.").await;
+        };
+        let Some(name) = name else {
+            for s in net.all() {
+                let here = std::ptr::eq(s.as_ref(), self.server);
+                let line = format!(
+                    "{}{} — {}명",
+                    s.name,
+                    if here { " (지금 여기)" } else { "" },
+                    s.online()
+                );
+                self.message(&text::colored(&line, if here { "green" } else { "gray" }))
+                    .await?;
+            }
+            return Ok(());
+        };
+        match net.get(name) {
+            Some(to) if std::ptr::eq(to.as_ref(), self.server) => {
+                self.error(&format!("이미 {name}에 있습니다.")).await
+            }
+            Some(to) => {
+                let node = format!("dangu.server.{name}");
+                // 인스턴스마다 막고 싶으면 `-dangu.server.<이름>` 권한으로
+                if !self.server.perms.has(self.profile.uuid, &node, 0) {
+                    return self
+                        .error(&format!("{name}에 들어갈 권한이 없습니다."))
+                        .await;
+                }
+                self.message(&text::colored(&format!("{name}(으)로 이동합니다…"), "aqua"))
+                    .await?;
+                self.start_transfer(to).await
+            }
+            None => {
+                self.error(&format!("{name} 인스턴스가 없습니다. (/server 로 목록)"))
+                    .await
+            }
+        }
     }
 
     async fn travel(&mut self, dimension: Dimension) -> Result<(), FrameError> {

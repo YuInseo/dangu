@@ -185,6 +185,18 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/save-all — 지금 저장",
     },
     Spec {
+        name: "server",
+        aliases: &["join"],
+        level: 0,
+        usage: "/server [이름] — 인스턴스 목록, 또는 그 인스턴스로 이동",
+    },
+    Spec {
+        name: "instance",
+        aliases: &[],
+        level: 4,
+        usage: "/instance list|create <이름> [시드] [모드] [난이도] [hardcore]|remove <이름>|default <이름>",
+    },
+    Spec {
         name: "stop",
         aliases: &[],
         level: 4,
@@ -226,7 +238,7 @@ impl Actor {
 /// 이름 → (UUID, 정확한 이름). 접속 중인 사람, 기록에 있는 사람, (오프라인 모드면) 이름에서
 /// 만든 UUID 순으로 찾습니다.
 pub fn resolve(server: &Server, name: &str) -> Option<(u128, String)> {
-    if let Some(p) = server.find_player(name) {
+    if let Some(p) = server.find_player_anywhere(name) {
         return Some((p.uuid, p.name));
     }
     if let Some(found) = server.perms.read(|d| d.find_name(name)) {
@@ -246,7 +258,9 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
     };
     let handled = matches!(
         spec.name,
-        "op" | "deop"
+        "instance"
+            | "op"
+            | "deop"
             | "kick"
             | "ban"
             | "pardon"
@@ -269,15 +283,29 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
     }
     let usage = || vec![format!("사용법: {}", spec.usage)];
     let rest = |from: usize| args.get(from..).map(|a| a.join(" ")).unwrap_or_default();
-    let changed = |uuid: u128| server.publish(Event::PermissionsChanged { uuid: Some(uuid) });
+    let changed = |uuid: u128| server.publish_all(Event::PermissionsChanged { uuid: Some(uuid) });
 
     Some(match (spec.name, args) {
         ("list", _) => {
+            let mut lines = Vec::new();
+            for inst in server.instances() {
+                let names: Vec<_> = inst.players().into_iter().map(|p| p.name).collect();
+                lines.push(format!(
+                    "[{}] {}명: {}",
+                    inst.name,
+                    names.len(),
+                    names.join(", ")
+                ));
+            }
+            if lines.len() > 1 {
+                lines.insert(0, format!("모두 {}명", server.online_total()));
+                return Some(lines);
+            }
             let names: Vec<_> = server.players().into_iter().map(|p| p.name).collect();
             vec![format!("접속자 {}명: {}", names.len(), names.join(", "))]
         }
         ("say", [_, ..]) => {
-            server.publish(Event::System(text::colored(
+            server.publish_all(Event::System(text::colored(
                 &format!("[{}] {}", actor.name, rest(0)),
                 "light_purple",
             )));
@@ -298,7 +326,7 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
                 return Some(vec![format!("{target}님은 접속해 있지 않습니다.")]);
             }
             for uuid in targets {
-                server.publish(Event::Title {
+                server.publish_all(Event::Title {
                     uuid,
                     title: message.clone(),
                 });
@@ -313,9 +341,12 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
             None => usage(),
         },
         ("gamemode", [mode, target, ..]) => {
-            match (GameMode::from_name(mode), server.find_player(target)) {
+            match (
+                GameMode::from_name(mode),
+                server.find_player_anywhere(target),
+            ) {
                 (Some(mode), Some(p)) => {
-                    server.publish(Event::SetGameMode {
+                    server.publish_all(Event::SetGameMode {
                         uuid: p.uuid,
                         gamemode: mode,
                     });
@@ -373,14 +404,14 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
             }
             None => vec![format!("{target}님을 찾을 수 없습니다.")],
         },
-        ("kick", [target, ..]) => match server.find_player(target) {
+        ("kick", [target, ..]) => match server.find_player_anywhere(target) {
             Some(p) => {
                 let reason = if args.len() > 1 {
                     rest(1)
                 } else {
                     "관리자가 내보냈습니다.".into()
                 };
-                server.publish(Event::Kick {
+                server.publish_all(Event::Kick {
                     uuid: p.uuid,
                     reason,
                 });
@@ -404,7 +435,7 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
                         by: actor.name.clone(),
                     });
                 });
-                server.publish(Event::Kick {
+                server.publish_all(Event::Kick {
                     uuid,
                     reason: format!("차단되었습니다: {reason}"),
                 });
@@ -443,8 +474,8 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
                     reason: reason.clone(),
                 });
             });
-            for p in server.players().into_iter().filter(|p| p.ip == ip) {
-                server.publish(Event::Kick {
+            for p in server.players_anywhere().into_iter().filter(|p| p.ip == ip) {
+                server.publish_all(Event::Kick {
                     uuid: p.uuid,
                     reason: format!("차단되었습니다: {reason}"),
                 });
@@ -501,17 +532,86 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
             _ => usage(),
         },
         ("perm", sub) => perm(server, sub),
+        ("instance", sub) => instance(server, sub),
         ("save-all", _) => {
-            server.save_all();
+            match server.network() {
+                Some(net) => net.save_all(),
+                None => server.save_all(),
+            }
             vec!["저장했습니다.".into()]
         }
         ("stop", _) => {
-            server.publish(Event::System(text::colored("서버를 끕니다…", "red")));
+            server.publish_all(Event::System(text::colored("서버를 끕니다…", "red")));
             server.shutdown.notify_one();
             vec!["끄는 중…".into()]
         }
         _ => usage(),
     })
+}
+
+fn instance(server: &Server, args: &[&str]) -> Vec<String> {
+    use crate::network::InstanceSpec;
+    let Some(net) = server.network() else {
+        return vec!["네트워크 없이 혼자 도는 서버입니다.".into()];
+    };
+    match args {
+        [] | ["list"] => {
+            let default = net.default_name();
+            net.specs()
+                .into_iter()
+                .map(|s| {
+                    let online = net.get(&s.name).map_or(0, |i| i.online());
+                    format!(
+                        "{}{} — 시드 {}, {}, {}{}, {}명",
+                        s.name,
+                        if s.name == default { " (기본)" } else { "" },
+                        s.seed,
+                        s.gamemode.display_name(),
+                        s.difficulty.display_name(),
+                        if s.hardcore { ", 하드코어" } else { "" },
+                        online
+                    )
+                })
+                .collect()
+        }
+        ["create", name, rest @ ..] => {
+            let seed = (crate::game::rand_u32() as u64) << 32 | crate::game::rand_u32() as u64;
+            let mut spec = InstanceSpec::new(name, seed);
+            for a in rest {
+                if let Ok(seed) = a.parse::<u64>() {
+                    spec.seed = seed;
+                } else if let Some(m) = GameMode::from_name(a) {
+                    spec.gamemode = m;
+                } else if let Some(d) = Difficulty::from_name(a) {
+                    spec.difficulty = d;
+                } else if *a == "hardcore" {
+                    spec.hardcore = true;
+                } else {
+                    return vec![format!(
+                        "모르는 옵션: {a} (시드 숫자, 게임 모드, 난이도, hardcore)"
+                    )];
+                }
+            }
+            match net.create(spec.clone()) {
+                Ok(_) => vec![format!(
+                    "인스턴스 {} 만듦 (시드 {}). /server {}로 갈 수 있습니다.",
+                    spec.name, spec.seed, spec.name
+                )],
+                Err(e) => vec![e],
+            }
+        }
+        ["remove", name] => match net.remove(name) {
+            Ok(()) => vec![format!(
+                "인스턴스 {name}을(를) 내렸습니다 (폴더는 남아 있음)."
+            )],
+            Err(e) => vec![e],
+        },
+        ["default", name] => match net.set_default(name) {
+            Ok(()) => vec![format!("이제 처음 접속하면 {name}(으)로 들어갑니다.")],
+            Err(e) => vec![e],
+        },
+        _ => vec![spec("instance").unwrap().usage.into()],
+    }
 }
 
 fn perm(server: &Server, args: &[&str]) -> Vec<String> {
@@ -524,7 +624,7 @@ fn perm(server: &Server, args: &[&str]) -> Vec<String> {
         "/perm info <이름>",
         "/perm groups",
     ];
-    let notify = |uuid: Option<u128>| server.publish(Event::PermissionsChanged { uuid });
+    let notify = |uuid: Option<u128>| server.publish_all(Event::PermissionsChanged { uuid });
     match args {
         ["user", name, "add" | "remove", node] => {
             let Some((uuid, name)) = resolve(server, name) else {
@@ -633,7 +733,24 @@ pub fn suggest(server: &Server, actor: &Actor, line: &str) -> (usize, Vec<String
     if !actor.allowed(server, spec) {
         return (start, Vec::new());
     }
+    let instance_names = || {
+        server
+            .network()
+            .map(|n| n.specs().into_iter().map(|s| s.name).collect())
+            .unwrap_or_default()
+    };
     let mut out: Vec<String> = match (spec.name, &words[1..]) {
+        ("server", []) => instance_names(),
+        ("instance", []) => ["list", "create", "remove", "default"]
+            .map(String::from)
+            .to_vec(),
+        ("instance", ["remove" | "default"]) => instance_names(),
+        ("instance", ["create", _, ..]) => GameMode::ALL
+            .iter()
+            .map(|m| m.name().to_owned())
+            .chain(Difficulty::ALL.iter().map(|d| d.name().to_owned()))
+            .chain(["hardcore".to_owned()])
+            .collect(),
         ("pardon", []) => server
             .perms
             .read(|d| d.bans.iter().map(|b| b.name.clone()).collect()),

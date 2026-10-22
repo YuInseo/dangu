@@ -2,7 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use mc_server::Server;
+use mc_server::network::{InstanceSpec, Network};
+use mc_server::packets::play::GameMode;
 use mc_server::packets::status::ServerInfo;
 use mc_server::protocol::{PROTOCOL_VERSION, VERSION_NAME};
 use mc_server::server::Config;
@@ -39,8 +40,8 @@ async fn main() -> std::io::Result<()> {
         spawn_mobs: env_flag("MC_SPAWN_MOBS", true),
         default_gamemode: std::env::var("MC_GAMEMODE")
             .ok()
-            .and_then(|m| mc_server::packets::play::GameMode::from_name(&m))
-            .unwrap_or(mc_server::packets::play::GameMode::Survival),
+            .and_then(|m| GameMode::from_name(&m))
+            .unwrap_or(GameMode::Survival),
         // 켜면 모두가 OP 4 (혼자 시험할 때). 끄면 ops.json과 권한 파일을 따릅니다.
         everyone_op: env_flag("MC_EVERYONE_OP", false),
         // 처음 들어오면 OP 4가 되는 이름들 (쉼표로 구분). ops.json에 기록됩니다.
@@ -58,7 +59,34 @@ async fn main() -> std::io::Result<()> {
             .unwrap_or(mc_server::server::Difficulty::Normal),
         hardcore: env_flag("MC_HARDCORE", false),
     };
-    let server = Arc::new(Server::open(info, seed, world_dir.clone())?.with_config(config.clone()));
+    // 인스턴스: MC_INSTANCES="lobby,survival:12345:survival,build::creative" (이름[:시드[:모드]]).
+    // 처음 켤 때만 쓰이고, 그 뒤로는 world/instances.json이 기준입니다.
+    let initial = match std::env::var("MC_INSTANCES") {
+        Ok(list) => list
+            .split(',')
+            .filter(|s| !s.trim().is_empty())
+            .map(|item| {
+                let mut parts = item.trim().split(':');
+                let name = parts.next().unwrap_or("main");
+                let mut spec = InstanceSpec::new(name, seed);
+                if let Some(s) = parts.next().and_then(|s| s.parse().ok()) {
+                    spec.seed = s;
+                }
+                if let Some(m) = parts.next().and_then(GameMode::from_name) {
+                    spec.gamemode = m;
+                }
+                spec
+            })
+            .collect(),
+        Err(_) => vec![InstanceSpec {
+            gamemode: config.default_gamemode,
+            difficulty: config.difficulty,
+            hardcore: config.hardcore,
+            ..InstanceSpec::new("main", seed)
+        }],
+    };
+    let net = Network::open(&world_dir, info, config.clone(), initial)?;
+    let server = net.default_instance();
     if config.online_mode {
         server.key(); // 첫 접속이 키 만드는 시간을 기다리지 않도록 미리
         // 서명된 채팅을 확인할 Mojang 키
@@ -89,40 +117,49 @@ async fn main() -> std::io::Result<()> {
             .compression_threshold
             .map_or("끔".to_owned(), |t| format!("{t}바이트 이상")),
     );
-    println!(
-        "월드 {} 읽음: 바뀐 블록 {}개",
-        world_dir.display(),
-        server.world.changed_block_count()
-    );
+    for s in net.all() {
+        println!(
+            "인스턴스 {}{}: 시드 {}, 바뀐 블록 {}개",
+            s.name,
+            if s.name == net.default_name() {
+                " (기본)"
+            } else {
+                ""
+            },
+            s.seed,
+            s.world.changed_block_count()
+        );
+    }
 
     let listener = TcpListener::bind(&addr).await?;
     println!(
         "{addr}에서 듣는 중 — Minecraft {VERSION_NAME} (프로토콜 {PROTOCOL_VERSION}), 시드 {seed}"
     );
 
-    let saver = Arc::clone(&server);
+    let saver = Arc::clone(&net);
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(AUTOSAVE_INTERVAL);
+        tick.tick().await;
         loop {
             tick.tick().await;
             saver.save_all();
         }
     });
-    tokio::spawn(console(Arc::clone(&server)));
+    tokio::spawn(console(Arc::clone(&net)));
 
     tokio::select! {
-        result = mc_server::serve(listener, Arc::clone(&server)) => result?,
+        result = mc_server::serve_network(listener, Arc::clone(&net)) => result?,
         _ = tokio::signal::ctrl_c() => println!("끄는 중…"),
         _ = server.shutdown.notified() => println!("/stop: 끄는 중…"),
     }
-    server.save_all();
+    net.save_all();
     // 세션들이 플레이어를 저장할 틈
     tokio::time::sleep(Duration::from_millis(300)).await;
     Ok(())
 }
 
 /// 표준 입력의 줄을 콘솔 명령어로 (`/`는 있어도 없어도 됨). 콘솔은 모든 권한을 가집니다.
-async fn console(server: Arc<Server>) {
+async fn console(net: Arc<Network>) {
     use tokio::io::AsyncBufReadExt;
     let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
     while let Ok(Some(line)) = lines.next_line().await {
@@ -134,6 +171,7 @@ async fn console(server: Arc<Server>) {
         let name = words.next().unwrap_or_default();
         let args: Vec<&str> = words.collect();
         let actor = mc_server::admin::Actor::console();
+        let server = net.default_instance();
         match mc_server::admin::run(&server, &actor, name, &args) {
             Some(out) => out.iter().for_each(|l| println!("{l}")),
             None => println!("콘솔에서 쓸 수 없는 명령어입니다: /{name}"),

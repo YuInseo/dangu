@@ -5,6 +5,7 @@ use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::time::timeout;
 
+use crate::network::Network;
 use crate::packets::handshake::{HANDSHAKE_ID, Handshake, Intent};
 use crate::packets::login;
 use crate::packets::status;
@@ -21,7 +22,11 @@ const READ_TIMEOUT: Duration = Duration::from_secs(30);
 /// 레거시(1.6 이하) 서버 목록 핑의 첫 바이트. 현재 프레임 형식과 섞이지 않습니다.
 const LEGACY_PING: u8 = 0xFE;
 
-pub async fn handle<S>(stream: S, server: &Server, ip: String) -> Result<(), FrameError>
+pub async fn handle<S>(
+    stream: S,
+    net: &std::sync::Arc<Network>,
+    ip: String,
+) -> Result<(), FrameError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -46,7 +51,7 @@ where
     match handshake.intent {
         // 버전이 달라도 Status에는 답합니다 — 클라이언트는 우리 버전 이름을 빨간 글씨로
         // 보여 주며 "호환되지 않음"을 표시합니다.
-        Intent::Status => handle_status(&mut conn, server).await,
+        Intent::Status => handle_status(&mut conn, &net.default_instance()).await,
         Intent::Login | Intent::Transfer => {
             if handshake.protocol_version != PROTOCOL_VERSION {
                 let reason = version_mismatch_message(handshake.protocol_version);
@@ -54,7 +59,7 @@ where
                     .await?;
                 return Ok(());
             }
-            session::run(conn, server, ip).await
+            session::run(conn, net, ip).await
         }
     }
 }
@@ -69,7 +74,7 @@ where
         };
         match packet.id {
             status::STATUS_REQUEST_ID => {
-                let body = status::encode_status_response(&server.info, server.online());
+                let body = status::encode_status_response(&server.info, server.online_total());
                 conn.write_packet(status::STATUS_RESPONSE_ID, &body).await?;
             }
             status::PING_REQUEST_ID => {

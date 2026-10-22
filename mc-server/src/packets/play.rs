@@ -45,6 +45,10 @@ pub const SB_MOVE_PLAYER_POS_ID: i32 = 0x1E;
 pub const SB_MOVE_PLAYER_POS_ROT_ID: i32 = 0x1F;
 pub const SB_MOVE_PLAYER_ROT_ID: i32 = 0x20;
 pub const SB_MOVE_PLAYER_STATUS_ONLY_ID: i32 = 0x21;
+/// `Start Configuration`에 대한 응답. 이걸 받으면 클라이언트는 Configuration 단계입니다.
+pub const SB_CONFIGURATION_ACKNOWLEDGED_ID: i32 = 0x10;
+/// Play → Configuration (인스턴스를 옮길 때).
+pub const START_CONFIGURATION_ID: i32 = 0x78;
 pub const SB_PLAYER_INPUT_ID: i32 = 0x2B;
 pub const SB_PLAYER_LOADED_ID: i32 = 0x2C;
 

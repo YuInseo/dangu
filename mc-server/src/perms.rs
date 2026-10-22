@@ -66,7 +66,7 @@ pub struct Data {
 pub struct Permissions {
     dir: Option<PathBuf>,
     /// 모두를 OP 4로 (혼자 쓰는 개발 서버·테스트용).
-    pub everyone_op: bool,
+    everyone_op: std::sync::atomic::AtomicBool,
     data: Mutex<Data>,
 }
 
@@ -192,13 +192,22 @@ impl Permissions {
         };
         Ok(Self {
             dir,
-            everyone_op,
+            everyone_op: std::sync::atomic::AtomicBool::new(everyone_op),
             data: Mutex::new(data),
         })
     }
 
+    pub fn everyone_op(&self) -> bool {
+        self.everyone_op.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    pub fn set_everyone_op(&self, on: bool) {
+        self.everyone_op
+            .store(on, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn op_level(&self, uuid: u128) -> u8 {
-        if self.everyone_op {
+        if self.everyone_op() {
             4
         } else {
             self.data.lock().unwrap().op_level(uuid)

@@ -18,23 +18,39 @@ use std::sync::Arc;
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::auth::Property;
+use crate::network::Network;
 use crate::protocol::conn::Conn;
 use crate::protocol::frame::FrameError;
-use crate::server::Server;
 
-/// 버전 확인을 마친 접속 하나를 끝까지 처리합니다.
-pub async fn run<S>(mut conn: Conn<S>, server: &Server, ip: String) -> Result<(), FrameError>
+/// 버전 확인을 마친 접속 하나를 끝까지 처리합니다. 로그인은 기본 인스턴스에서 하고,
+/// Play가 다른 인스턴스로 옮기자고 하면 Configuration을 다시 거쳐 그쪽 Play로 들어갑니다.
+pub async fn run<S>(mut conn: Conn<S>, net: &Arc<Network>, ip: String) -> Result<(), FrameError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    let Some(profile) = login::run(&mut conn, server, &ip).await? else {
+    let mut server = net.default_instance();
+    let Some(profile) = login::run(&mut conn, &server, &ip).await? else {
         return Ok(());
     };
-    let Some(mut settings) = configuration::run(&mut conn).await? else {
-        return Ok(());
-    };
-    settings.ip = ip;
-    play::run(conn, server, profile, settings).await
+    let mut settings = ClientSettings::new(ip);
+    loop {
+        settings = match configuration::run(&mut conn, settings).await? {
+            Some(s) => s,
+            None => return Ok(()),
+        };
+        match play::run(conn, &server, profile.clone(), settings).await? {
+            play::Outcome::Quit => return Ok(()),
+            play::Outcome::Transfer {
+                conn: back,
+                to,
+                settings: kept,
+            } => {
+                conn = back;
+                settings = kept;
+                server = to;
+            }
+        }
+    }
 }
 
 /// 로그인한 사람.
@@ -55,4 +71,15 @@ pub struct ClientSettings {
     /// 0 왼손, 1 오른손.
     pub main_hand: i32,
     pub ip: String,
+}
+
+impl ClientSettings {
+    pub fn new(ip: String) -> Self {
+        Self {
+            view_distance: configuration::DEFAULT_VIEW_DISTANCE,
+            skin_parts: 0x7F,
+            main_hand: 1,
+            ip,
+        }
+    }
 }

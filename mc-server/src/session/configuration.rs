@@ -8,21 +8,18 @@ use crate::protocol::frame::FrameError;
 use crate::text;
 
 /// 기본 시야 거리. Client Information이 오기 전이거나 안 오면 이것을 씁니다.
-const DEFAULT_VIEW_DISTANCE: u8 = 8;
+pub(super) const DEFAULT_VIEW_DISTANCE: u8 = 8;
 
 /// 레지스트리·태그를 보내고 Play로 넘길 준비를 합니다. 클라이언트가 우리 known pack을
-/// 갖고 있지 않으면 사유를 보내고 `None`.
-pub async fn run<S>(stream: &mut Conn<S>) -> Result<Option<ClientSettings>, FrameError>
+/// 갖고 있지 않으면 사유를 보내고 `None`. 인스턴스를 옮기며 다시 올 때는 클라이언트가
+/// Client Information을 다시 보내지 않을 수 있어, 지난 설정(`settings`)을 이어받습니다.
+pub async fn run<S>(
+    stream: &mut Conn<S>,
+    mut settings: ClientSettings,
+) -> Result<Option<ClientSettings>, FrameError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
-    let mut settings = ClientSettings {
-        view_distance: DEFAULT_VIEW_DISTANCE,
-        skin_parts: 0x7F,
-        main_hand: 1,
-        ip: String::new(),
-    };
-
     stream
         .write_packet(cfg::CUSTOM_PAYLOAD_ID, &cfg::encode_brand("dangu"))
         .await?;

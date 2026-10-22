@@ -13,8 +13,9 @@ cargo test
 | 환경 변수 | 기본값 | 뜻 (`server.properties` 대응) |
 |---|---|---|
 | `MC_BIND` | `0.0.0.0:25565` | 주소 |
-| `MC_WORLD` | `world` | 월드 폴더 |
-| `MC_SEED` | `20260915` | 시드 |
+| `MC_WORLD` | `world` | 기본 폴더 (인스턴스 목록·권한·인스턴스별 월드) |
+| `MC_SEED` | `20260915` | 처음 만들 때의 시드 |
+| `MC_INSTANCES` | `main` | 처음 켤 때 만들 인스턴스: `이름[:시드[:모드]]`, 쉼표로 |
 | `MC_ONLINE_MODE` | `true` | `online-mode` |
 | `MC_COMPRESSION` | `256` | `network-compression-threshold` (음수 = 끔) |
 | `MC_GAMEMODE` | `survival` | `gamemode` (처음 들어온 사람) |
@@ -24,6 +25,29 @@ cargo test
 | `MC_DIFFICULTY` | `normal` | `peaceful` `easy` `normal` `hard` |
 | `MC_HARDCORE` | `false` | 하드코어 (죽으면 관전 모드) |
 | `MC_OFFLINE_SKINS` | `false` | 오프라인 모드에서 같은 이름의 정품 스킨 빌리기 |
+
+## 인스턴스 (한 포트에 여러 서버)
+
+서버 하나에 **인스턴스**를 여러 개 둘 수 있습니다. 인스턴스마다 월드(지형 시드·바뀐 블록)·
+몹·상자·플레이어 저장·접속자 목록·채팅·시간·난이도·기본 게임 모드가 따로이고, OP·권한·밴·
+화이트리스트·정품 인증·사용자 정의 아이템은 함께 씁니다. BungeeCord·Velocity처럼 플레이어를
+옮기지만 프록시 없이, 클라이언트를 Configuration 단계로 되돌렸다가(`Start Configuration`)
+다른 인스턴스의 Play로 들여보냅니다.
+
+```
+world/
+  instances.json      인스턴스 목록 (기본 인스턴스, 이름·폴더·시드·모드·난이도·하드코어)
+  ops.json …          권한·밴 (네트워크 전체)
+  custom_items.json
+  lobby/              인스턴스마다: level.json, blocks.dat, containers.dat, players/
+  survival/
+```
+
+- 처음 켤 때 `instances.json`이 없으면 `MC_INSTANCES`(없으면 `main` 하나)로 만들고, 각 폴더에
+  `level.json`(이름·시드·만든 때·생성기 판·스폰)을 씁니다. 예전 단일 월드(`world/blocks.dat`)는
+  그대로 첫 인스턴스가 됩니다.
+- `/server [이름]` 목록·이동 (권한 `dangu.server.<이름>`으로 막을 수 있음),
+  `/instance list|create|remove|default` 실행 중에 만들고 내리기 (OP 4).
 
 ## 되는 것
 
@@ -97,6 +121,8 @@ OP 단계는 권한 규칙이 없을 때의 기본값입니다 (`/perm`으로 �
 | `/say`, `/title <이름\|@a> <제목>[\|부제목]` | | 2 |
 | `/kick`, `/ban`, `/pardon`, `/ban-ip`, `/pardon-ip`, `/whitelist …` | | 3 |
 | `/op <이름> [단계]`, `/deop`, `/perm …` | | 3 |
+| `/server [이름]` | 인스턴스 목록·이동 | 0 |
+| `/instance list\|create <이름> [시드] [모드] [난이도] [hardcore]\|remove\|default` | | 4 |
 | `/save-all`, `/stop` | | 4 |
 
 ## 스피곳과 다른 점
@@ -120,7 +146,8 @@ src/auth.rs              Mojang 세션 서버 (HTTPS만 rustls)
 src/chat.rs              서명된 채팅 (키 확인, 서명 대상, 읽은 메시지 창)
 src/packets/             상태별 패킷 (ID와 형식)
 src/connection.rs        Handshake → Status | Login
-src/session/             Login → Configuration → Play, 명령어, 건축, 서바이벌, 창, 채팅
+src/network.rs           인스턴스 목록과 이동
+src/session/             Login → Configuration → Play(→ 다른 인스턴스), 명령어, 건축, 서바이벌, 창, 채팅
 src/game/                엔티티 틱, 몹, 상자·플레이어 저장
 src/world/               지형, 청크 인코딩, 바뀐 블록, 놓을 때의 상태
 src/data/generated.rs    tools/gen_data.py가 만든 바닐라 데이터 (커밋됨)

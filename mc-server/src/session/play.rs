@@ -5,6 +5,7 @@
 //! 없어서입니다. 메인 루프는 받은 패킷, keep-alive 타이머, 서버 이벤트를 함께 기다립니다.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::io::{AsyncRead, AsyncWrite};
@@ -40,29 +41,51 @@ pub(super) const MAX_VIEW_DISTANCE: i32 = 10;
 /// 바닐라와 같은 채팅 길이 제한.
 const MAX_CHAT_LENGTH: usize = 256;
 
+/// Play가 끝난 까닭. 한 번만 돌려주는 값이라 크기 차이는 상관없습니다.
+#[allow(clippy::large_enum_variant)]
+pub enum Outcome<S> {
+    /// 연결이 끝남.
+    Quit,
+    /// 다른 인스턴스로 옮김: 클라이언트는 이미 Configuration 단계에 있습니다.
+    Transfer {
+        conn: Conn<S>,
+        to: Arc<Server>,
+        settings: ClientSettings,
+    },
+}
+
+/// 재구성 요청 뒤 클라이언트의 확인을 기다리는 시간.
+const TRANSFER_TIMEOUT: Duration = Duration::from_secs(10);
+
 pub async fn run<S>(
     conn: Conn<S>,
     server: &Server,
     profile: Profile,
     settings: ClientSettings,
-) -> Result<(), FrameError>
+) -> Result<Outcome<S>, FrameError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (mut reader, writer) = conn.into_split();
     let (tx, mut rx) = mpsc::channel::<Result<RawPacket, FrameError>>(256);
+    // `Configuration Acknowledged`를 넘기고 나면 읽기를 멈추고 읽기 반쪽을 돌려줍니다.
+    // 그 뒤의 바이트는 Configuration 패킷이므로 Play 쪽에서 읽으면 안 됩니다.
     let reader_task = tokio::spawn(async move {
         loop {
             match reader.read_packet().await {
                 Ok(Some(packet)) => {
+                    let ack = packet.id == p::SB_CONFIGURATION_ACKNOWLEDGED_ID;
                     if tx.send(Ok(packet)).await.is_err() {
-                        return;
+                        return None;
+                    }
+                    if ack {
+                        return Some(reader);
                     }
                 }
-                Ok(None) => return,
+                Ok(None) => return None,
                 Err(e) => {
                     let _ = tx.send(Err(e)).await;
-                    return;
+                    return None;
                 }
             }
         }
@@ -79,7 +102,7 @@ where
                 .send(p::DISCONNECT_ID, &p::encode_disconnect(&reason))
                 .await?;
             reader_task.abort();
-            return Ok(());
+            return Ok(Outcome::Quit);
         }
     };
 
@@ -93,7 +116,7 @@ where
         let mut keep_alive = tokio::time::interval(KEEP_ALIVE_INTERVAL);
         keep_alive.tick().await; // 첫 tick은 즉시 오므로 버립니다
         let mut survival = tokio::time::interval(SURVIVAL_TICK);
-        loop {
+        while session.transfer.is_none() {
             tokio::select! {
                 _ = survival.tick() => session.survival_tick().await?,
                 packet = rx.recv() => match packet {
@@ -110,18 +133,54 @@ where
                 },
             }
         }
+        // 옮기는 중: Start Configuration을 보냈으니 Play 패킷은 더 보내지 않고 확인만 기다립니다.
+        tokio::time::timeout(TRANSFER_TIMEOUT, async {
+            loop {
+                match rx.recv().await {
+                    Some(Ok(p)) if p.id == p::SB_CONFIGURATION_ACKNOWLEDGED_ID => return Ok(()),
+                    Some(Ok(_)) => {}
+                    Some(Err(e)) => return Err(e),
+                    None => return Err(FrameError::Io(std::io::ErrorKind::UnexpectedEof.into())),
+                }
+            }
+        })
+        .await
+        .map_err(|_| FrameError::Io(std::io::ErrorKind::TimedOut.into()))?
     }
     .await;
 
-    reader_task.abort();
+    let transfer = session.transfer.take();
     session.save();
     server.remove_player(session.profile.uuid);
-    server.publish(Event::System(text::colored(
-        &format!("{}님이 나갔습니다", session.profile.name),
-        "yellow",
-    )));
-    println!("{} 접속 종료", session.profile.name);
-    result
+    let left = match &transfer {
+        Some(to) if result.is_ok() => {
+            format!("{}님이 {}(으)로 갔습니다", session.profile.name, to.name)
+        }
+        _ => format!("{}님이 나갔습니다", session.profile.name),
+    };
+    server.publish(Event::System(text::colored(&left, "yellow")));
+
+    match (transfer, result) {
+        (Some(to), Ok(())) => {
+            let reader = reader_task
+                .await
+                .ok()
+                .flatten()
+                .ok_or(FrameError::Io(std::io::ErrorKind::UnexpectedEof.into()))?;
+            println!("{}: {} → {}", session.profile.name, server.name, to.name);
+            let settings = session.settings();
+            let conn = Conn {
+                r: reader,
+                w: session.w,
+            };
+            Ok(Outcome::Transfer { conn, to, settings })
+        }
+        (_, result) => {
+            reader_task.abort();
+            println!("{} 접속 종료", session.profile.name);
+            result.map(|()| Outcome::Quit)
+        }
+    }
 }
 
 pub(super) struct Session<'a, W> {
@@ -173,6 +232,8 @@ pub(super) struct Session<'a, W> {
     pub(super) camera: Option<i32>,
     /// F3+F4가 보여 주는 이전 게임 모드.
     pub(super) previous_gamemode: Option<GameMode>,
+    /// 옮겨 갈 인스턴스 (`Start Configuration`을 보낸 뒤).
+    pub(super) transfer: Option<Arc<Server>>,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
@@ -222,6 +283,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             flying: false,
             camera: None,
             previous_gamemode: None,
+            transfer: None,
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,
@@ -229,6 +291,24 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             listed: HashSet::new(),
             visible: HashMap::new(),
         }
+    }
+
+    /// 다음 인스턴스로 넘길 클라이언트 설정.
+    pub(super) fn settings(&self) -> ClientSettings {
+        ClientSettings {
+            view_distance: self.view_distance as u8,
+            skin_parts: self.skin_parts,
+            main_hand: self.main_arm,
+            ip: self.ip.clone(),
+        }
+    }
+
+    /// 다른 인스턴스로 보냅니다: 클라이언트를 Configuration으로 되돌립니다.
+    pub(super) async fn start_transfer(&mut self, to: Arc<Server>) -> Result<(), FrameError> {
+        self.close_window(false).await?;
+        self.send(p::START_CONFIGURATION_ID, &[]).await?;
+        self.transfer = Some(to);
+        Ok(())
     }
 
     pub(super) fn state(&self) -> PlayerState {

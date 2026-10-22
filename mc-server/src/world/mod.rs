@@ -4,6 +4,7 @@
 //! 보낼 때마다 그 자리에서 생성합니다 — 블록을 바꾸는 기능이 생기기 전까지는 이걸로 충분합니다.
 
 pub mod chunk;
+pub mod level;
 mod noise;
 pub mod placement;
 pub mod store;
