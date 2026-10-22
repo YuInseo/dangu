@@ -21,6 +21,8 @@ async fn main() -> std::io::Result<()> {
     // HUD 그림·셰이더를 팩에 넣을지 (콘텐츠를 읽기 전에 정해야 함)
     mc_server::plugins::hud::set_enabled(env_flag("MC_HUD", true));
     // 길드: 모든 인스턴스(담비 자식 프로세스 포함)가 같은 파일
+    mc_server::plugins::guild::config::open_global();
+    mc_server::plugins::quest::open_global();
     mc_server::plugins::guild::store::open_global(
         std::env::var_os("MC_GUILDS")
             .map(std::path::PathBuf::from)

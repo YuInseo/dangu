@@ -13,6 +13,7 @@
 //! | [`guild`]    | 길드: 정보·창고(페이지·기록)·땅(보호)·업그레이드·신호기·퀘스트·2배 이벤트·역할 권한 |
 //! | [`hud`]      | 화면 HUD: 오른쪽 위 재화, 오른쪽 아래 스탯, 핫바 위 체력바 (폰트 + 셰이더) |
 //! | [`npc`]      | Citizens 비슷한 NPC: `/npc`, 스킨, 말·명령·동작 |
+//! | [`quest`]    | 퀘스트: 일반·주간·길드 주간, `/퀘스트` 창, HUD 오른쪽 위 |
 //! | [`rpg`]      | RPG 스탯 계산 (레벨·공격력·방어력·전투력) |
 
 pub mod chat;
@@ -21,4 +22,6 @@ pub mod guild;
 pub mod hud;
 pub mod lottery;
 pub mod npc;
+pub mod quest;
 pub mod rpg;
+pub mod store;

@@ -251,6 +251,12 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/채널 [전체|채널|주변|거래|길드|관리자] | 끄기|켜기 <이름> — 채팅 채널 (앞에 ! $ @ # ~ 를 붙이면 한 번만)",
     },
     Spec {
+        name: "퀘스트",
+        aliases: &["quest", "q"],
+        level: 0,
+        usage: "/퀘스트 [일반|주간|길드] — 퀘스트 창",
+    },
+    Spec {
         name: "길드",
         aliases: &["guild", "g"],
         level: 0,

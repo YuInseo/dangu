@@ -5,9 +5,11 @@
 //! | 길드 정보: 이름·레벨·길드장·인원·전투력 | [`Guild`], 전투력 = 길드원 전투력 합 ([`crate::plugins::rpg`]) |
 //! | 길드 창고 (페이지) + 기록 | [`Guild::storage`] 페이지마다 45칸, [`Guild::log`] |
 //! | 땅: 좌표 · 좌클릭 이동 · Shift+좌클릭 판매(확인창) | [`land`], 청크 단위, 보호 |
-//! | 업그레이드: 땅·인원·창고·작물 성장 (인원이 많을수록 덜 빨라짐) | [`Upgrade`] |
+//! | 레벨별 효과 (인원·땅·창고·신호기 칸·보너스) — 웹에서 고침 | [`config`] |
+//! | 업그레이드: 땅·인원·창고 (레벨 효과 위에 더함) | [`Upgrade`] |
+//! | 작물 성장: 청크마다 촉진제로 단계 올림, 길드 청크 지도 창 | [`land`], [`gui`] |
 //! | 신호기: 범위 없음·무한 지속, n번째 효과 = 신호기 n개, 단계 올리기 = 광물 + 돈 | [`beacon`] |
-//! | 퀘스트: 일일 · 주간 | [`quest`] |
+//! | 퀘스트: 길드 주간 | [`crate::plugins::quest`] |
 //! | 2배 이벤트: 생활 직업 경험치 · 높은 등급 재료 확률 | [`GuildEvent`] |
 //! | 역할: 길드장 · 부길드장(2명까지, 길드장이 허락한 권한만) · 길드원 | [`Role`], [`Perm`] |
 //! | 해산(물어보기) · 설명 · 방문객 · 길드원·역할 관리 · 창고 기록 · 비공개 · 가입 신청 | [`gui`] |
@@ -17,10 +19,12 @@
 //!
 //! 저장: [`store`] (모든 인스턴스가 같은 파일, 다른 프로세스와는 잠금 파일로 차례를 지킴).
 
+pub mod art;
 pub mod beacon;
+pub mod config;
 pub mod gui;
 pub mod land;
-pub mod quest;
+mod map;
 mod session;
 pub mod store;
 
@@ -33,10 +37,6 @@ pub use store::{Data, guilds};
 
 pub type GuildId = u32;
 
-/// 길드를 만들 때 드는 돈.
-pub const CREATE_COST: i64 = 10_000;
-/// 부길드장은 이만큼까지.
-pub const MAX_OFFICERS: usize = 2;
 /// 창고 한 페이지 칸 수 (6줄 창의 위 5줄).
 pub const PAGE_SLOTS: usize = 45;
 /// 창고 기록은 이만큼만 남깁니다.
@@ -171,78 +171,71 @@ pub struct Land {
     pub dimension: Dimension,
     pub chunk: (i32, i32),
     pub bought: i64,
-    /// 산 값 (팔 때 절반).
+    /// 산 값 (팔 때 일부 돌려받음).
     pub paid: i64,
+    /// 이 청크의 작물 성장 단계 (작물 촉진제로 올림, [`config::Config::crop_levels`]).
+    pub crop_level: u8,
 }
 
-/// 업그레이드 네 가지.
+/// 돈으로 사는 업그레이드 세 가지 (값·효과는 [`config`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Upgrade {
     Land,
     Members,
     Storage,
-    Growth,
 }
 
 impl Upgrade {
-    pub const ALL: [Upgrade; 4] = [
-        Upgrade::Land,
-        Upgrade::Members,
-        Upgrade::Storage,
-        Upgrade::Growth,
-    ];
+    pub const ALL: [Upgrade; 3] = [Upgrade::Land, Upgrade::Members, Upgrade::Storage];
 
     pub fn name(self) -> &'static str {
         match self {
             Upgrade::Land => "땅 늘리기",
             Upgrade::Members => "인원 늘리기",
             Upgrade::Storage => "창고 늘리기",
-            Upgrade::Growth => "작물 성장 속도",
         }
     }
 
-    pub fn max_level(self) -> u8 {
+    pub fn key(self) -> &'static str {
         match self {
-            Upgrade::Land => 10,
-            Upgrade::Members => 8,
-            Upgrade::Storage => 5,
-            Upgrade::Growth => 5,
+            Upgrade::Land => "land",
+            Upgrade::Members => "members",
+            Upgrade::Storage => "storage",
         }
+    }
+
+    pub fn rule(self) -> config::UpgradeRule {
+        config::with(|c| c.upgrade(self.key()).cloned()).unwrap_or(config::UpgradeRule {
+            kind: self.key().into(),
+            max_level: 0,
+            per_level: 0,
+            base_cost: 0,
+            required_level_offset: 0,
+        })
+    }
+
+    pub fn max_level(self) -> u8 {
+        self.rule().max_level
     }
 
     /// `level`에서 다음 단계로 가는 값 (돈, 필요한 길드 레벨).
     pub fn cost(self, level: u8) -> (i64, u32) {
-        let base = match self {
-            Upgrade::Land => 30_000,
-            Upgrade::Members => 50_000,
-            Upgrade::Storage => 40_000,
-            Upgrade::Growth => 60_000,
-        };
-        (base * (level as i64 + 1), level as u32 + 1)
+        let r = self.rule();
+        (
+            r.base_cost * (level as i64 + 1),
+            level as u32 + 1 + r.required_level_offset,
+        )
     }
 
-    /// 이 단계의 효과를 사람이 읽는 말로.
+    /// 한 단계마다 더하는 것을 사람이 읽는 말로.
     pub fn effect(self, level: u8) -> String {
+        let add = self.rule().per_level * level as usize;
         match self {
-            Upgrade::Land => format!("땅 최대 {}청크", max_lands(level)),
-            Upgrade::Members => format!("길드원 최대 {}명", max_members(level)),
-            Upgrade::Storage => format!("창고 {}페이지", storage_pages(level)),
-            Upgrade::Growth => format!(
-                "길드 땅의 작물 +{}% (10명 넘으면 줄어듦)",
-                level as u32 * 10
-            ),
+            Upgrade::Land => format!("땅 +{add}청크"),
+            Upgrade::Members => format!("길드원 +{add}명"),
+            Upgrade::Storage => format!("창고 +{add}페이지"),
         }
     }
-}
-
-pub fn max_lands(level: u8) -> usize {
-    4 + 4 * level as usize
-}
-pub fn max_members(level: u8) -> usize {
-    10 + 5 * level as usize
-}
-pub fn storage_pages(level: u8) -> usize {
-    1 + level as usize
 }
 
 /// 2배 이벤트 두 가지.
@@ -262,9 +255,14 @@ impl GuildEvent {
             GuildEvent::RareDrop => "높은 등급 재료 확률 2배",
         }
     }
-    /// 한 번 켜는 값 (GP)과 시간(초).
-    pub const COST_GP: i64 = 500;
-    pub const DURATION: i64 = 3600;
+    /// 한 번 켜는 값 (GP).
+    pub fn cost_gp() -> i64 {
+        config::with(|c| c.event_cost_gp)
+    }
+    /// 켜 두는 시간 (초).
+    pub fn duration() -> i64 {
+        config::with(|c| c.event_minutes) * 60
+    }
 }
 
 /// 창고 기록 한 줄.
@@ -304,7 +302,7 @@ pub struct Guild {
     pub spawn: Option<Spot>,
     pub lands: Vec<Land>,
     /// [`Upgrade::ALL`] 순서의 단계.
-    pub upgrades: [u8; 4],
+    pub upgrades: [u8; 3],
     pub beacon: Vec<beacon::Owned>,
     pub storage: Vec<Vec<Option<Item>>>,
     pub log: Vec<LogEntry>,
@@ -316,7 +314,6 @@ pub struct Guild {
     pub member_perms: u32,
     /// [`GuildEvent::ALL`] 순서로, 끝나는 때 (유닉스 초).
     pub events: [i64; 2],
-    pub quests: quest::Board,
 }
 
 impl Guild {
@@ -341,7 +338,7 @@ impl Guild {
             gp: 0,
             spawn: None,
             lands: Vec::new(),
-            upgrades: [0; 4],
+            upgrades: [0; 3],
             beacon: Vec::new(),
             storage: vec![vec![None; PAGE_SLOTS]],
             log: Vec::new(),
@@ -350,7 +347,6 @@ impl Guild {
             officer_perms: Perm::defaults(Role::Officer),
             member_perms: Perm::defaults(Role::Member),
             events: [0; 2],
-            quests: quest::Board::default(),
         }
     }
 
@@ -392,9 +388,14 @@ impl Guild {
             .is_some_and(|r| self.perms_of(r) & perm.bit() != 0)
     }
 
-    /// 레벨: 1레벨에서 시작, n → n+1에 1000×n 경험치.
+    /// 레벨 (길드 설정의 레벨 표에서 경험치로).
     pub fn level(&self) -> u32 {
         level_for(self.exp)
+    }
+
+    /// 지금 레벨의 효과 줄.
+    pub fn level_row(&self) -> config::Level {
+        config::with(|c| c.level_row(self.exp).clone())
     }
 
     pub fn power(&self) -> i64 {
@@ -405,22 +406,19 @@ impl Guild {
         self.upgrades[Upgrade::ALL.iter().position(|x| *x == u).unwrap()]
     }
 
-    pub fn max_members(&self) -> usize {
-        max_members(self.upgrade(Upgrade::Members))
-    }
-    pub fn max_lands(&self) -> usize {
-        max_lands(self.upgrade(Upgrade::Land))
-    }
-    pub fn storage_pages(&self) -> usize {
-        storage_pages(self.upgrade(Upgrade::Storage))
+    fn bonus(&self, u: Upgrade) -> usize {
+        u.rule().per_level * self.upgrade(u) as usize
     }
 
-    /// 길드 땅의 작물이 자라는 빠르기 (1.0 = 바닐라). 단계마다 +10%, 길드원이 10명을 넘으면
-    /// 그만큼 나눠 덜 빨라집니다 (기획: "인원이 많을수록 속도 감소").
-    pub fn growth_multiplier(&self) -> f64 {
-        let bonus = self.upgrade(Upgrade::Growth) as f64 * 0.10;
-        let crowd = (self.members.len().max(10) as f64 / 10.0).max(1.0);
-        1.0 + bonus / crowd
+    /// 인원 한도 = 레벨 효과 + 업그레이드.
+    pub fn max_members(&self) -> usize {
+        self.level_row().max_members + self.bonus(Upgrade::Members)
+    }
+    pub fn max_lands(&self) -> usize {
+        self.level_row().max_lands + self.bonus(Upgrade::Land)
+    }
+    pub fn storage_pages(&self) -> usize {
+        (self.level_row().storage_pages + self.bonus(Upgrade::Storage)).clamp(1, 54)
     }
 
     pub fn event_active(&self, e: GuildEvent, now: i64) -> bool {
@@ -443,23 +441,24 @@ impl Guild {
     }
 }
 
-pub fn level_for(exp: i64) -> u32 {
-    let mut level = 1u32;
-    let mut need = 1000i64;
-    let mut left = exp;
-    while left >= need {
-        left -= need;
-        level += 1;
-        need = 1000 * level as i64;
-    }
-    level
+/// 부길드장 최대 수 (설정).
+pub fn max_officers() -> usize {
+    config::with(|c| c.max_officers)
 }
 
-/// 다음 레벨까지 (지금 레벨 안에서 쌓은 것, 필요한 것).
+pub fn level_for(exp: i64) -> u32 {
+    config::with(|c| c.level_row(exp).level)
+}
+
+/// 다음 레벨까지 (지금 레벨 안에서 쌓은 것, 필요한 것). 끝 레벨이면 (0, 0).
 pub fn level_progress(exp: i64) -> (i64, i64) {
-    let level = level_for(exp) as i64;
-    let spent: i64 = (1..level).map(|n| 1000 * n).sum();
-    (exp - spent, 1000 * level)
+    config::with(|c| {
+        let now = c.level_row(exp);
+        match c.next_level(exp) {
+            Some(next) => (exp - now.exp, next.exp - now.exp),
+            None => (0, 0),
+        }
+    })
 }
 
 /// 길드 이름: 2~12자, 글자·숫자·밑줄만.
@@ -651,7 +650,7 @@ impl Data {
                 }
             }
             // 부길드장이 셋이 되면 옛 길드장을 길드원으로
-            if g.members.iter().filter(|m| m.role == Role::Officer).count() > MAX_OFFICERS
+            if g.members.iter().filter(|m| m.role == Role::Officer).count() > max_officers()
                 && let Some(m) = g.member_mut(actor.uuid)
             {
                 m.role = Role::Member;
@@ -671,8 +670,8 @@ impl Data {
             match (on, m.role) {
                 (_, Role::Leader) => Err("길드장입니다.".into()),
                 (true, Role::Officer) => Err("이미 부길드장입니다.".into()),
-                (true, _) if officers >= MAX_OFFICERS => {
-                    Err(format!("부길드장은 {MAX_OFFICERS}명까지입니다."))
+                (true, _) if officers >= max_officers() => {
+                    Err(format!("부길드장은 {}명까지입니다.", max_officers()))
                 }
                 (true, _) => {
                     m.role = Role::Officer;
@@ -767,17 +766,21 @@ impl Data {
             if g.event_active(e, now) {
                 return Err(format!("이미 진행 중입니다: {}", e.name()));
             }
-            if g.gp < GuildEvent::COST_GP {
+            if g.gp < GuildEvent::cost_gp() {
                 return Err(format!(
                     "GP가 모자랍니다 ({} / {})",
                     g.gp,
-                    GuildEvent::COST_GP
+                    GuildEvent::cost_gp()
                 ));
             }
-            g.gp -= GuildEvent::COST_GP;
+            g.gp -= GuildEvent::cost_gp();
             let i = GuildEvent::ALL.iter().position(|x| *x == e).unwrap();
-            g.events[i] = now + GuildEvent::DURATION;
-            Ok(format!("{} 이벤트를 1시간 동안 켰습니다.", e.name()))
+            g.events[i] = now + GuildEvent::duration();
+            Ok(format!(
+                "{} 이벤트를 {}분 동안 켰습니다.",
+                e.name(),
+                GuildEvent::duration() / 60
+            ))
         })
     }
 
@@ -908,10 +911,11 @@ mod tests {
         let a = actor(1, "A");
         d.create(&a, "길드", 0).unwrap();
         let id = d.of(1).unwrap().id;
-        // 레벨 1이면 1단계만
+        // 레벨 1이면 1단계만 (기본 설정: 레벨 1 창고 1페이지 + 업그레이드 1)
         d.upgrade(&a, Upgrade::Storage).unwrap();
         assert!(d.upgrade(&a, Upgrade::Storage).is_err());
         assert_eq!(d.of(1).unwrap().storage.len(), 2);
+        assert_eq!(d.of(1).unwrap().max_members(), 10);
         d.add_gp(id, Some(1), 1000);
         d.upgrade(&a, Upgrade::Storage).unwrap();
         assert_eq!(d.of(1).unwrap().member(1).unwrap().contribution, 1000);
@@ -924,23 +928,5 @@ mod tests {
             d.start_event(&a, GuildEvent::RareDrop, 5000).is_err(),
             "GP 바닥"
         );
-    }
-
-    #[test]
-    fn crop_growth_slows_with_crowds() {
-        let mut g = Guild::new(1, "g", 1, "a", 0);
-        g.upgrades[3] = 5;
-        assert!((g.growth_multiplier() - 1.5).abs() < 1e-9);
-        for i in 2..=20 {
-            g.members.push(Member {
-                uuid: i,
-                name: format!("m{i}"),
-                role: Role::Member,
-                joined: 0,
-                contribution: 0,
-                power: 0,
-            });
-        }
-        assert!((g.growth_multiplier() - 1.25).abs() < 1e-9);
     }
 }

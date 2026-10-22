@@ -168,6 +168,12 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
                 }
             }
         }
+        "퀘스트" => {
+            let c = t.literal(ROOT, name, true);
+            for sub in ["일반", "주간", "길드"] {
+                t.literal(c, sub, true);
+            }
+        }
         "길드" => {
             let c = t.literal(ROOT, name, true);
             for sub in [
@@ -260,6 +266,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             "채널" => self.channel_command(&args).await,
             "hud" => self.hud_command().await,
             "길드" => self.guild_command(&args).await,
+            "퀘스트" => self.quest_command(&args).await,
             "ia" | "iaget" | "iaimage" => self.ia_command(spec.name, &args).await,
             "재화" => self.money_command(&args).await,
             "locate" => self.locate(&args).await,
@@ -424,7 +431,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 여러 개를 최대 개수씩 나눠 넣습니다. 넣은 개수.
-    async fn give_many(&mut self, item: Item, count: i32) -> std::io::Result<i32> {
+    pub(crate) async fn give_many(&mut self, item: Item, count: i32) -> std::io::Result<i32> {
         let max = custom_items::max_stack(&item);
         let mut left = count.clamp(1, 64 * 36);
         let total = left;

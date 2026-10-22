@@ -39,6 +39,8 @@ pub enum WindowKind {
     Catalog(crate::plugins::contents::catalog::Catalog),
     /// 길드 메뉴.
     Guild(crate::plugins::guild::gui::Page),
+    /// `/퀘스트` 메뉴.
+    Quest(crate::plugins::quest::gui::Page),
     /// 길드 창고 한 페이지: 위 45칸은 진짜 칸, 아래 줄은 버튼.
     GuildStorage {
         guild: u32,
@@ -279,6 +281,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             WindowKind::Lottery(page) => self.lottery_slots(page),
             WindowKind::Catalog(page) => self.catalog_slots(page),
             WindowKind::Guild(page) => self.guild_slots(page),
+            WindowKind::Quest(page) => self.quest_slots(page),
             WindowKind::GuildStorage { guild, page } => {
                 let mut v = crate::plugins::guild::guilds().read(|d| {
                     d.guild(*guild)
@@ -321,6 +324,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     WindowKind::Lottery(_)
                         | WindowKind::Catalog(_)
                         | WindowKind::Guild(_)
+                        | WindowKind::Quest(_)
                         | WindowKind::GuildStorage { .. }
                 ) {
                     self.lottery_closed();
@@ -362,6 +366,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     WindowKind::Lottery(ref page) => page.size(),
                     WindowKind::Catalog(_) => 54,
                     WindowKind::Guild(ref page) => page.size(),
+                    WindowKind::Quest(_) => 54,
                     WindowKind::GuildStorage { .. } => 54,
                 };
                 if slot < own {
@@ -376,9 +381,10 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         WindowKind::Chest { dimension, pos, .. } => {
                             Some(SlotRef::Chest(*dimension, *pos, slot))
                         }
-                        WindowKind::Lottery(_) | WindowKind::Catalog(_) | WindowKind::Guild(_) => {
-                            None
-                        }
+                        WindowKind::Lottery(_)
+                        | WindowKind::Catalog(_)
+                        | WindowKind::Guild(_)
+                        | WindowKind::Quest(_) => None,
                         WindowKind::GuildStorage { guild, page } => (slot
                             < crate::plugins::guild::PAGE_SLOTS)
                             .then_some(SlotRef::Guild(*guild, *page, slot)),
@@ -405,13 +411,22 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             return Ok(()); // 이미 닫힌 창에 대한 클릭
         }
         let menu = self.window.as_ref().map(|w| w.kind.clone());
-        if let Some(WindowKind::Lottery(_) | WindowKind::Catalog(_) | WindowKind::Guild(_)) = menu {
+        if let Some(
+            WindowKind::Lottery(_)
+            | WindowKind::Catalog(_)
+            | WindowKind::Guild(_)
+            | WindowKind::Quest(_),
+        ) = menu
+        {
             // 메뉴: 무엇을 집든 되돌리고, 누른 칸만 버튼으로
             match menu {
                 Some(WindowKind::Lottery(page)) => self.lottery_click(page, c.slot).await?,
                 Some(WindowKind::Catalog(page)) => self.catalog_click(page, c.slot, c.mode).await?,
                 Some(WindowKind::Guild(page)) => {
                     self.guild_click(page, c.slot, c.button, c.mode).await?
+                }
+                Some(WindowKind::Quest(page)) => {
+                    self.quest_click(page, c.slot, c.button, c.mode).await?
                 }
                 _ => {}
             }

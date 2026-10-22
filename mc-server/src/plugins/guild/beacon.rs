@@ -277,6 +277,11 @@ impl super::Data {
         let owned = g.beacon.iter().find(|o| o.effect == effect);
         match (unlock, owned) {
             (true, Some(_)) => Err("이미 연 효과입니다.".into()),
+            (true, None) if g.beacon.len() >= g.level_row().beacon_slots => Err(format!(
+                "길드 레벨 {}에서는 신호기 효과를 {}개까지 열 수 있습니다.",
+                g.level(),
+                g.level_row().beacon_slots
+            )),
             (true, None) => Ok(Cost {
                 beacons: unlock_cost(g.beacon.len()),
                 money: 0,

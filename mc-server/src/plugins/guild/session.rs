@@ -19,7 +19,6 @@ use tokio::io::AsyncWrite;
 
 use super::beacon::{self, Bonus, Effect};
 use super::gui::Page;
-use super::quest::{self, Kind};
 use super::{Actor, GuildEvent, GuildId, Land, Perm, guilds};
 use crate::packets::effects as fx;
 use crate::packets::world::{BlockPos, Item};
@@ -153,12 +152,12 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     let r = guilds().read(|d| d.clone()).create(&me, name, now);
                     return self.guild_say(r).await;
                 }
-                if !self.pay(super::CREATE_COST).await {
+                if !self.pay(super::config::with(|c| c.create_cost)).await {
                     return Ok(());
                 }
                 let r = guilds().write(|d| d.create(&me, name, now));
                 if r.is_err() {
-                    crate::dambi::child::shared_add(me.uuid, "money", super::CREATE_COST).await;
+                    crate::dambi::child::shared_add(me.uuid, "money", super::config::with(|c| c.create_cost)).await;
                 } else {
                     self.server.publish_all(Event::System(text::colored(
                         &format!("[길드] {}님이 {name} 길드를 세웠습니다!", me.name),
@@ -342,13 +341,13 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if let Err(e) = check {
             return self.error(&e).await;
         }
-        if !self.pay(super::land::PRICE).await {
+        if !self.pay(super::land::price()).await {
             return Ok(());
         }
         let r = guilds()
             .write(|d| d.claim(&me, &self.server.name, self.dimension, chunk, super::now()));
         if r.is_err() {
-            crate::dambi::child::shared_add(me.uuid, "money", super::land::PRICE).await;
+            crate::dambi::child::shared_add(me.uuid, "money", super::land::price()).await;
         }
         self.guild.territory = None; // 입장 메시지를 다시
         self.guild_say(r).await
@@ -389,6 +388,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             d.of(me)
                 .map(|g| (g.id, g.storage_pages(), g.can(me, Perm::StorageUse)))
         });
+        if super::config::with(|c| c.storage_blocked_instances.contains(&self.server.name)) {
+            return self
+                .message(&text::colored(
+                    "이 세션에서는 길드 창고를 쓸 수 없습니다.",
+                    "red",
+                ))
+                .await;
+        }
         let Some((guild, pages, allowed)) = info else {
             return self
                 .message(&text::colored("길드에 들어가 있지 않습니다.", "red"))
@@ -518,7 +525,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
     // ---- 캐기·잡기 ----
 
-    /// 블록을 부순 뒤 (서바이벌): 퀘스트, 생활 직업 경험치, 광석 덤.
+    /// 블록을 부순 뒤 (서바이벌): 생활 직업 경험치, 광석 덤, 퀘스트.
     pub(crate) async fn guild_block_broken(
         &mut self,
         pos: BlockPos,
@@ -538,7 +545,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         } else {
             None
         };
-        let (events, guild) = guilds().read(|d| {
+        // 길드: 이벤트(2배)와 레벨 보너스
+        let (events, level) = guilds().read(|d| {
             d.of(me)
                 .map(|g| {
                     (
@@ -546,19 +554,21 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                             g.event_active(GuildEvent::JobXp, now),
                             g.event_active(GuildEvent::RareDrop, now),
                         ),
-                        Some(g.id),
+                        Some(g.level_row()),
                     )
                 })
                 .unwrap_or(((false, false), None))
         });
         if let Some((job, xp)) = job {
-            let xp = if events.0 { xp * 2.0 } else { xp };
+            let bonus = level.as_ref().map_or(0.0, |l| l.job_xp_bonus);
+            let xp = xp * (1.0 + bonus / 100.0) * if events.0 { 2.0 } else { 1.0 };
             crate::dambi::child::job_xp(me, job, xp).await;
         }
-        // 높은 등급 재료: 광석이면 5% (이벤트 10%)로 한 번 더
+        // 높은 등급 재료: 광석이면 5% + 길드 레벨 보너스 (이벤트면 2배)로 한 번 더
         if name.ends_with("_ore") && self.gamemode == crate::packets::play::GameMode::Survival {
-            let chance = if events.1 { 100 } else { 50 };
-            if crate::game::rand_u32() % 1000 < chance
+            let percent = (5.0 + level.as_ref().map_or(0.0, |l| l.rare_bonus))
+                * if events.1 { 2.0 } else { 1.0 };
+            if (crate::game::rand_u32() % 10_000) < (percent * 100.0) as u32
                 && crate::data::items::can_harvest(
                     crate::data::blocks::block_of(state),
                     self.main_hand(),
@@ -576,39 +586,24 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     .await?;
             }
         }
-        if let Some(id) = guild {
-            for kind in quest::kinds_for_block(name, mature) {
-                self.guild_quest(id, kind).await?;
-            }
+        // 퀘스트: 캐기 / 광석 / 통나무 / 다 자란 작물
+        let mut kinds = vec!["mine"];
+        if name.ends_with("_ore") || name == "ancient_debris" {
+            kinds.push("ores");
         }
-        Ok(())
-    }
-
-    pub(crate) async fn guild_mob_killed(&mut self) -> std::io::Result<()> {
-        if let Some(id) = guilds().read(|d| d.of(self.profile.uuid).map(|g| g.id)) {
-            self.guild_quest(id, Kind::Kills).await?;
+        if name.ends_with("_log") || name.ends_with("_stem") {
+            kinds.push("logs");
         }
-        Ok(())
-    }
-
-    async fn guild_quest(&mut self, guild: GuildId, kind: Kind) -> std::io::Result<()> {
-        let me = self.profile.uuid;
-        let now = super::now();
-        let done = guilds().write(|d| {
-            let finished = d
-                .guild_mut(guild)
-                .map(|g| g.quests.record(kind, 1, now))
-                .unwrap_or_default();
-            for (_, reward) in &finished {
-                d.add_gp(guild, Some(me), *reward);
-            }
-            finished
-        });
-        for (name, reward) in done {
-            self.tell_guild(&format!(
-                "[길드] {name} 완료! GP +{reward} (마지막: {})",
-                self.profile.name
-            ));
+        if mature {
+            kinds.push("harvest");
+        }
+        for kind in kinds {
+            self.quest_happened(crate::plugins::quest::Happened {
+                kind,
+                name: name.to_owned(),
+                amount: 1,
+            })
+            .await?;
         }
         Ok(())
     }

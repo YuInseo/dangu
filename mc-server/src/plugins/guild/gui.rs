@@ -17,7 +17,6 @@
 use tokio::io::AsyncWrite;
 
 use super::beacon::{self, Effect};
-use super::quest::Quest;
 use super::{Actor, Guild, GuildEvent, Perm, Role, Upgrade, guilds};
 use crate::data::menu;
 use crate::packets::container as pc;
@@ -45,7 +44,11 @@ pub enum Page {
     },
     Upgrades,
     Beacon,
-    Quests,
+    /// 길드 청크 지도: 가운데 청크, 촉진제 쓰기 모드인가.
+    Map {
+        center: (i32, i32),
+        boost: bool,
+    },
     Events,
     Settings,
     Members {
@@ -91,7 +94,8 @@ impl Page {
             Page::SellLand { .. } => "땅을 팔까요?",
             Page::Upgrades => "길드 업그레이드",
             Page::Beacon => "길드 신호기",
-            Page::Quests => "길드 퀘스트",
+            Page::Map { boost: false, .. } => "길드 청크 지도",
+            Page::Map { boost: true, .. } => "촉진제를 쓸 청크를 고르세요",
             Page::Events => "길드 2배 이벤트",
             Page::Settings => "길드 설정",
             Page::Members { .. } => "길드원 관리",
@@ -135,11 +139,19 @@ const M_SHOP: usize = 34;
 const M_SPAWN: usize = 48;
 const M_LEAVE: usize = 50;
 
-const UPGRADE_SLOTS: [usize; 4] = [19, 21, 23, 25];
+const UPGRADE_SLOTS: [usize; 3] = [20, 22, 24];
+const M_MAP: usize = 28;
+// 지도 아래 줄
+pub(super) const MAP_WEST: usize = 47;
+pub(super) const MAP_NORTH: usize = 48;
+pub(super) const MAP_HERE: usize = 49;
+pub(super) const MAP_SOUTH: usize = 50;
+pub(super) const MAP_EAST: usize = 51;
+pub(super) const MAP_INFO: usize = 53;
+/// 촉진제 아이템.
+pub const BOOSTER: &str = "dangu:crop_booster";
 const U_BEACON: usize = 40;
 const BEACON_SLOTS: [usize; 9] = [10, 11, 12, 13, 14, 15, 16, 21, 23];
-const DAILY_SLOTS: [usize; 3] = [11, 13, 15];
-const WEEKLY_SLOTS: [usize; 2] = [30, 32];
 const EVENT_SLOTS: [usize; 2] = [20, 24];
 const S_DESC: usize = 19;
 const S_ENTER: usize = 20;
@@ -152,17 +164,6 @@ const MEMBER_KICK: usize = 11;
 const MEMBER_OFFICER: usize = 13;
 const MEMBER_LEADER: usize = 15;
 const MEMBER_BACK: usize = 22;
-
-fn bar(progress: u32, target: u32) -> String {
-    let filled = (progress as usize * 10)
-        .checked_div(target as usize)
-        .unwrap_or(0);
-    format!(
-        "{}{} {progress}/{target}",
-        "▮".repeat(filled.min(10)),
-        "▯".repeat(10 - filled.min(10))
-    )
-}
 
 fn when(t: i64) -> String {
     let kst = t + 9 * 3600;
@@ -229,10 +230,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         let me = self.profile.uuid;
         let now = super::now();
         let (guild, browse) = guilds().read(|d| {
-            let mut g = d.of(me).cloned();
-            if let Some(g) = &mut g {
-                g.quests.refresh(now);
-            }
+            let g = d.of(me).cloned();
             let list: Vec<Guild> = d.guilds.iter().filter(|g| !g.private).cloned().collect();
             (g, list)
         });
@@ -283,7 +281,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 "yellow",
                 vec![
                     "/길드 만들기 <이름>".into(),
-                    format!("값  {}", won(super::CREATE_COST)),
+                    format!("값  {}", won(super::config::with(|c| c.create_cost))),
                 ],
                 false,
             );
@@ -308,12 +306,23 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     &g.name,
                     "gold",
                     vec![
-                        format!("레벨  {}  ({cur}/{need})", g.level()),
+                        if need > 0 {
+                            format!("레벨  {}  ({cur}/{need})", g.level())
+                        } else {
+                            format!("레벨  {} (최고)", g.level())
+                        },
                         format!("길드장  {}", g.leader().name),
                         format!("인원  {}/{}", g.members.len(), g.max_members()),
                         format!("전투력  {}", crate::plugins::hud::number(g.power())),
                         format!("GP  {}", crate::plugins::hud::number(g.gp)),
                         format!("내 역할  {}", role.name()),
+                        {
+                            let l = g.level_row();
+                            format!(
+                                "레벨 효과: 직업 경험치 +{}% · 광석 덤 +{}%p · 신호기 {}칸",
+                                l.job_xp_bonus, l.rare_bonus, l.beacon_slots
+                            )
+                        },
                         if g.description.is_empty() {
                             "(설명 없음)".into()
                         } else {
@@ -323,7 +332,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     true,
                 );
                 let pages = g.storage_pages();
-                let entries: [(usize, &str, &str, Vec<String>); 12] = [
+                let entries: Vec<(usize, &str, &str, Vec<String>)> = vec![
                     (
                         M_STORAGE,
                         "chest",
@@ -343,7 +352,12 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         "신호기",
                         vec![format!("효과 {}개", g.beacon.len())],
                     ),
-                    (M_QUESTS, "writable_book", "퀘스트 (일일·주간)", Vec::new()),
+                    (
+                        M_QUESTS,
+                        "writable_book",
+                        "길드 주간 퀘스트",
+                        vec!["/퀘스트 창의 길드 탭".into()],
+                    ),
                     (
                         M_EVENTS,
                         "firework_rocket",
@@ -375,6 +389,15 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     ),
                     (M_LOG, "book", "창고 기록", Vec::new()),
                     (M_ROLES, "name_tag", "역할 관리", vec!["길드장만".into()]),
+                    (
+                        M_MAP,
+                        "filled_map",
+                        "길드 청크 지도",
+                        vec![
+                            "청크마다 작물 성장 단계".into(),
+                            "작물 성장 촉진제를 여기서 씀".into(),
+                        ],
+                    ),
                 ];
                 for (slot, item, name, lore) in entries {
                     slots[slot] = self.icon(slot, item, name, "yellow", lore, false);
@@ -469,7 +492,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 }
                 paged(&mut slots, *page, g.lands.len());
                 let mut lore = vec![
-                    format!("값  {}", won(super::land::PRICE)),
+                    format!("값  {}", won(super::land::price())),
                     format!("{}/{}청크", g.lands.len(), g.max_lands()),
                     "처음이 아니면 길드 땅에 붙어 있어야 함".into(),
                 ];
@@ -520,7 +543,6 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         Upgrade::Land => "grass_block",
                         Upgrade::Members => "player_head",
                         Upgrade::Storage => "chest",
-                        Upgrade::Growth => "wheat",
                     };
                     slots[slot] = self.icon(slot, item, u.name(), "yellow", lore, false);
                 }
@@ -585,44 +607,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 );
                 back(&mut slots);
             }
-            Page::Quests => {
-                let show = |q: &Quest, slot: usize, label: &str| {
-                    let lore = vec![
-                        bar(q.progress, q.target),
-                        format!("보상  GP {}", q.reward),
-                        if q.done {
-                            "완료!".into()
-                        } else {
-                            "길드원 모두가 함께 채움".into()
-                        },
-                    ];
-                    let item = if q.done { "lime_dye" } else { q.kind.icon() };
-                    self.icon(
-                        slot,
-                        item,
-                        &format!("{label}: {}", q.kind.name()),
-                        if q.done { "green" } else { "yellow" },
-                        lore,
-                        q.done,
-                    )
-                };
-                for (q, slot) in g.quests.daily.iter().zip(DAILY_SLOTS) {
-                    slots[slot] = show(q, slot, "일일");
-                }
-                for (q, slot) in g.quests.weekly.iter().zip(WEEKLY_SLOTS) {
-                    slots[slot] = show(q, slot, "주간");
-                }
-                slots[4] = self.icon(
-                    4,
-                    "clock",
-                    "퀘스트",
-                    "white",
-                    vec![
-                        "일일: 매일 0시 (한국 시각)".into(),
-                        "주간: 월요일 0시".into(),
-                    ],
-                    false,
-                );
+            Page::Map { center, boost } => {
+                self.map_slots(&mut slots, &g, *center, *boost);
                 back(&mut slots);
             }
             Page::Events => {
@@ -633,7 +619,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         vec![format!("진행 중 — {}까지", when(g.events[i]))]
                     } else {
                         vec![
-                            format!("1시간, GP {}", GuildEvent::COST_GP),
+                            format!("1시간, GP {}", GuildEvent::cost_gp()),
                             format!("지금 GP  {}", g.gp),
                         ]
                     };
@@ -760,7 +746,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 gray_unless(can(Perm::Kick), &mut lore);
                 slots[MEMBER_KICK] = self.icon(MEMBER_KICK, "tnt", "강퇴", "red", lore, false);
                 let officer = m.role == Role::Officer;
-                let mut lore = vec![format!("부길드장은 {}명까지", super::MAX_OFFICERS)];
+                let mut lore = vec![format!("부길드장은 {}명까지", super::max_officers())];
                 gray_unless(leader, &mut lore);
                 slots[MEMBER_OFFICER] = self.icon(
                     MEMBER_OFFICER,
@@ -976,7 +962,21 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 M_LANDS => self.open_guild(Page::Lands { page: 0 }).await?,
                 M_UPGRADES => self.open_guild(Page::Upgrades).await?,
                 M_BEACON => self.open_guild(Page::Beacon).await?,
-                M_QUESTS => self.open_guild(Page::Quests).await?,
+                M_QUESTS => {
+                    self.open_quests(crate::plugins::quest::gui::Page {
+                        tab: crate::plugins::quest::Kind::Guild,
+                        page: 0,
+                    })
+                    .await?
+                }
+                M_MAP => {
+                    let center = super::land::chunk_of(self.position.0, self.position.2);
+                    self.open_guild(Page::Map {
+                        center,
+                        boost: false,
+                    })
+                    .await?
+                }
                 M_EVENTS => self.open_guild(Page::Events).await?,
                 M_SETTINGS => self.open_guild(Page::Settings).await?,
                 M_MEMBERS => self.open_guild(Page::Members { page: 0 }).await?,
@@ -1248,7 +1248,10 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 NO => self.open_guild(Page::Main).await?,
                 _ => {}
             },
-            Page::Quests | Page::Log { .. } => {}
+            Page::Map { center, boost } => {
+                self.map_click(center, boost, slot, shift, right).await?
+            }
+            Page::Log { .. } => {}
         }
         Ok(())
     }
@@ -1380,8 +1383,6 @@ mod tests {
 
     #[test]
     fn helpers() {
-        assert_eq!(bar(5, 10), "▮▮▮▮▮▯▯▯▯▯ 5/10");
-        assert_eq!(bar(0, 0), "▯▯▯▯▯▯▯▯▯▯ 0/0");
         // 2026-10-22 14:00 KST
         assert_eq!(when(1_792_645_200), "10/22 14:00");
         for p in [Page::Main, Page::Leave, Page::Roles { officer: true }] {
@@ -1390,10 +1391,10 @@ mod tests {
         // 버튼 칸이 겹치지 않음
         let mut main = vec![
             M_INFO, M_STORAGE, M_LANDS, M_UPGRADES, M_BEACON, M_QUESTS, M_EVENTS, M_SETTINGS,
-            M_MEMBERS, M_REQUESTS, M_VISITORS, M_LOG, M_ROLES, M_SHOP, M_SPAWN, M_LEAVE,
+            M_MEMBERS, M_REQUESTS, M_VISITORS, M_LOG, M_ROLES, M_SHOP, M_SPAWN, M_LEAVE, M_MAP,
         ];
         main.sort_unstable();
         main.dedup();
-        assert_eq!(main.len(), 16);
+        assert_eq!(main.len(), 17);
     }
 }

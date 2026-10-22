@@ -414,6 +414,10 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             && mob.dimension == self.dimension
             && crate::game::entities::dist2(mob.pos, self.position) <= reach * reach
         {
+            let mob_name = match &mob.kind {
+                crate::game::entities::Kind::Mob(m) => m.kind.name(),
+                _ => "",
+            };
             let killed = mobs::damage(
                 self.server,
                 target,
@@ -423,7 +427,12 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             );
             self.vitals.exhaust(0.1);
             if killed {
-                self.guild_mob_killed().await?;
+                self.quest_happened(crate::plugins::quest::Happened {
+                    kind: "kill",
+                    name: mob_name.to_owned(),
+                    amount: 1,
+                })
+                .await?;
             }
         }
         Ok(())
@@ -440,7 +449,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             &pw::encode_block_changed_ack(sequence),
         )
         .await?;
-        if self.use_ability(off_hand).await? {
+        if self.use_ability(off_hand).await? || self.try_booster(off_hand).await? {
             return Ok(());
         }
         let item = if off_hand {

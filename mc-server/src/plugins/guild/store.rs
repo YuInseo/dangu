@@ -1,15 +1,13 @@
 //! 길드 저장: JSON 파일 하나 (`MC_GUILDS`, 기본 `world/guilds.json`).
 //!
-//! 한 프로세스 안의 인스턴스들은 같은 [`Guilds`]를 씁니다. 담비처럼 프로세스가 여럿이면 같은 파일을
-//! 함께 쓰므로, 고칠 때는 잠금 파일(`guilds.json.lock`)을 잡고 → 파일이 바뀌었으면 다시 읽고 →
-//! 고치고 → 임시 파일에 쓴 뒤 바꿔치기 합니다. 읽을 때는 0.5초에 한 번만 파일 시각을 봅니다.
+//! 여러 인스턴스·프로세스가 같이 쓰는 방식은 [`crate::plugins::store`].
 
-use std::path::{Path, PathBuf};
-use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, Instant, SystemTime};
+use std::path::PathBuf;
+use std::sync::OnceLock;
 
 use super::*;
-use crate::json::{self, Json};
+use crate::json::Json;
+use crate::plugins::store::JsonFile;
 
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Data {
@@ -17,145 +15,19 @@ pub struct Data {
     pub guilds: Vec<Guild>,
 }
 
-pub struct Guilds {
-    path: Option<PathBuf>,
-    state: Mutex<State>,
-}
-
-struct State {
-    data: Data,
-    mtime: Option<SystemTime>,
-    checked: Option<Instant>,
-}
-
-const RECHECK: Duration = Duration::from_millis(500);
+/// 길드 목록 파일.
+pub type Guilds = JsonFile<Data>;
 
 static GLOBAL: OnceLock<Guilds> = OnceLock::new();
 
 /// 모든 인스턴스가 함께 쓰는 길드 목록. [`open_global`]을 먼저 부르지 않았으면 메모리에만.
 pub fn guilds() -> &'static Guilds {
-    GLOBAL.get_or_init(Guilds::in_memory)
+    GLOBAL.get_or_init(|| JsonFile::in_memory(encode, decode))
 }
 
 /// 서버를 켤 때 한 번: 파일에 저장하는 길드 목록으로.
 pub fn open_global(path: PathBuf) {
-    let _ = GLOBAL.set(Guilds::open(path));
-}
-
-impl Guilds {
-    pub fn in_memory() -> Self {
-        Self {
-            path: None,
-            state: Mutex::new(State {
-                data: Data::default(),
-                mtime: None,
-                checked: None,
-            }),
-        }
-    }
-
-    pub fn open(path: PathBuf) -> Self {
-        let g = Self {
-            path: Some(path),
-            state: Mutex::new(State {
-                data: Data::default(),
-                mtime: None,
-                checked: None,
-            }),
-        };
-        g.refresh(&mut g.state.lock().unwrap(), true);
-        g
-    }
-
-    fn mtime(path: &Path) -> Option<SystemTime> {
-        std::fs::metadata(path).and_then(|m| m.modified()).ok()
-    }
-
-    /// 파일이 바뀌었으면 다시 읽습니다.
-    fn refresh(&self, s: &mut State, force: bool) {
-        let Some(path) = &self.path else { return };
-        if !force && s.checked.is_some_and(|t| t.elapsed() < RECHECK) {
-            return;
-        }
-        s.checked = Some(Instant::now());
-        let m = Self::mtime(path);
-        if m.is_some() && m != s.mtime {
-            if let Some(d) = std::fs::read_to_string(path)
-                .ok()
-                .and_then(|t| json::parse(&t).ok())
-                .and_then(|j| decode(&j))
-            {
-                s.data = d;
-            }
-            s.mtime = m;
-        }
-    }
-
-    pub fn read<R>(&self, f: impl FnOnce(&Data) -> R) -> R {
-        let mut s = self.state.lock().unwrap();
-        self.refresh(&mut s, false);
-        f(&s.data)
-    }
-
-    /// 고치고 저장합니다. 다른 프로세스와 겹치지 않게 잠금 파일을 잡습니다.
-    pub fn write<R>(&self, f: impl FnOnce(&mut Data) -> R) -> R {
-        let mut s = self.state.lock().unwrap();
-        let _lock = self.path.as_deref().map(FileLock::take);
-        self.refresh(&mut s, true);
-        let before = s.data.clone();
-        let r = f(&mut s.data);
-        if s.data != before
-            && let Some(path) = &self.path
-        {
-            let dir = path.parent().unwrap_or(Path::new("."));
-            let name = path.file_name().unwrap().to_string_lossy().into_owned();
-            let text = encode(&s.data).pretty();
-            if crate::game::playerdata::write_atomically(dir, &name, text.as_bytes()).is_ok() {
-                s.mtime = Self::mtime(path);
-            }
-        }
-        r
-    }
-}
-
-/// `<파일>.lock`을 만들어 잡고, 놓을 때 지웁니다. 30초 넘게 남은 것은 죽은 프로세스의 것으로 봅니다.
-struct FileLock(PathBuf);
-
-impl FileLock {
-    fn take(path: &Path) -> FileLock {
-        let lock = path.with_extension("json.lock");
-        if let Some(d) = lock.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        for _ in 0..400 {
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&lock)
-            {
-                Ok(_) => return FileLock(lock),
-                Err(_) => {
-                    let stale = std::fs::metadata(&lock)
-                        .and_then(|m| m.modified())
-                        .ok()
-                        .and_then(|t| t.elapsed().ok())
-                        .is_some_and(|age| age > Duration::from_secs(30));
-                    if stale {
-                        let _ = std::fs::remove_file(&lock);
-                    } else {
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                }
-            }
-        }
-        FileLock(lock)
-    }
-}
-
-impl Drop for FileLock {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.0);
-    }
+    let _ = GLOBAL.set(JsonFile::open(path, encode, decode));
 }
 
 // ---- JSON ----
@@ -278,6 +150,7 @@ pub fn encode(d: &Data) -> Json {
                                     ("cz", n(l.chunk.1 as f64)),
                                     ("bought", n(l.bought as f64)),
                                     ("paid", n(l.paid as f64)),
+                                    ("crop_level", n(l.crop_level as f64)),
                                 ])
                             })
                             .collect(),
@@ -363,7 +236,6 @@ pub fn encode(d: &Data) -> Json {
                     "events",
                     Json::Array(g.events.iter().map(|&e| n(e as f64)).collect()),
                 ),
-                ("quests", g.quests.to_json()),
             ];
             if let Some(sp) = &g.spawn {
                 f.push(("spawn", spot_json(sp)));
@@ -415,8 +287,8 @@ pub fn decode(j: &Json) -> Option<Data> {
         if members.is_empty() {
             continue;
         }
-        let mut upgrades = [0u8; 4];
-        for (i, u) in arr(&g, "upgrades").iter().take(4).enumerate() {
+        let mut upgrades = [0u8; 3];
+        for (i, u) in arr(&g, "upgrades").iter().take(3).enumerate() {
             upgrades[i] = u.as_f64().unwrap_or(0.0) as u8;
         }
         let mut events = [0i64; 2];
@@ -444,6 +316,7 @@ pub fn decode(j: &Json) -> Option<Data> {
                         chunk: (num(l, "cx") as i32, num(l, "cz") as i32),
                         bought: num(l, "bought") as i64,
                         paid: num(l, "paid") as i64,
+                        crop_level: num(l, "crop_level") as u8,
                     })
                 })
                 .collect(),
@@ -497,10 +370,6 @@ pub fn decode(j: &Json) -> Option<Data> {
             officer_perms: num(&g, "officer_perms") as u32,
             member_perms: num(&g, "member_perms") as u32,
             events,
-            quests: g
-                .get("quests")
-                .map(quest::Board::from_json)
-                .unwrap_or_default(),
         };
         guild.fit_storage();
         d.guilds.push(guild);
@@ -517,8 +386,8 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dangu-guilds-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("guilds.json");
-        let a = Guilds::open(path.clone());
-        let b = Guilds::open(path.clone());
+        let a = Guilds::open(path.clone(), encode, decode);
+        let b = Guilds::open(path.clone(), encode, decode);
         let alice = Actor {
             uuid: 7,
             name: "Alice".into(),
@@ -533,6 +402,7 @@ mod tests {
                 chunk: (3, -2),
                 bought: 1,
                 paid: 10_000,
+                crop_level: 2,
             });
             g.spawn = Some(Spot {
                 instance: "main".into(),
@@ -542,7 +412,7 @@ mod tests {
         });
         // 다른 프로세스(= 다른 Guilds)가 고치면 a도 다시 읽음
         b.write(|d| d.add_gp(1, Some(7), 1500));
-        std::thread::sleep(RECHECK + Duration::from_millis(50));
+        std::thread::sleep(std::time::Duration::from_millis(600));
         let back = a.read(|d| d.clone());
         let g = &back.guilds[0];
         assert_eq!(g.name, "달빛");
@@ -551,7 +421,7 @@ mod tests {
         assert_eq!(g.lands[0].chunk, (3, -2));
         assert_eq!(g.spawn.as_ref().unwrap().dimension, Dimension::Nether);
         assert_eq!(decode(&encode(&back)).unwrap(), back);
-        assert!(!path.with_extension("json.lock").exists());
+        assert_eq!(g.lands[0].crop_level, 2);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
