@@ -79,6 +79,8 @@ pub struct CustomItem {
     pub ability: Option<Ability>,
     /// 능력 재사용 대기 (초).
     pub cooldown: f32,
+    /// 능력을 쓸 때 드는 마나 ([`crate::plugins::rpg`]). 0이면 공짜.
+    pub mana_cost: f32,
     /// 사용자 정의 모델 번호 (`custom_model_data`의 첫 실수). 바닐라 모양 정의가 이 번호로
     /// 우리 모델을 고릅니다 (ItemsAdder의 `model_id`).
     pub custom_model_data: Option<f32>,
@@ -284,6 +286,7 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: Some(4.0),
             ability: Some(Ability::Lightning),
             cooldown: 2.0,
+            mana_cost: 20.0,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -300,6 +303,7 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: None,
             ability: Some(Ability::Blink),
             cooldown: 1.0,
+            mana_cost: 10.0,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -316,6 +320,7 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: None,
             ability: Some(Ability::Leap),
             cooldown: 1.5,
+            mana_cost: 15.0,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -332,6 +337,7 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: None,
             ability: Some(Ability::Heal),
             cooldown: 10.0,
+            mana_cost: 30.0,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -348,6 +354,7 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: Some(12.0),
             ability: None,
             cooldown: 0.0,
+            mana_cost: 0.0,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -438,6 +445,7 @@ fn parse_def(v: &Json) -> Result<CustomItem, String> {
         damage: num("damage").map(|n| n as f32),
         ability,
         cooldown: num("cooldown").unwrap_or(0.0) as f32,
+        mana_cost: num("mana_cost").or_else(|| num("mana")).unwrap_or(0.0) as f32,
         custom_model_data: num("custom_model_data").map(|n| n as f32),
         extra: Vec::new(),
         id,
@@ -490,6 +498,9 @@ pub fn to_json(defs: &[CustomItem]) -> String {
             if let Some(a) = d.ability {
                 f.push(("ability".into(), Json::String(a.name().into())));
                 f.push(("cooldown".into(), Json::Number(d.cooldown as f64)));
+                if d.mana_cost > 0.0 {
+                    f.push(("mana_cost".into(), Json::Number(d.mana_cost as f64)));
+                }
             }
             Json::Object(f)
         })

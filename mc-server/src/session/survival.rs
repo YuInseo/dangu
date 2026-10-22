@@ -343,6 +343,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             return Ok(());
         }
         self.vitals = Vitals::default();
+        self.mana.current = self.mana.max;
         let from = self.dimension;
         self.dimension = Dimension::Overworld;
         self.server.update_player(self.profile.uuid, |s| {

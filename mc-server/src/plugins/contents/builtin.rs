@@ -4,5 +4,9 @@
 use super::source::Pack;
 
 pub fn packs() -> Vec<Pack> {
-    vec![crate::plugins::lottery::art::pack()]
+    let mut packs = vec![crate::plugins::lottery::art::pack()];
+    if crate::plugins::hud::enabled() {
+        packs.push(crate::plugins::hud::art::pack());
+    }
+    packs
 }

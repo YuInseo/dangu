@@ -148,7 +148,7 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "instance", STRING, WORD, true);
         }
-        "ia" | "iaimage" | "iareload" => {
+        "ia" | "iaimage" | "iareload" | "hud" => {
             t.literal(ROOT, name, true);
         }
         "iaget" => {
@@ -233,6 +233,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 .await?),
             "npc" => self.npc_command(&args).await,
             "채널" => self.channel_command(&args).await,
+            "hud" => self.hud_command().await,
             "ia" | "iaget" | "iaimage" => self.ia_command(spec.name, &args).await,
             "재화" => self.money_command(&args).await,
             "locate" => self.locate(&args).await,

@@ -5,11 +5,13 @@ use super::play::GameMode;
 use crate::protocol::DecodeError;
 use crate::protocol::nbt::Tag;
 use crate::protocol::types::{
-    read_bool, read_i64, read_string, read_uuid, write_bool, write_i32, write_i64, write_string,
+    read_bool, read_i64, read_string, read_uuid, write_bool, write_f32, write_i32, write_i64,
+    write_string, write_uuid,
 };
 use crate::protocol::varint::{read_varint, write_varint};
 use crate::text::to_nbt;
 
+pub const BOSS_EVENT_ID: i32 = 0x09;
 pub const CHANGE_DIFFICULTY_ID: i32 = 0x0A;
 pub const CLEAR_TITLES_ID: i32 = 0x0E;
 pub const COMMAND_SUGGESTIONS_ID: i32 = 0x0F;
@@ -37,6 +39,46 @@ pub fn encode_difficulty(difficulty: u8, locked: bool) -> Vec<u8> {
     let mut out = Vec::new();
     write_varint(&mut out, difficulty as i32);
     write_bool(&mut out, locked);
+    out
+}
+
+/// 보스바 색 (`BossEvent.BossBarColor` 순서).
+#[derive(Debug, Clone, Copy)]
+pub enum BossColor {
+    Pink = 0,
+    Blue = 1,
+    Red = 2,
+    Green = 3,
+    Yellow = 4,
+    Purple = 5,
+    White = 6,
+}
+
+/// 보스바 띄우기: 제목, 채운 정도(0..1), 색, 칸 나눔 없음, 하늘 어둡게 등 없음.
+pub fn encode_boss_add(uuid: u128, title: &Tag, progress: f32, color: BossColor) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_uuid(&mut out, uuid);
+    write_varint(&mut out, 0);
+    out.extend_from_slice(&to_nbt(title));
+    write_f32(&mut out, progress);
+    write_varint(&mut out, color as i32);
+    write_varint(&mut out, 0);
+    out.push(0);
+    out
+}
+
+pub fn encode_boss_remove(uuid: u128) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_uuid(&mut out, uuid);
+    write_varint(&mut out, 1);
+    out
+}
+
+pub fn encode_boss_title(uuid: u128, title: &Tag) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_uuid(&mut out, uuid);
+    write_varint(&mut out, 3);
+    out.extend_from_slice(&to_nbt(title));
     out
 }
 

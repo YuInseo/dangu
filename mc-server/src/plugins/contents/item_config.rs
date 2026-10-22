@@ -166,6 +166,7 @@ pub(super) fn read_item(
         damage,
         ability: None,
         cooldown: 0.0,
+        mana_cost: 0.0,
         custom_model_data: model_id.map(|n| n as f32),
         extra: Vec::new(),
     };

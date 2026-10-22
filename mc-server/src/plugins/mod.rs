@@ -11,10 +11,14 @@
 //! | [`contents`] | ItemsAdder 호환 콘텐츠: 설정·그림 → 아이템·블록·이모지·리소스 팩, `/ia` 목록 |
 //! | [`lottery`]  | 채널별 주간 복권: 번호 고르기 창, 일련번호 복권, 추첨·당첨금 |
 //! | [`guild`]    | 길드 |
+//! | [`hud`]      | 화면 HUD: 오른쪽 위 재화, 오른쪽 아래 스탯, 핫바 위 체력바 (폰트 + 셰이더) |
 //! | [`npc`]      | Citizens 비슷한 NPC: `/npc`, 스킨, 말·명령·동작 |
+//! | [`rpg`]      | RPG 스탯 계산 (레벨·공격력·방어력·전투력) |
 
 pub mod chat;
 pub mod contents;
 pub mod guild;
+pub mod hud;
 pub mod lottery;
 pub mod npc;
+pub mod rpg;

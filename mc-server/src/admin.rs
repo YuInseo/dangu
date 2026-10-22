@@ -251,6 +251,12 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/채널 [전체|채널|주변|거래|길드|관리자] | 끄기|켜기 <이름> — 채팅 채널 (앞에 ! $ @ # ~ 를 붙이면 한 번만)",
     },
     Spec {
+        name: "hud",
+        aliases: &["허드"],
+        level: 0,
+        usage: "/hud — 오른쪽 재화·스탯 판 끄기/켜기",
+    },
+    Spec {
         name: "복권",
         aliases: &["lottery", "로또"],
         level: 0,

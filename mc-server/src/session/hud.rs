@@ -36,6 +36,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     pub(crate) async fn action_bar(&mut self, message: &Tag) -> std::io::Result<()> {
+        self.hud.pause_action_bar();
         self.send(hud::SET_ACTION_BAR_TEXT_ID, &hud::encode_text(message))
             .await
     }

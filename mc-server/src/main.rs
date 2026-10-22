@@ -18,6 +18,8 @@ async fn main() -> std::io::Result<()> {
     // 인자 없음: 혼자 도는 서버 (한 프로세스 안의 인스턴스들).
     let master = std::env::args().nth(1).as_deref() == Some("master");
     // ItemsAdder식 콘텐츠 (MC_CONTENTS, 기본 ./contents): 아이템·블록·이모지 + 리소스 팩
+    // HUD 그림·셰이더를 팩에 넣을지 (콘텐츠를 읽기 전에 정해야 함)
+    mc_server::plugins::hud::set_enabled(env_flag("MC_HUD", true));
     let loaded = mc_server::plugins::contents::reload();
     if !loaded.items.is_empty() || !loaded.errors.is_empty() {
         for l in mc_server::plugins::contents::summary(&loaded) {

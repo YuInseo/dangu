@@ -34,6 +34,8 @@ mod view;
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
 /// 체력·배고픔·환경 피해를 보는 간격.
 const SURVIVAL_TICK: Duration = Duration::from_millis(250);
+/// HUD(재화·스탯·체력바)를 다시 그리는 간격.
+const HUD_TICK: Duration = Duration::from_secs(1);
 /// 이 시간 안에 keep-alive 응답이 없으면 끊습니다 (바닐라와 같은 30초).
 const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(30);
 /// 클라이언트가 더 멀리 보겠다고 해도 이만큼만 보냅니다.
@@ -116,9 +118,11 @@ where
         let mut keep_alive = tokio::time::interval(KEEP_ALIVE_INTERVAL);
         keep_alive.tick().await; // 첫 tick은 즉시 오므로 버립니다
         let mut survival = tokio::time::interval(SURVIVAL_TICK);
+        let mut hud = tokio::time::interval(HUD_TICK);
         while session.transfer.is_none() {
             tokio::select! {
                 _ = survival.tick() => session.survival_tick().await?,
+                _ = hud.tick() => session.hud_tick().await?,
                 packet = rx.recv() => match packet {
                     Some(Ok(packet)) => session.handle(packet).await?,
                     Some(Err(e)) => return Err(e),
@@ -240,6 +244,10 @@ pub(crate) struct Session<'a, W> {
     pub(crate) transfer: Option<Arc<Server>>,
     /// 차원문 안에 서 있은 틱.
     pub(crate) portal_ticks: u32,
+    /// 화면 HUD (재화·스탯·체력바).
+    pub(crate) hud: crate::plugins::hud::HudState,
+    /// RPG 마나 (능력 아이템이 씀).
+    pub(crate) mana: crate::plugins::rpg::Mana,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
@@ -294,6 +302,8 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             previous_gamemode: None,
             transfer: None,
             portal_ticks: 0,
+            hud: Default::default(),
+            mana: Default::default(),
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,

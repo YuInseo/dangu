@@ -270,6 +270,12 @@ mod tests {
             "assets/dangu/models/item/lottery_ticket.json",
             "assets/dangu/textures/item/lottery_ticket.png",
             "assets/dangu/textures/item/lottery_ticket_back.png",
+            // HUD: 줄 폰트, 그림판, 셰이더, 숨긴 하트
+            "assets/dangu/font/hud/top0.json",
+            "assets/dangu/font/hud/mp.json",
+            "assets/dangu/textures/font/hud/bar_mp.png",
+            "assets/minecraft/shaders/core/text.vsh",
+            "assets/minecraft/textures/gui/sprites/hud/heart/full.png",
         ] {
             assert!(text.contains(name), "{name}");
         }

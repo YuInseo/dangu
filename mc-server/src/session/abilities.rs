@@ -74,6 +74,16 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if self.ability_ready.get(&def.id).is_some_and(|&t| now < t) {
             return Ok(true); // 재사용 대기 중 (아이템 기본 동작도 막음)
         }
+        let free = self.gamemode == crate::packets::play::GameMode::Creative;
+        if !free && def.mana_cost > 0.0 && !self.mana.spend(def.mana_cost) {
+            let msg = format!(
+                "마나가 부족합니다 ({:.0} / {:.0})",
+                self.mana.current, def.mana_cost
+            );
+            self.action_bar(&crate::text::colored(&msg, "#7ac4ff"))
+                .await?;
+            return Ok(true);
+        }
         self.ability_ready
             .insert(def.id.clone(), now + Duration::from_secs_f32(def.cooldown));
         let ticks = (def.cooldown * 20.0) as i32;
