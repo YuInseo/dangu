@@ -5,6 +5,7 @@ pub mod auth;
 pub mod chat;
 pub mod connection;
 pub mod crypto;
+pub mod dambi;
 pub mod data;
 pub mod game;
 pub mod json;

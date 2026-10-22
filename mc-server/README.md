@@ -50,6 +50,53 @@ world/
 - `/server [이름]` 목록·이동 (권한 `dangu.server.<이름>`으로 막을 수 있음),
   `/instance list|create|remove|default` 실행 중에 만들고 내리기 (OP 4).
 
+## 담비 마스터 노드 (인스턴스마다 독립 프로세스)
+
+`mc-server master`는 **마스터 노드**(프록시 + 관리자 CLI)로 켜지고, 컨텐츠 월드(마을·야생·RPG
+…)마다 자기 실행 파일을 `child` 모드의 **독립된 OS 자식 프로세스**로 띄웁니다. 자식 하나 =
+인스턴스 하나 = 오버월드·네더·엔드 세 차원.
+
+```
+플레이어 ──▶ 마스터 :25565 ──(핸드셰이크·Login Start만 읽고 라우팅)──▶ 127.0.0.1:25601 마을
+              │  CLI (stdin)                                       ├──▶ 127.0.0.1:25602 야생
+              └─ IPC: 유닉스 소켓 dambi/master.sock, [u32 길이][JSON] ┴──▶ 127.0.0.1:25603 rpg
+```
+
+```bash
+DAMBI_HOME=dambi MC_BIND=0.0.0.0:25565 cargo run --release -- master
+> instance start rpg --ram 4G        # = 인스턴스 시작 rpg --램 4G
+> instance list                      # pid, 포트, 접속자, 램 사용/할당, cgroup 여부
+> move Steve rpg                     # = 이동 Steve rpg
+> money Steve give 1000 cash         # = 재화 Steve 지급 1000 캐시
+> broadcast 10분 뒤 점검              # = 공지 … (모든 인스턴스)
+> send rpg time set night            # 그 인스턴스 콘솔에서 실행
+> stop                               # 모두 저장하고 끔
+```
+
+- **라우팅**: 프록시는 핸드셰이크와 Login Start(이름)만 읽고 그 뒤로는 바이트를 그대로 잇습니다
+  (정품 인증·암호화·압축은 인스턴스가 직접). 진짜 IP는 핸드셰이크 주소 칸에
+  `주소\0IP`로 실어 넘기고, 자식은 127.0.0.1에서만 들으므로 위조할 수 없습니다. 서버 목록
+  핑은 마스터가 모든 인스턴스 접속자 합으로 답합니다.
+- **인스턴스 이동**: 바닐라 **Transfer 패킷**. 자식이 `TransferRequest`를 보내면 마스터가
+  "이 이름은 다음 접속 때 rpg로"라고 적어 두고, 자식이 클라이언트에게 Transfer(처음 접속한
+  주소)를 보냅니다. 다시 들어오면 프록시가 rpg 프로세스로 잇습니다. LocalData(차원·좌표·체력·
+  인벤토리)는 떠난 인스턴스의 플레이어 파일에 남고 새 인스턴스는 자기 것을 씁니다(Drop → Swap).
+- **SharedData**는 마스터만 고칩니다: 돈·캐시·잠수포인트, 누적 플레이 시간(접속~퇴장, 5초마다
+  정산), 생활 직업 레벨(필요 경험치 `3.0 × 레벨² + 300.0`, 전직 초기화 시 80% 환급). 마스터
+  메모리에 캐시하고 바뀐 것만 5초마다 `dambi/shared/<uuid>.json`에 씁니다.
+- **램 할당량**: cgroup v2를 쓸 수 있으면 `<cgroup>/dambi/<이름>/memory.max`로 커널이 막고,
+  언제나 `/proc/<pid>/status` RSS를 2초마다 봐서 90%면 경고, 3번 연속 넘으면 저장·종료 후
+  다시 켭니다. 비정상 종료(켠 지 30초 넘은 것)도 다시 켭니다.
+- **전역 버스**: 자식의 `dambi::child::publish(채널, 내용)` → 마스터 → 모든 인스턴스의
+  `subscribe(채널, …)`. `broadcast` 채널은 채팅 공지로 보입니다. 같은 JSON 메시지를 Redis 등
+  다른 버스로 옮겨 실을 수 있게 형식을 단순하게 두었습니다.
+- 게임 안 명령어: `/재화 [보내기 <이름> <양>]`, `/이동 [인스턴스]`. 마스터 없이 켠 서버에서도
+  `/재화`는 그 서버 안의 저장소(`world/shared/`)로, `/이동`은 프로세스 안 인스턴스로 동작합니다.
+- 설정: `dambi/dambi.json`(인스턴스 이름·포트·램·시드·모드·자동 시작). 처음 켜면 마을·야생·rpg.
+  월드는 `dambi/instances/<이름>/`.
+- 아직 없는 것: Wasm 플러그인 핫 리로딩(`wasmtime`), Redis 버스, 광부·강화 등 컨텐츠 로직은
+  이 뼈대 위에 올릴 다음 단계입니다 (의존성을 `tokio`로 묶어 두었기 때문).
+
 ## 되는 것
 
 **접속**
@@ -170,6 +217,8 @@ OP 단계는 권한 규칙이 없을 때의 기본값입니다 (`/perm`으로 �
 | `/kick`, `/ban`, `/pardon`, `/ban-ip`, `/pardon-ip`, `/whitelist …` | | 3 |
 | `/op <이름> [단계]`, `/deop`, `/perm …` | | 3 |
 | `/server [이름]` | 인스턴스 목록·이동 | 0 |
+| `/재화 [보내기 <이름> <양>]` (`/money`) | 돈·캐시·잠수포인트·플레이 시간·직업, 송금 | 0 |
+| `/이동 [인스턴스]` (`/move`) | 다른 인스턴스 프로세스로 (마스터 뒤에서) | 0 |
 | `/instance list\|create <이름> [시드] [모드] [난이도] [hardcore]\|remove\|default` | | 4 |
 | `/locate structure\|biome <이름>` | 가장 가까운 구조물·바이옴 | 2 |
 | `/save-all`, `/stop` | | 4 |
@@ -181,7 +230,10 @@ OP 단계는 권한 규칙이 없을 때의 기본값입니다 (`/perm`으로 �
 - **바닐라 지형 그대로는 아님**: 같은 시드라도 바닐라와 지형이 다릅니다(밀도 함수·직소 조각을
   옮기지 않음). 구조물 후보 위치만 바닐라와 같습니다. 
 - **살아 있는 월드**: 피스톤·비교기·관측기, 불 번짐, 빛 계산(블록빛), 날씨.
-- **몹**: 길찾기(A*) 없음(벽은 한 축으로만 비켜 감), 스켈레톤·크리퍼·주민 등 없음, 경험치.
+- **몹**: A* 길찾기, 좀비·허스크·스켈레톤·스트레이·위더 스켈레톤·크리퍼·거미·동굴 거미·좀벌레·
+  엔더맨·좀비 피글린·블레이즈·주민이 있고, 구조물 생성기에서 나오고, 마을엔 주민이 삽니다.
+  **팬텀은 없습니다.** 아직 없는 것: 주민 거래 화면(거래표·레벨 데이터는 있음), 소 젖 짜기·
+  양털 깎기 우클릭, 경험치 구슬, 물속 AI, 물약 효과.
 - **아이템**: 마법 부여·내구도, 갑옷 방어력, 도구 채굴 속도 검사.
 - **채팅**: 서명된 명령어 인자(`/msg`의 서명)는 확인하지 않음. 채팅 신고용 체인 검증은 최소.
 - **운영**: `server.properties` 파일 대신 환경 변수.
@@ -198,9 +250,12 @@ src/packets/             상태별 패킷 (ID와 형식)
 src/connection.rs        Handshake → Status | Login
 src/network.rs           인스턴스 목록과 이동
 src/session/             Login → Configuration → Play(→ 다른 인스턴스), 명령어, 건축, 서바이벌, 창, 채팅
-src/game/                엔티티 틱, 몹, 상자·플레이어 저장
+src/game/                엔티티 틱, 몹(mobs·path·projectiles·spawning·villagers), 상자·플레이어 저장
+src/dambi/               마스터 노드: master·proxy·cli·process(램)·ipc·shared·child
 src/world/               바이옴, 지형·동굴, 나무·풀·광석, 구조물(structure/), 청크 인코딩, 바뀐 블록
 tools/gen_worldgen.py    바닐라 구조물 묶음·바이옴 태그·전리품 표 → src/world/structure/data.rs
+tools/gen_trades.py      바닐라 26.3 주민 거래표 → src/data/trades.rs
+tools/gen_collision.py   충돌 모양 없는 블록 → src/data/collision.rs
 src/data/generated.rs    tools/gen_data.py가 만든 바닐라 데이터 (커밋됨)
 ```
 

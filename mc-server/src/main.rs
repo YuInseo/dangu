@@ -13,6 +13,14 @@ const AUTOSAVE_INTERVAL: Duration = Duration::from_secs(30);
 
 #[tokio::main]
 async fn main() -> std::io::Result<()> {
+    // `mc-server master`: 담비 마스터 노드 (프록시 + CLI, 인스턴스마다 자식 프로세스).
+    // `mc-server child`: 마스터가 띄우는 인스턴스 (DAMBI_IPC로 마스터에 붙음).
+    // 인자 없음: 혼자 도는 서버 (한 프로세스 안의 인스턴스들).
+    if std::env::args().nth(1).as_deref() == Some("master") {
+        mc_server::dambi::master::run().await?;
+        // CLI가 표준 입력을 막고(블로킹 스레드) 있어 런타임이 스스로 끝나지 않으므로
+        std::process::exit(0);
+    }
     let addr = std::env::var("MC_BIND").unwrap_or_else(|_| "0.0.0.0:25565".into());
     let seed = std::env::var("MC_SEED")
         .ok()
@@ -136,6 +144,12 @@ async fn main() -> std::io::Result<()> {
     }
 
     let listener = TcpListener::bind(&addr).await?;
+    if mc_server::dambi::child::active() {
+        let port = listener.local_addr()?.port();
+        mc_server::dambi::child::start(Arc::clone(&net), port).await?;
+    } else {
+        mc_server::dambi::child::init_local(Some(world_dir.join("shared")));
+    }
     println!(
         "{addr}에서 듣는 중 — Minecraft {VERSION_NAME} (프로토콜 {PROTOCOL_VERSION}), 시드 {seed}"
     );

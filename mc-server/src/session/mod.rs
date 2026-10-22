@@ -24,7 +24,12 @@ use crate::protocol::frame::FrameError;
 
 /// 버전 확인을 마친 접속 하나를 끝까지 처리합니다. 로그인은 기본 인스턴스에서 하고,
 /// Play가 다른 인스턴스로 옮기자고 하면 Configuration을 다시 거쳐 그쪽 Play로 들어갑니다.
-pub async fn run<S>(mut conn: Conn<S>, net: &Arc<Network>, ip: String) -> Result<(), FrameError>
+pub async fn run<S>(
+    mut conn: Conn<S>,
+    net: &Arc<Network>,
+    ip: String,
+    origin: (String, u16),
+) -> Result<(), FrameError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -33,6 +38,7 @@ where
         return Ok(());
     };
     let mut settings = ClientSettings::new(ip);
+    settings.origin = origin;
     loop {
         settings = match configuration::run(&mut conn, settings).await? {
             Some(s) => s,
@@ -71,6 +77,8 @@ pub struct ClientSettings {
     /// 0 왼손, 1 오른손.
     pub main_hand: i32,
     pub ip: String,
+    /// 클라이언트가 접속한 주소와 포트 (Transfer 패킷으로 다시 보낼 곳).
+    pub origin: (String, u16),
 }
 
 impl ClientSettings {
@@ -80,6 +88,7 @@ impl ClientSettings {
             skin_parts: 0x7F,
             main_hand: 1,
             ip,
+            origin: ("localhost".into(), 25565),
         }
     }
 }

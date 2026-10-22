@@ -144,9 +144,15 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
                 t.argument_ask_server(s, "name", STRING, WORD, true);
             }
         }
-        "server" => {
+        "server" | "이동" => {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "instance", STRING, WORD, true);
+        }
+        "재화" => {
+            let c = t.literal(ROOT, name, true);
+            let pay = t.literal(c, "보내기", false);
+            let target = t.argument(pay, "target", GAME_PROFILE, false);
+            t.argument_with(target, "amount", INTEGER, &[0], true);
         }
         "instance" => {
             let c = t.literal(ROOT, name, true);
@@ -191,6 +197,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
         match spec.name {
             "server" => self.server_command(args.first().copied()).await,
+            "이동" => self.move_command(args.first().copied()).await,
+            "재화" => self.money_command(&args).await,
             "locate" => self.locate(&args).await,
             "help" => {
                 for s in admin::COMMANDS
@@ -410,6 +418,96 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// `/server`: 목록 또는 이동.
+    /// `/이동`: 마스터 뒤라면 다른 프로세스로 (Transfer), 혼자라면 이 프로세스 안의 인스턴스로.
+    async fn move_command(&mut self, name: Option<&str>) -> Result<(), FrameError> {
+        use crate::dambi::child;
+        if !child::active() {
+            return self.server_command(name).await;
+        }
+        let here = child::instance_name().unwrap_or_default().to_owned();
+        let Some(name) = name else {
+            for (n, online) in child::instances() {
+                let me = n == here;
+                let line = format!("{n}{} — {online}명", if me { " (지금 여기)" } else { "" });
+                self.message(&text::colored(&line, if me { "green" } else { "gray" }))
+                    .await?;
+            }
+            return Ok(());
+        };
+        if name == here {
+            return self.error(&format!("이미 {name}에 있습니다.")).await;
+        }
+        let node = format!("dangu.server.{name}");
+        if !self.server.perms.has(self.profile.uuid, &node, 0) {
+            return self
+                .error(&format!("{name}에 들어갈 권한이 없습니다."))
+                .await;
+        }
+        if !child::request_transfer(self.profile.uuid, &self.profile.name, name) {
+            return self.error("마스터와 연결이 없습니다.").await;
+        }
+        Ok(())
+    }
+
+    /// `/재화`: SharedData (마스터가 들고 있어 인스턴스를 옮겨도 같음).
+    async fn money_command(&mut self, args: &[&str]) -> Result<(), FrameError> {
+        use crate::dambi::{child, shared};
+        let me = self.profile.uuid;
+        match args {
+            [] => {
+                let Some(d) = child::shared(me).await else {
+                    return self.error("재화 정보를 받지 못했습니다.").await;
+                };
+                let line = format!(
+                    "돈 {} · 캐시 {} · 잠수포인트 {} · 플레이 {}시간 {}분",
+                    d.money,
+                    d.cash,
+                    d.afk,
+                    d.playtime_secs / 3600,
+                    d.playtime_secs / 60 % 60
+                );
+                self.message(&text::colored(&line, "gold")).await?;
+                for j in &d.jobs {
+                    let line = format!(
+                        "  {} Lv.{} ({:.0}/{:.0})",
+                        j.name,
+                        j.level,
+                        j.xp,
+                        shared::xp_to_next(j.level)
+                    );
+                    self.message(&text::colored(&line, "yellow")).await?;
+                }
+                Ok(())
+            }
+            ["보내기" | "pay", target, amount] => {
+                let Ok(amount) = amount.parse::<i64>() else {
+                    return self.error(&format!("숫자가 아닙니다: {amount}")).await;
+                };
+                if amount <= 0 {
+                    return self.error("1 이상 보내야 합니다.").await;
+                }
+                let to_uuid = self.server.find_player(target).map(|p| p.uuid);
+                match child::pay(me, target, to_uuid, amount).await {
+                    Some((true, d)) => {
+                        self.server.publish(crate::server::Event::Whisper {
+                            to: to_uuid.unwrap_or(0),
+                            sender: self.profile.name.clone(),
+                            content: format!("돈 {amount}을(를) 보냈습니다"),
+                        });
+                        let line = format!("{target}님에게 {amount} 보냄 (남은 돈 {})", d.money);
+                        Ok(self.message(&text::colored(&line, "gold")).await?)
+                    }
+                    Some((false, _)) => {
+                        self.error("보내지 못했습니다 (잔액 부족이거나 접속해 있지 않음).")
+                            .await
+                    }
+                    None => self.error("마스터가 답하지 않습니다.").await,
+                }
+            }
+            _ => self.error("/재화 [보내기 <플레이어> <양>]").await,
+        }
+    }
+
     async fn server_command(&mut self, name: Option<&str>) -> Result<(), FrameError> {
         let Some(net) = self.server.network() else {
             return self.error("다른 인스턴스가 없습니다.").await;

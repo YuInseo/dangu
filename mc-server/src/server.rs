@@ -161,6 +161,11 @@ pub enum Event {
         dimension: Dimension,
         ids: Vec<i32>,
     },
+    /// 이 사람을 다른 인스턴스 프로세스로 보냄 (Transfer 패킷 → 마스터로 다시 접속).
+    TransferOut {
+        uuid: u128,
+        to: String,
+    },
     /// 몹 모습이 바뀜 (불붙음, 크리퍼 부풂, 털 깎임, 주민 직업·레벨).
     EntityData {
         dimension: Dimension,

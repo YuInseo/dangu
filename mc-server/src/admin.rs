@@ -208,6 +208,18 @@ pub const COMMANDS: &[Spec] = &[
         level: 4,
         usage: "/stop — 저장하고 끄기",
     },
+    Spec {
+        name: "재화",
+        aliases: &["money", "balance", "돈"],
+        level: 0,
+        usage: "/재화 [보내기 <플레이어> <양>] — 돈·캐시·잠수포인트, 생활 직업",
+    },
+    Spec {
+        name: "이동",
+        aliases: &["move", "goto"],
+        level: 0,
+        usage: "/이동 [인스턴스] — 인스턴스 목록, 또는 그쪽으로 이동",
+    },
 ];
 
 pub fn spec(name: &str) -> Option<&'static Spec> {

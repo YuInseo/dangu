@@ -59,9 +59,28 @@ where
                     .await?;
                 return Ok(());
             }
-            session::run(conn, net, ip).await
+            let (host, ip) = forwarded(&handshake.server_address, ip);
+            session::run(conn, net, ip, (host, handshake.server_port)).await
         }
     }
+}
+
+/// 담비 마스터 프록시 뒤라면 핸드셰이크 주소 칸이 `원래주소\0진짜IP`입니다. 프록시 뒤에서만
+/// (자식 인스턴스는 127.0.0.1에서만 들음) 믿습니다.
+fn forwarded(address: &str, peer_ip: String) -> (String, String) {
+    match address.split_once('\0') {
+        Some((host, real)) if crate::dambi::child::active() && is_loopback(&peer_ip) => (
+            host.to_owned(),
+            real.split('\0').next().unwrap_or(real).to_owned(),
+        ),
+        Some((host, _)) => (host.to_owned(), peer_ip),
+        None => (address.to_owned(), peer_ip),
+    }
+}
+
+fn is_loopback(ip: &str) -> bool {
+    ip.parse::<std::net::IpAddr>()
+        .is_ok_and(|a| a.is_loopback())
 }
 
 async fn handle_status<S>(conn: &mut Conn<S>, server: &Server) -> Result<(), FrameError>

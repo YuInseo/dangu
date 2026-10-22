@@ -482,6 +482,16 @@ pub fn encode_set_time(game_time: i64, day_time: i64) -> Vec<u8> {
     out
 }
 
+/// Clientbound `Transfer`: 클라이언트가 이 주소로 새로 접속합니다 (핸드셰이크 의도 3).
+pub const TRANSFER_ID: i32 = 0x84;
+
+pub fn encode_transfer(host: &str, port: u16) -> Vec<u8> {
+    let mut out = Vec::new();
+    crate::protocol::types::write_string(&mut out, host);
+    crate::protocol::varint::write_varint(&mut out, port as i32);
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

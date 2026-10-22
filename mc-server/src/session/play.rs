@@ -223,6 +223,7 @@ pub(super) struct Session<'a, W> {
     pub(super) ability_ready: HashMap<String, Instant>,
     /// 접속한 IP.
     pub(super) ip: String,
+    pub(super) origin: (String, u16),
     pub(super) skin_parts: u8,
     pub(super) main_arm: i32,
     /// 크리에이티브·관전에서 날고 있는가.
@@ -279,6 +280,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             chat: ChatState::default(),
             ability_ready: HashMap::new(),
             ip: settings.ip.clone(),
+            origin: settings.origin.clone(),
             skin_parts: settings.skin_parts,
             main_arm: settings.main_hand.clamp(0, 1),
             flying: false,
@@ -302,6 +304,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             skin_parts: self.skin_parts,
             main_hand: self.main_arm,
             ip: self.ip.clone(),
+            origin: self.origin.clone(),
         }
     }
 
@@ -1003,6 +1006,14 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                     self.send(p::REMOVE_ENTITIES_ID, &p::encode_remove_entities(&ids))
                         .await?;
                 }
+            }
+            Event::TransferOut { uuid, to } if uuid == me => {
+                self.message(&text::colored(&format!("{to}(으)로 이동합니다…"), "aqua"))
+                    .await?;
+                self.save();
+                let (host, port) = self.origin.clone();
+                self.send(p::TRANSFER_ID, &p::encode_transfer(&host, port))
+                    .await?;
             }
             Event::EntityData {
                 dimension,
