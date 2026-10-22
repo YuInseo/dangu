@@ -23,14 +23,13 @@ pub struct ServerInfo {
     pub name: String,
     /// MOTD 둘째 줄.
     pub description: String,
-    pub online_players: u32,
     pub max_players: u32,
 }
 
 impl ServerInfo {
     /// Status Response의 JSON 문자열. serde 없이 손으로 씁니다 — 필드가 고정이고,
     /// 사람이 넣는 값은 모두 [`escape`]를 거칩니다.
-    pub fn to_json(&self) -> String {
+    pub fn to_json(&self, online_players: u32) -> String {
         format!(
             concat!(
                 r#"{{"version":{{"name":"{version}","protocol":{protocol}}},"#,
@@ -45,16 +44,16 @@ impl ServerInfo {
             version = escape(VERSION_NAME),
             protocol = PROTOCOL_VERSION,
             max = self.max_players,
-            online = self.online_players,
+            online = online_players,
             name = escape(&self.name),
             description = escape(&self.description),
         )
     }
 }
 
-pub fn encode_status_response(info: &ServerInfo) -> Vec<u8> {
+pub fn encode_status_response(info: &ServerInfo, online_players: u32) -> Vec<u8> {
     let mut out = Vec::new();
-    write_string(&mut out, &info.to_json());
+    write_string(&mut out, &info.to_json(online_players));
     out
 }
 
@@ -78,10 +77,9 @@ mod tests {
         let json = ServerInfo {
             name: "Dangu \"MC\"".into(),
             description: "순수 Rust 커스텀 서버입니다".into(),
-            online_players: 0,
             max_players: 100,
         }
-        .to_json();
+        .to_json(0);
 
         assert!(json.contains(r#""version":{"name":"26.3","protocol":777}"#));
         assert!(json.contains(r#""players":{"max":100,"online":0,"sample":[]}"#));

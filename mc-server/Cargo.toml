@@ -6,4 +6,4 @@ description = "프레임워크 없이 tokio만으로 바닥부터 짜는 마인�
 publish = false
 
 [dependencies]
-tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }

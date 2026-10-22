@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use mc_server::Server;
 use mc_server::packets::status::ServerInfo;
 use mc_server::protocol::frame::{encode_packet, read_packet};
 use mc_server::protocol::types::{read_string, write_string};
@@ -12,13 +13,12 @@ use tokio::net::{TcpListener, TcpStream};
 async fn start() -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
-    let info = Arc::new(ServerInfo {
+    let info = ServerInfo {
         name: "Dangu MC".into(),
         description: "순수 Rust 커스텀 서버입니다".into(),
-        online_players: 0,
         max_players: 100,
-    });
-    tokio::spawn(mc_server::serve(listener, info));
+    };
+    tokio::spawn(mc_server::serve(listener, Arc::new(Server::new(info, 1))));
     addr
 }
 
@@ -48,7 +48,9 @@ async fn status_then_ping() {
     assert!(json.contains("순수 Rust 커스텀 서버입니다"), "{json}");
 
     let payload: i64 = 1_729_000_000_000;
-    s.write_all(&encode_packet(0x01, &payload.to_be_bytes())).await.unwrap();
+    s.write_all(&encode_packet(0x01, &payload.to_be_bytes()))
+        .await
+        .unwrap();
     let pong = read_packet(&mut s).await.unwrap().unwrap();
     assert_eq!(pong.id, 0x01);
     assert_eq!(pong.body, payload.to_be_bytes());

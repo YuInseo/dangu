@@ -2,6 +2,7 @@
 //! 소켓과 맞닿는 부분은 [`frame`]에 있습니다.
 
 pub mod frame;
+pub mod nbt;
 pub mod types;
 pub mod varint;
 

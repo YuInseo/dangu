@@ -1,4 +1,4 @@
-//! 연결 하나의 상태 기계: Handshaking → Status | Login.
+//! 연결 하나의 시작: Handshaking → Status | Login. Login 이후는 [`crate::session`].
 
 use std::time::Duration;
 
@@ -7,9 +7,11 @@ use tokio::time::timeout;
 
 use crate::packets::handshake::{HANDSHAKE_ID, Handshake, Intent};
 use crate::packets::login;
-use crate::packets::status::{self, ServerInfo};
+use crate::packets::status;
 use crate::protocol::frame::{FrameError, RawPacket, read_packet, write_packet};
 use crate::protocol::{DecodeError, PROTOCOL_VERSION, VERSION_NAME};
+use crate::server::Server;
+use crate::session;
 
 /// 아무 패킷도 오지 않을 때 연결을 붙잡고 있는 시간.
 const READ_TIMEOUT: Duration = Duration::from_secs(10);
@@ -17,9 +19,9 @@ const READ_TIMEOUT: Duration = Duration::from_secs(10);
 /// 레거시(1.6 이하) 서버 목록 핑의 첫 바이트. 현재 프레임 형식과 섞이지 않습니다.
 const LEGACY_PING: u8 = 0xFE;
 
-pub async fn handle<S>(stream: S, info: &ServerInfo) -> Result<(), FrameError>
+pub async fn handle<S>(stream: S, server: &Server) -> Result<(), FrameError>
 where
-    S: AsyncRead + AsyncWrite + Unpin,
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let mut stream = BufReader::new(stream);
 
@@ -39,7 +41,7 @@ where
     match handshake.intent {
         // 버전이 달라도 Status에는 답합니다 — 클라이언트는 우리 버전 이름을 빨간 글씨로
         // 보여 주며 "호환되지 않음"을 표시합니다.
-        Intent::Status => handle_status(&mut stream, info).await,
+        Intent::Status => handle_status(&mut stream, server).await,
         Intent::Login | Intent::Transfer => {
             if handshake.protocol_version != PROTOCOL_VERSION {
                 let reason = version_mismatch_message(handshake.protocol_version);
@@ -51,20 +53,12 @@ where
                 .await?;
                 return Ok(());
             }
-            // 다음 단계: Login Start → (암호화) → Login Success → Configuration.
-            let reason = "로그인은 아직 구현되지 않았습니다.";
-            write_packet(
-                &mut stream,
-                login::DISCONNECT_ID,
-                &login::encode_disconnect(reason),
-            )
-            .await?;
-            Ok(())
+            session::run(stream, server).await
         }
     }
 }
 
-async fn handle_status<S>(stream: &mut S, info: &ServerInfo) -> Result<(), FrameError>
+async fn handle_status<S>(stream: &mut S, server: &Server) -> Result<(), FrameError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -77,7 +71,7 @@ where
                 write_packet(
                     stream,
                     status::STATUS_RESPONSE_ID,
-                    &status::encode_status_response(info),
+                    &status::encode_status_response(&server.info, server.online()),
                 )
                 .await?;
             }
@@ -105,7 +99,7 @@ pub fn version_mismatch_message(client_protocol: i32) -> String {
     }
 }
 
-async fn next<R: AsyncRead + Unpin>(r: &mut R) -> Result<Option<RawPacket>, FrameError> {
+pub(crate) async fn next<R: AsyncRead + Unpin>(r: &mut R) -> Result<Option<RawPacket>, FrameError> {
     timeout(READ_TIMEOUT, read_packet(r))
         .await
         .map_err(|_| FrameError::Io(std::io::ErrorKind::TimedOut.into()))?
@@ -119,6 +113,6 @@ async fn peek_byte<R: AsyncRead + Unpin>(r: &mut BufReader<R>) -> Result<Option<
     Ok(buf.first().copied())
 }
 
-fn unknown(state: &'static str, id: i32) -> FrameError {
+pub(crate) fn unknown(state: &'static str, id: i32) -> FrameError {
     DecodeError::UnknownPacket { state, id }.into()
 }

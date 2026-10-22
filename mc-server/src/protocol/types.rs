@@ -56,6 +56,76 @@ pub fn write_i64(out: &mut Vec<u8>, v: i64) {
     out.extend_from_slice(&v.to_be_bytes());
 }
 
+pub fn read_u8(buf: &mut &[u8]) -> Result<u8, DecodeError> {
+    Ok(take(buf, 1)?[0])
+}
+
+pub fn read_bool(buf: &mut &[u8]) -> Result<bool, DecodeError> {
+    match read_u8(buf)? {
+        0 => Ok(false),
+        1 => Ok(true),
+        _ => Err(DecodeError::InvalidValue("boolean")),
+    }
+}
+
+pub fn write_bool(out: &mut Vec<u8>, v: bool) {
+    out.push(v as u8);
+}
+
+pub fn write_i32(out: &mut Vec<u8>, v: i32) {
+    out.extend_from_slice(&v.to_be_bytes());
+}
+
+pub fn read_f32(buf: &mut &[u8]) -> Result<f32, DecodeError> {
+    let b = take(buf, 4)?;
+    Ok(f32::from_be_bytes(b.try_into().unwrap()))
+}
+
+pub fn write_f32(out: &mut Vec<u8>, v: f32) {
+    out.extend_from_slice(&v.to_be_bytes());
+}
+
+pub fn read_f64(buf: &mut &[u8]) -> Result<f64, DecodeError> {
+    let b = take(buf, 8)?;
+    Ok(f64::from_be_bytes(b.try_into().unwrap()))
+}
+
+pub fn write_f64(out: &mut Vec<u8>, v: f64) {
+    out.extend_from_slice(&v.to_be_bytes());
+}
+
+/// UUID: 상위 64비트, 하위 64비트 순서의 128비트 빅엔디언.
+pub fn read_uuid(buf: &mut &[u8]) -> Result<u128, DecodeError> {
+    let b = take(buf, 16)?;
+    Ok(u128::from_be_bytes(b.try_into().unwrap()))
+}
+
+pub fn write_uuid(out: &mut Vec<u8>, v: u128) {
+    out.extend_from_slice(&v.to_be_bytes());
+}
+
+/// `Prefixed Array of Long`: VarInt 개수 + i64들.
+pub fn write_long_array(out: &mut Vec<u8>, values: &[i64]) {
+    write_varint(out, values.len() as i32);
+    for &v in values {
+        write_i64(out, v);
+    }
+}
+
+/// `Prefixed Array of Byte`: VarInt 길이 + 바이트.
+pub fn write_byte_array(out: &mut Vec<u8>, bytes: &[u8]) {
+    write_varint(out, bytes.len() as i32);
+    out.extend_from_slice(bytes);
+}
+
+/// 26.3의 `BitSet`: Java `BitSet.toByteArray()`와 같이 리틀엔디언 바이트, 뒤쪽 0은 잘라
+/// 내고, VarInt 길이를 앞에 붙입니다. (26.2까지는 long 배열이었습니다.)
+pub fn write_bitset(out: &mut Vec<u8>, bits: u64) {
+    let bytes = bits.to_le_bytes();
+    let len = 8 - (bits.leading_zeros() / 8) as usize;
+    write_byte_array(out, &bytes[..len]);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,6 +148,29 @@ mod tests {
             read_string(&mut out.as_slice(), 2),
             Err(DecodeError::StringTooLong { .. })
         ));
+    }
+
+    #[test]
+    fn bitset_matches_java_to_byte_array() {
+        let mut out = Vec::new();
+        write_bitset(&mut out, 0);
+        assert_eq!(out, [0]);
+
+        let mut out = Vec::new();
+        write_bitset(&mut out, 0b1_0000_0001);
+        assert_eq!(out, [2, 0x01, 0x01]);
+    }
+
+    #[test]
+    fn uuid_is_big_endian() {
+        let mut out = Vec::new();
+        write_uuid(&mut out, 0x0011_2233_4455_6677_8899_aabb_ccdd_eeff);
+        assert_eq!(out[0], 0x00);
+        assert_eq!(out[15], 0xff);
+        assert_eq!(
+            read_uuid(&mut out.as_slice()),
+            Ok(0x0011_2233_4455_6677_8899_aabb_ccdd_eeff)
+        );
     }
 
     #[test]
