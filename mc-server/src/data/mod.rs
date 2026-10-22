@@ -10,9 +10,9 @@ pub mod items;
 pub mod trades;
 
 pub use generated::{
-    BLOCK_ENTITY_TYPES, BLOCK_STATE_COUNT, COOKING, ENTITY_NAMES, PARTICLE_NAMES, SOUND_NAMES,
-    STONECUTTING, SYNCED_REGISTRIES, TAGS, argument_type, block, component, entity_type, menu,
-    particle, sound,
+    BLOCK_ENTITY_TYPES, BLOCK_STATE_COUNT, COMPONENT_NAMES, COOKING, ENTITY_NAMES, PARTICLE_NAMES,
+    SOUND_NAMES, STONECUTTING, SYNCED_REGISTRIES, TAGS, argument_type, block, component,
+    entity_type, menu, particle, sound,
 };
 
 fn index_of(table: &'static [&'static str], name: &str) -> Option<i32> {
@@ -35,6 +35,30 @@ pub fn sound_id(name: &str) -> Option<i32> {
 /// 입자 이름(`explosion`) → 네트워크 ID.
 pub fn particle_id(name: &str) -> Option<i32> {
     index_of(PARTICLE_NAMES, name)
+}
+
+/// 아이템 컴포넌트 이름(`custom_model_data`) → 네트워크 ID.
+pub fn component_id(name: &str) -> Option<i32> {
+    index_of(
+        COMPONENT_NAMES,
+        name.strip_prefix("minecraft:").unwrap_or(name),
+    )
+}
+
+/// 바닐라 아이템 모양 정의 (`assets/minecraft/items/<이름>.json`의 내용). 사용자 정의 모델
+/// 번호(custom_model_data)로 바닐라 아이템 모양을 바꿀 때, 번호가 없으면 이것으로 돌아갑니다.
+/// misode/mcmeta `26.3-summary`의 `item_definition`을 gzip으로 넣어 둔 것.
+pub fn vanilla_item_definition(item: &str) -> Option<crate::json::Json> {
+    use std::sync::OnceLock;
+    static DEFS: OnceLock<Option<crate::json::Json>> = OnceLock::new();
+    let all = DEFS.get_or_init(|| {
+        let gz = include_bytes!("item_definitions.json.gz");
+        let raw = crate::protocol::zlib::gunzip(gz, 8 << 20).ok()?;
+        crate::json::parse(&String::from_utf8_lossy(&raw)).ok()
+    });
+    all.as_ref()?
+        .get(item.strip_prefix("minecraft:").unwrap_or(item))
+        .cloned()
 }
 
 /// 엔티티 이름(`tnt`) → 네트워크 ID.
@@ -71,5 +95,20 @@ mod tests {
     #[test]
     fn global_palette_needs_16_bits() {
         assert_eq!(u32::BITS - (BLOCK_STATE_COUNT - 1).leading_zeros(), 16);
+    }
+}
+
+#[cfg(test)]
+mod definition_tests {
+    #[test]
+    fn vanilla_item_definitions_and_components() {
+        let paper = super::vanilla_item_definition("paper").unwrap();
+        assert_eq!(
+            paper.get("model").unwrap().get("model").unwrap().as_str(),
+            Some("minecraft:item/paper")
+        );
+        assert!(super::vanilla_item_definition("clock").is_some());
+        assert_eq!(super::component_id("custom_data"), Some(0));
+        assert!(super::component_id("custom_model_data").is_some());
     }
 }

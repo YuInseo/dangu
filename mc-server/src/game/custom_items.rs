@@ -79,6 +79,11 @@ pub struct CustomItem {
     pub ability: Option<Ability>,
     /// 능력 재사용 대기 (초).
     pub cooldown: f32,
+    /// 사용자 정의 모델 번호 (`custom_model_data`의 첫 실수). 바닐라 모양 정의가 이 번호로
+    /// 우리 모델을 고릅니다 (ItemsAdder의 `model_id`).
+    pub custom_model_data: Option<f32>,
+    /// 그대로 붙일 다른 컴포넌트들 (종류, 인코딩된 값) — 내구도·속성·마법 부여 등.
+    pub extra: Vec<(i32, Vec<u8>)>,
 }
 
 static REGISTRY: RwLock<Vec<CustomItem>> = RwLock::new(Vec::new());
@@ -120,6 +125,12 @@ pub fn get(index: u16) -> Option<CustomItem> {
 }
 
 pub fn index_of(id: &str) -> Option<u16> {
+    // 예전 저장의 이름 (복권이 내장 콘텐츠로 옮기기 전)
+    let id = match id {
+        "lottery_ticket" => "dangu:lottery_ticket",
+        "gui_icon" => "dangu:gui_icon",
+        id => id,
+    };
     REGISTRY
         .read()
         .unwrap()
@@ -217,6 +228,18 @@ pub fn components_with(index: u16, serial: u32) -> Vec<(i32, Vec<u8>)> {
         write_bool(&mut b, true);
         out.push((component::ENCHANTMENT_GLINT_OVERRIDE, b));
     }
+    if let (Some(cmd), Some(kind)) = (
+        c.custom_model_data,
+        crate::data::component_id("custom_model_data"),
+    ) {
+        // floats [cmd], flags [], strings [], colors []
+        let mut b = Vec::new();
+        write_varint(&mut b, 1);
+        write_f32(&mut b, cmd);
+        b.extend_from_slice(&[0, 0, 0]);
+        out.push((kind, b));
+    }
+    out.extend(c.extra.iter().cloned());
     let mut b = Vec::new();
     write_varint(&mut b, c.rarity as i32);
     out.push((component::RARITY, b));
@@ -261,6 +284,8 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: Some(4.0),
             ability: Some(Ability::Lightning),
             cooldown: 2.0,
+            custom_model_data: None,
+            extra: Vec::new(),
         },
         CustomItem {
             id: "blink_wand".into(),
@@ -275,6 +300,8 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: None,
             ability: Some(Ability::Blink),
             cooldown: 1.0,
+            custom_model_data: None,
+            extra: Vec::new(),
         },
         CustomItem {
             id: "leap_feather".into(),
@@ -289,6 +316,8 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: None,
             ability: Some(Ability::Leap),
             cooldown: 1.5,
+            custom_model_data: None,
+            extra: Vec::new(),
         },
         CustomItem {
             id: "healing_gem".into(),
@@ -303,6 +332,8 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: None,
             ability: Some(Ability::Heal),
             cooldown: 10.0,
+            custom_model_data: None,
+            extra: Vec::new(),
         },
         CustomItem {
             id: "hero_sword".into(),
@@ -317,6 +348,8 @@ pub fn defaults() -> Vec<CustomItem> {
             damage: Some(12.0),
             ability: None,
             cooldown: 0.0,
+            custom_model_data: None,
+            extra: Vec::new(),
         },
     ]
 }
@@ -405,6 +438,8 @@ fn parse_def(v: &Json) -> Result<CustomItem, String> {
         damage: num("damage").map(|n| n as f32),
         ability,
         cooldown: num("cooldown").unwrap_or(0.0) as f32,
+        custom_model_data: num("custom_model_data").map(|n| n as f32),
+        extra: Vec::new(),
         id,
         base,
     })

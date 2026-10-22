@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use crate::game::custom_items::{self, CustomItem, Look};
+use crate::game::custom_items::{self, Look};
 use crate::json::{self, Json};
 use crate::packets::world::Item;
 
@@ -26,8 +26,8 @@ const DAY: i64 = 86_400;
 /// 받아 간 복권 기록은 이만큼 지난 회차부터 지웁니다.
 const KEEP_ROUNDS: u32 = 12;
 
-pub const TICKET_ITEM: &str = "lottery_ticket";
-pub const ICON_ITEM: &str = "gui_icon";
+pub const TICKET_ITEM: &str = "dangu:lottery_ticket";
+pub const ICON_ITEM: &str = "dangu:gui_icon";
 
 /// 복권 일련번호 (프로세스 안에서 겹치지 않게 — 채널이 여럿이어도).
 static NEXT_SERIAL: AtomicU32 = AtomicU32::new(1);
@@ -238,37 +238,11 @@ pub fn random_numbers(keep: &[u8]) -> [u8; PICK] {
 
 // ---- 아이템 ----
 
-/// 복권 아이템과 GUI 아이콘 정의를 올립니다 (한 번).
+/// 복권 아이템과 GUI 아이콘은 서버 내장 콘텐츠 팩(`dangu`)에 있습니다 — 읽혀 있게 합니다.
 pub fn register_items() {
-    if custom_items::index_of(TICKET_ITEM).is_some() {
-        return;
+    if custom_items::index_of(TICKET_ITEM).is_none() {
+        crate::contents::current();
     }
-    let paper = crate::data::items::by_name("paper").unwrap_or(1);
-    let base = CustomItem {
-        id: TICKET_ITEM.into(),
-        base: paper,
-        name: "복권".into(),
-        color: "gold".into(),
-        lore: vec!["스폰의 복권 NPC에게 내면 당첨금을 받습니다".into()],
-        // 서버 리소스 팩을 쓰면 직접 그린 복권 그림, 아니면 종이 모양
-        model: crate::resource_pack::enabled().then(|| "dangu:lottery_ticket".to_owned()),
-        glint: false,
-        rarity: 1,
-        max_stack: Some(1),
-        damage: None,
-        ability: None,
-        cooldown: 0.0,
-    };
-    let icon = CustomItem {
-        id: ICON_ITEM.into(),
-        name: " ".into(),
-        color: "white".into(),
-        lore: Vec::new(),
-        model: None,
-        rarity: 0,
-        ..base.clone()
-    };
-    custom_items::install(vec![base, icon]);
 }
 
 pub fn ticket_index() -> Option<u16> {

@@ -506,6 +506,9 @@ def main():
         w(f"    ({d[0]}, {d[1]}, {d[2]}, {d[3]})," if d else "    (-1, 0, 0, 0),")
     w("];")
     w("")
+    w("/// 아이템 컴포넌트 이름. 순서 = 네트워크 ID.")
+    w("pub const COMPONENT_NAMES: &[&str] = &[" + ", ".join(f'"{n}"' for n in mapping["data_component_type"]) + "];")
+    w("")
     for mod, table, key in [("component", COMPONENTS, "data_component_type"), ("sound", SOUNDS, "sounds"), ("particle", PARTICLES, "particles")]:
         w(f"/// `{key}` 네트워크 ID.")
         w(f"pub mod {mod} {{")

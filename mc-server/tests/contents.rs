@@ -57,7 +57,14 @@ async fn itemsadder_style_contents() {
     copy_dir(Path::new("examples/contents"), &dir);
     let loaded = mc_server::contents::reload_from(&dir);
     assert!(loaded.errors.is_empty(), "{:?}", loaded.errors);
-    assert_eq!(loaded.items.len(), 3);
+    // 서버 내장 팩(dangu: 복권)을 빼면 예시 팩의 아이템 3개
+    let example: Vec<_> = loaded
+        .items
+        .iter()
+        .filter(|i| i.starts_with("example:"))
+        .collect();
+    assert_eq!(example.len(), 3, "{:?}", loaded.items);
+    assert!(loaded.items.iter().any(|i| i == "dangu:lottery_ticket"));
     // 리소스 팩에 그림·모델·블록 상태·폰트
     let pack = mc_server::resource_pack::rebuild();
     let zip = String::from_utf8_lossy(&pack.bytes);

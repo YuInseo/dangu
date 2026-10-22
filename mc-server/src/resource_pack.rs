@@ -57,7 +57,8 @@ pub const LOTTERY_TICKET: Sprite = Sprite {
     ],
 };
 
-pub const SPRITES: &[&Sprite] = &[&LOTTERY_TICKET];
+/// 서버가 직접 그린 그림들 (내장 콘텐츠 팩이 씀).
+pub const SPRITES: &[&Sprite] = &[&LOTTERY_TICKET, &crate::contents::LOTTERY_TICKET_BACK];
 
 impl Sprite {
     pub fn rgba(&self) -> Vec<u8> {
@@ -185,28 +186,6 @@ fn build() -> Pack {
         )
         .into_bytes(),
     )];
-    for s in SPRITES {
-        files.push((
-            format!("assets/dangu/items/{}.json", s.name),
-            format!(
-                r#"{{"model":{{"type":"minecraft:model","model":"dangu:item/{}"}}}}"#,
-                s.name
-            )
-            .into_bytes(),
-        ));
-        files.push((
-            format!("assets/dangu/models/item/{}.json", s.name),
-            format!(
-                r#"{{"parent":"minecraft:item/generated","textures":{{"layer0":"dangu:item/{}"}}}}"#,
-                s.name
-            )
-            .into_bytes(),
-        ));
-        files.push((
-            format!("assets/dangu/textures/item/{}.png", s.name),
-            png(16, 16, &s.rgba()),
-        ));
-    }
     // ItemsAdder식 콘텐츠의 그림·모델·폰트·블록 상태 (같은 이름이면 콘텐츠가 이김)
     for (name, bytes) in crate::contents::current().files.iter() {
         if name == "pack.mcmeta" {
@@ -337,11 +316,23 @@ mod tests {
         let text = String::from_utf8_lossy(&p.bytes);
         for name in [
             "pack.mcmeta",
-            "assets/dangu/items/lottery_ticket.json",
+            // 복권: 종이의 custom_model_data 10001 → 직접 만든 3D 모델
+            "assets/minecraft/items/paper.json",
+            "assets/dangu/models/item/lottery_ticket.json",
             "assets/dangu/textures/item/lottery_ticket.png",
+            "assets/dangu/textures/item/lottery_ticket_back.png",
         ] {
             assert!(text.contains(name), "{name}");
         }
+        let paper = crate::contents::current()
+            .files
+            .iter()
+            .find(|(n, _)| n == "assets/minecraft/items/paper.json")
+            .map(|(_, b)| String::from_utf8_lossy(b).into_owned())
+            .unwrap();
+        assert!(paper.contains("minecraft:custom_model_data"), "{paper}");
+        assert!(paper.contains("dangu:item/lottery_ticket"));
+        assert!(paper.contains("minecraft:item/paper"), "vanilla fallback");
         assert_eq!(p.sha1_hex.len(), 40);
         assert_eq!(
             zip(&[("a".into(), b"x".to_vec())]),

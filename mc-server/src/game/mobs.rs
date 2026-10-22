@@ -1093,15 +1093,24 @@ mod tests {
         room(&s, y, 12);
         let id = spawn(&s, MobKind::Skeleton, d, (0.5, y as f64, 0.5));
         let player = PlayerState::test(d, (8.5, y as f64, 0.5));
-        let mut out = TickOut::default();
-        let mut e = s.entities.get(id).unwrap();
-        tick(&s, &mut e, std::slice::from_ref(&player), 0, &mut out);
-        assert_eq!(out.spawns.len(), 1, "fired an arrow");
-        let mut arrow = out.spawns.pop().unwrap();
+        // 화살에는 바닐라처럼 약간의 흩어짐이 있어, 몇 발 가운데 맞으면 됩니다.
         let mut events = Vec::new();
-        for _ in 0..40 {
-            if projectiles::tick(&s, &mut arrow, std::slice::from_ref(&player), &mut events) {
-                break;
+        for shot in 0..5 {
+            let mut out = TickOut::default();
+            let mut e = s.entities.get(id).unwrap();
+            tick(
+                &s,
+                &mut e,
+                std::slice::from_ref(&player),
+                shot * 100,
+                &mut out,
+            );
+            assert_eq!(out.spawns.len(), 1, "fired an arrow");
+            let mut arrow = out.spawns.pop().unwrap();
+            for _ in 0..40 {
+                if projectiles::tick(&s, &mut arrow, std::slice::from_ref(&player), &mut events) {
+                    break;
+                }
             }
         }
         assert!(

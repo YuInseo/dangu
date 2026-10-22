@@ -42,6 +42,11 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
+
+mod builtin;
+pub mod source;
+
+pub use builtin::{LOTTERY_MODEL_ID, LOTTERY_TICKET_BACK};
 use std::sync::{Arc, RwLock};
 
 use crate::data::{blocks, items};
@@ -210,35 +215,6 @@ pub fn item(id: &str, count: i32) -> Option<crate::packets::world::Item> {
 
 // ---- 읽기 ----
 
-fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(rd) = std::fs::read_dir(dir) else {
-        return;
-    };
-    let mut entries: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
-    entries.sort();
-    for p in entries {
-        if p.file_name()
-            .is_some_and(|n| n.to_string_lossy().starts_with('.'))
-        {
-            continue;
-        }
-        if p.is_dir() {
-            walk(&p, out);
-        } else {
-            out.push(p);
-        }
-    }
-}
-
-fn rel(base: &Path, p: &Path) -> String {
-    p.strip_prefix(base)
-        .unwrap_or(p)
-        .components()
-        .map(|c| c.as_os_str().to_string_lossy().into_owned())
-        .collect::<Vec<_>>()
-        .join("/")
-}
-
 /// 바뀌지 않게 기억해 둔 배정 (블록 상태, 이모지 글자).
 #[derive(Default)]
 struct Cache {
@@ -282,6 +258,13 @@ fn write_cache(path: &Path, c: &Cache) {
         let _ = std::fs::create_dir_all(d);
     }
     let _ = std::fs::write(path, j.pretty());
+}
+
+fn model_ref_json(model: &str) -> Json {
+    Json::Object(vec![
+        ("type".into(), Json::String("minecraft:model".into())),
+        ("model".into(), Json::String(model.to_owned())),
+    ])
 }
 
 /// `item/ruby.png` → `ns:item/ruby`.
@@ -336,44 +319,18 @@ pub fn load(base: &Path) -> Loaded {
     let mut block_models: Vec<(String, String, bool)> = Vec::new();
     let mut font_defs: Vec<(String, String, i32, i32)> = Vec::new();
     let mut files: BTreeMap<String, Vec<u8>> = BTreeMap::new();
+    // (바탕 아이템, custom_model_data, 모델) — `model_id`로 바닐라 모양을 갈아 끼울 것들
+    let mut cmd_models: Vec<(String, i32, String)> = Vec::new();
 
-    let Ok(rd) = std::fs::read_dir(base) else {
-        return l;
-    };
-    let mut packs: Vec<PathBuf> = rd
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.is_dir())
-        .collect();
-    packs.sort();
+    // 서버 내장 팩 먼저, 디스크의 팩이 같은 파일을 덮어씀
+    let mut packs = builtin::packs();
+    packs.extend(source::from_disk(base));
     for pack in packs {
-        let pack_name = pack.file_name().unwrap().to_string_lossy().into_owned();
-        if pack_name.starts_with('.') {
-            continue;
+        let pack_name = pack.name.clone();
+        for (path, bytes) in pack.files {
+            files.insert(path, bytes);
         }
-        // 그림·모델은 그대로
-        let rp = pack.join("resourcepack");
-        let mut rp_files = Vec::new();
-        walk(&rp, &mut rp_files);
-        for f in rp_files {
-            if let Ok(bytes) = std::fs::read(&f) {
-                files.insert(rel(&rp, &f), bytes);
-            }
-        }
-        let mut configs = Vec::new();
-        walk(&pack.join("configs"), &mut configs);
-        for cfg in configs
-            .into_iter()
-            .filter(|p| p.extension().is_some_and(|e| e == "yml" || e == "yaml"))
-        {
-            let where_ = rel(base, &cfg);
-            let text = match std::fs::read_to_string(&cfg) {
-                Ok(t) => t,
-                Err(e) => {
-                    l.errors.push(format!("{where_}: {e}"));
-                    continue;
-                }
-            };
+        for (where_, text) in pack.configs {
             let doc = match crate::yaml::parse(&text) {
                 Ok(d) => d,
                 Err(e) => {
@@ -388,7 +345,7 @@ pub fn load(base: &Path) -> Loaded {
                 .to_owned();
             if let Some(Json::Object(entries)) = doc.get("items") {
                 for (id, it) in entries {
-                    match read_item(&ns, id, it, &mut files) {
+                    match read_item(&ns, id, it, &mut files, &mut cmd_models) {
                         Ok((def, block)) => {
                             if let Some(b) = block {
                                 block_models.push(b);
@@ -546,6 +503,63 @@ pub fn load(base: &Path) -> Loaded {
         );
     }
 
+    // model_id: 바닐라 아이템마다 custom_model_data로 고르는 모양 정의
+    let mut by_material: BTreeMap<String, Vec<(i32, String)>> = BTreeMap::new();
+    for (material, cmd, model) in cmd_models {
+        by_material.entry(material).or_default().push((cmd, model));
+    }
+    for (material, mut entries) in by_material {
+        let key = format!("assets/minecraft/items/{material}.json");
+        if files.contains_key(&key) {
+            l.errors.push(format!(
+                "{key}: 팩에 이미 있어 model_id 모양을 만들지 않았습니다"
+            ));
+            continue;
+        }
+        entries.sort_by_key(|(c, _)| *c);
+        entries.dedup_by_key(|(c, _)| *c);
+        let vanilla = crate::data::vanilla_item_definition(&material);
+        let fallback = vanilla
+            .as_ref()
+            .and_then(|v| v.get("model").cloned())
+            .unwrap_or_else(|| model_ref_json(&format!("minecraft:item/{material}")));
+        let dispatch = Json::Object(vec![
+            (
+                "type".into(),
+                Json::String("minecraft:range_dispatch".into()),
+            ),
+            (
+                "property".into(),
+                Json::String("minecraft:custom_model_data".into()),
+            ),
+            ("index".into(), Json::Number(0.0)),
+            (
+                "entries".into(),
+                Json::Array(
+                    entries
+                        .iter()
+                        .map(|(c, m)| {
+                            Json::Object(vec![
+                                ("threshold".into(), Json::Number(*c as f64)),
+                                ("model".into(), model_ref_json(m)),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+            ("fallback".into(), fallback),
+        ]);
+        // 바닐라 정의의 다른 칸(hand_animation_on_swap 등)은 그대로
+        let mut top = match vanilla {
+            Some(Json::Object(fields)) => {
+                fields.into_iter().filter(|(k, _)| k != "model").collect()
+            }
+            _ => Vec::new(),
+        };
+        top.insert(0, ("model".into(), dispatch));
+        files.insert(key, Json::Object(top).compact().into_bytes());
+    }
+
     // 이모지 폰트 (팩에 이미 default.json이 있으면 이어 붙임)
     if !l.fonts.is_empty() {
         let key = "assets/minecraft/font/default.json".to_owned();
@@ -605,6 +619,7 @@ fn read_item(
     id: &str,
     it: &Json,
     files: &mut BTreeMap<String, Vec<u8>>,
+    cmd_models: &mut Vec<(String, i32, String)>,
 ) -> Result<(CustomItem, Option<(String, String, bool)>), String> {
     if !id
         .chars()
@@ -695,8 +710,16 @@ fn read_item(
     } else {
         None
     };
+    // `model_id`(custom_model_data): 바닐라 아이템 모양 정의가 이 번호로 우리 모델을 고름
+    let model_id = resource
+        .and_then(|r| r.get("model_id"))
+        .and_then(Json::as_f64)
+        .map(|n| n as i32);
+    if let (Some(cmd), Some(m)) = (model_id, &model) {
+        cmd_models.push((material.to_owned(), cmd, m.clone()));
+    }
     // 아이템 모양 정의 (assets/<ns>/items/<id>.json) → item_model = ns:id
-    let item_model = model.as_ref().map(|m| {
+    let item_model = model.as_ref().filter(|_| model_id.is_none()).map(|m| {
         files.insert(
             format!("assets/{ns}/items/{id}.json"),
             format!(r#"{{"model":{{"type":"minecraft:model","model":"{m}"}}}}"#).into_bytes(),
@@ -746,6 +769,8 @@ fn read_item(
         damage,
         ability: None,
         cooldown: 0.0,
+        custom_model_data: model_id.map(|n| n as f32),
+        extra: Vec::new(),
     };
     let block_info = block.map(|b| {
         let drop = b
@@ -816,7 +841,16 @@ categories:
         let _ = std::fs::remove_dir_all(&dir);
         sample(&dir);
         let l = load(&dir);
-        assert_eq!(l.items, vec!["myitems:ruby", "myitems:ruby_block"]);
+        let mine: Vec<&String> = l
+            .items
+            .iter()
+            .filter(|i| !i.starts_with("dangu:"))
+            .collect();
+        assert_eq!(mine, vec!["myitems:ruby", "myitems:ruby_block"]);
+        assert!(
+            l.items.contains(&"dangu:lottery_ticket".to_owned()),
+            "built-in pack"
+        );
         assert_eq!(l.errors.len(), 1, "{:?}", l.errors);
         assert!(l.errors[0].contains("not_a_thing"), "{:?}", l.errors);
         let ruby = custom_items::get(custom_items::index_of("myitems:ruby").unwrap()).unwrap();
