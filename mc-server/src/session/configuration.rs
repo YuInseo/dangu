@@ -18,6 +18,9 @@ where
 {
     let mut settings = ClientSettings {
         view_distance: DEFAULT_VIEW_DISTANCE,
+        skin_parts: 0x7F,
+        main_hand: 1,
+        ip: String::new(),
     };
 
     stream
@@ -41,7 +44,7 @@ where
         let packet = next(stream).await?.ok_or(eof())?;
         match packet.id {
             cfg::CLIENT_INFORMATION_ID => {
-                settings.view_distance = cfg::decode_view_distance(&packet.body)?;
+                cfg::apply_client_information(&packet.body, &mut settings)?;
             }
             cfg::SB_CUSTOM_PAYLOAD_ID | cfg::SB_KEEP_ALIVE_ID => {}
             cfg::SB_SELECT_KNOWN_PACKS_ID => {
@@ -77,7 +80,7 @@ where
         match packet.id {
             cfg::FINISH_CONFIGURATION_ACK_ID => return Ok(Some(settings)),
             cfg::CLIENT_INFORMATION_ID => {
-                settings.view_distance = cfg::decode_view_distance(&packet.body)?;
+                cfg::apply_client_information(&packet.body, &mut settings)?;
             }
             cfg::SB_CUSTOM_PAYLOAD_ID | cfg::SB_KEEP_ALIVE_ID => {}
             id => return Err(unknown("configuration", id)),

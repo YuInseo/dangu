@@ -44,6 +44,7 @@ pub const SB_KEEP_ALIVE_ID: i32 = 0x1C;
 pub const SB_MOVE_PLAYER_POS_ID: i32 = 0x1E;
 pub const SB_MOVE_PLAYER_POS_ROT_ID: i32 = 0x1F;
 pub const SB_MOVE_PLAYER_ROT_ID: i32 = 0x20;
+pub const SB_MOVE_PLAYER_STATUS_ONLY_ID: i32 = 0x21;
 pub const SB_PLAYER_INPUT_ID: i32 = 0x2B;
 pub const SB_PLAYER_LOADED_ID: i32 = 0x2C;
 
@@ -87,6 +88,10 @@ impl GameMode {
         matches!(self, GameMode::Survival | GameMode::Adventure)
     }
 
+    pub fn from_id(id: i32) -> Option<GameMode> {
+        GameMode::ALL.into_iter().find(|m| m.id() == id)
+    }
+
     pub fn from_name(name: &str) -> Option<GameMode> {
         GameMode::ALL.into_iter().find(|m| m.name() == name)
     }
@@ -116,6 +121,8 @@ pub struct SpawnInfo {
     pub dimension: Dimension,
     pub hashed_seed: i64,
     pub gamemode: GameMode,
+    /// F3+F4 메뉴가 "이전 모드"로 보여 주는 것.
+    pub previous: Option<GameMode>,
 }
 
 impl SpawnInfo {
@@ -126,7 +133,7 @@ impl SpawnInfo {
         // 26.3: 게임 모드가 byte → VarInt, 이전 게임 모드가 byte(-1 = 없음) → 압축형
         // Optional VarInt(0 = 없음, 그 외 값+1)로 바뀌었습니다.
         write_varint(out, self.gamemode.id());
-        write_varint(out, 0);
+        write_varint(out, self.previous.map_or(0, |m| m.id() + 1));
         write_bool(out, false); // debug 월드
         write_bool(out, false); // flat 월드 (true면 지평선이 y=0 근처로 내려감)
         write_bool(out, false); // 마지막 사망 위치 없음
@@ -140,13 +147,15 @@ pub struct Login {
     pub view_distance: i32,
     pub spawn: SpawnInfo,
     pub online_mode: bool,
+    /// 하드코어: 하트 모양이 바뀌고, 죽으면 "관전하기"만 남습니다.
+    pub hardcore: bool,
 }
 
 impl Login {
     pub fn encode(&self) -> Vec<u8> {
         let mut out = Vec::new();
         write_i32(&mut out, self.entity_id);
-        write_bool(&mut out, false); // hardcore
+        write_bool(&mut out, self.hardcore);
         write_varint(&mut out, Dimension::ALL.len() as i32);
         for d in Dimension::ALL {
             write_string(&mut out, d.level_name());
@@ -480,6 +489,7 @@ mod tests {
             dimension: Dimension::Overworld,
             hashed_seed: 0,
             gamemode: GameMode::Creative,
+            previous: None,
         }
         .write(&mut out);
         // type id(1) + 문자열(1+19) + seed(8) + gamemode(1) + prev(1) + bool×3 + cooldown(1) + sea(1)

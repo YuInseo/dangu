@@ -21,7 +21,7 @@ const READ_TIMEOUT: Duration = Duration::from_secs(30);
 /// 레거시(1.6 이하) 서버 목록 핑의 첫 바이트. 현재 프레임 형식과 섞이지 않습니다.
 const LEGACY_PING: u8 = 0xFE;
 
-pub async fn handle<S>(stream: S, server: &Server) -> Result<(), FrameError>
+pub async fn handle<S>(stream: S, server: &Server, ip: String) -> Result<(), FrameError>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -54,7 +54,7 @@ where
                     .await?;
                 return Ok(());
             }
-            session::run(conn, server).await
+            session::run(conn, server, ip).await
         }
     }
 }

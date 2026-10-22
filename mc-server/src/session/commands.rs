@@ -1,16 +1,18 @@
-//! 명령어: 문법 트리(클라이언트 자동 완성용)와 실행.
+//! 명령어: 사람마다 다른 문법 트리(권한 있는 것만, 클라이언트 자동 완성용)와 실행.
+//! 관리 명령어는 [`crate::admin`]이 실행하고, 여기서는 자기 자신에게 하는 것들을 합니다.
 
 use tokio::io::AsyncWrite;
 
 use super::play::{Session, sanitize};
-use crate::data::argument_type;
-use crate::data::items;
+use crate::admin::{self, Actor};
+use crate::data::{argument_type, items};
+use crate::game::custom_items;
 use crate::game::mobs::{self, MobKind};
 use crate::packets::commands::{CommandTree, ROOT};
 use crate::packets::play::{ChatKind, GameMode};
 use crate::packets::world::Item;
 use crate::protocol::frame::FrameError;
-use crate::server::Event;
+use crate::server::{Difficulty, Event, Server};
 use crate::text;
 use crate::world::{Dimension, terrain};
 
@@ -21,91 +23,235 @@ const TIMES: &[(&str, i64)] = &[
     ("night", 13000),
     ("midnight", 18000),
 ];
+/// `brigadier:string` 속성: 0 한 단어, 2 남은 전부.
+const WORD: &[u8] = &[0];
+const GREEDY: &[u8] = &[2];
 
-/// 클라이언트에 보내는 명령어 트리. [`Session::command`]가 받는 것과 같아야 합니다.
-pub fn tree() -> CommandTree {
+/// 이 사람에게 보낼 명령어 트리. 권한이 없는 명령어는 넣지 않습니다 (빨간 글씨로 보이도록).
+pub fn tree(server: &Server, uuid: u128) -> CommandTree {
+    let actor = Actor {
+        name: String::new(),
+        uuid: Some(uuid),
+    };
     let mut t = CommandTree::default();
-    for name in ["overworld", "nether", "end", "spawn", "help", "list"] {
-        t.literal(ROOT, name, true);
+    for spec in admin::COMMANDS {
+        if !actor.allowed(server, spec) {
+            continue;
+        }
+        for name in std::iter::once(spec.name).chain(spec.aliases.iter().copied()) {
+            build(&mut t, spec.name, name);
+        }
     }
-    // /msg <대상> <내용>, 별칭 /tell /w
-    for name in ["msg", "tell", "w"] {
-        let cmd = t.literal(ROOT, name, false);
-        let target = t.argument(cmd, "targets", argument_type::GAME_PROFILE, false);
-        t.argument(target, "message", argument_type::MESSAGE, true);
-    }
-    let me = t.literal(ROOT, "me", false);
-    t.argument(me, "action", argument_type::MESSAGE, true);
-    let tp = t.literal(ROOT, "tp", false);
-    t.argument(tp, "target", argument_type::GAME_PROFILE, true);
-    let gm = t.literal(ROOT, "gamemode", false);
-    for mode in GameMode::ALL {
-        t.literal(gm, mode.name(), true);
-    }
-    let time = t.literal(ROOT, "time", false);
-    let set = t.literal(time, "set", false);
-    for (name, _) in TIMES {
-        t.literal(set, name, true);
-    }
-    // /give <아이템> [개수]
-    let give = t.literal(ROOT, "give", false);
-    let item = t.argument(give, "item", argument_type::ITEM_STACK, true);
-    t.argument_with(item, "count", argument_type::INTEGER, &[0], true);
-    let summon = t.literal(ROOT, "summon", false);
-    for name in ["cow", "pig", "sheep", "chicken", "zombie", "spider"] {
-        t.literal(summon, name, true);
-    }
-    t.literal(ROOT, "kill", true);
     t
 }
 
-/// 관리자만 쓸 수 있는 명령어 (바닐라 권한 2단계에 해당).
-const OP_ONLY: &[&str] = &["gamemode", "time", "give", "summon", "kill", "tp"];
-
-const HELP: &[&str] = &[
-    "/overworld, /nether, /end — 차원 이동",
-    "/spawn — 이 차원의 스폰으로",
-    "/msg <이름> <내용> — 귓속말 (/tell, /w)",
-    "/me <행동> — 행동 알리기",
-    "/tp <이름> — 그 사람에게 가기",
-    "/gamemode <survival|creative|adventure|spectator>",
-    "/time set <day|noon|night|midnight>",
-    "/list — 접속자 목록",
-    "/give <아이템> [개수], /summon <몹>, /kill",
-];
+fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
+    use argument_type::{GAME_PROFILE, INTEGER, ITEM_STACK, MESSAGE, STRING};
+    match kind {
+        "help" | "list" | "spawn" | "kill" | "save-all" | "stop" | "overworld" => {
+            t.literal(ROOT, name, true);
+        }
+        "msg" => {
+            let c = t.literal(ROOT, name, false);
+            let target = t.argument(c, "targets", GAME_PROFILE, false);
+            t.argument(target, "message", MESSAGE, true);
+        }
+        "me" | "say" => {
+            let c = t.literal(ROOT, name, false);
+            t.argument(c, "message", MESSAGE, true);
+        }
+        "tp" | "deop" => {
+            let c = t.literal(ROOT, name, false);
+            t.argument(c, "target", GAME_PROFILE, true);
+        }
+        "op" => {
+            let c = t.literal(ROOT, name, false);
+            let target = t.argument(c, "target", GAME_PROFILE, true);
+            t.argument_with(target, "level", INTEGER, &[0], true);
+        }
+        "kick" | "ban" => {
+            let c = t.literal(ROOT, name, false);
+            let target = t.argument(c, "target", GAME_PROFILE, true);
+            t.argument(target, "reason", MESSAGE, true);
+        }
+        "ban-ip" => {
+            let c = t.literal(ROOT, name, false);
+            let target = t.argument_with(c, "target", STRING, WORD, true);
+            t.argument(target, "reason", MESSAGE, true);
+        }
+        "pardon" | "pardon-ip" => {
+            let c = t.literal(ROOT, name, false);
+            t.argument_ask_server(c, "target", STRING, WORD, true);
+        }
+        "title" => {
+            let c = t.literal(ROOT, name, false);
+            let target = t.argument_with(c, "target", STRING, WORD, false);
+            t.argument(target, "message", MESSAGE, true);
+        }
+        "gamemode" => {
+            let c = t.literal(ROOT, name, false);
+            for mode in GameMode::ALL {
+                let m = t.literal(c, mode.name(), true);
+                t.argument(m, "target", GAME_PROFILE, true);
+            }
+        }
+        "difficulty" => {
+            let c = t.literal(ROOT, name, false);
+            for d in Difficulty::ALL {
+                t.literal(c, d.name(), true);
+            }
+        }
+        "time" => {
+            let c = t.literal(ROOT, name, false);
+            let set = t.literal(c, "set", false);
+            for (n, _) in TIMES {
+                t.literal(set, *n, true);
+            }
+        }
+        "give" => {
+            let c = t.literal(ROOT, name, false);
+            let item = t.argument(c, "item", ITEM_STACK, true);
+            t.argument_with(item, "count", INTEGER, &[0], true);
+        }
+        "item" => {
+            let c = t.literal(ROOT, name, false);
+            t.literal(c, "list", true);
+            t.literal(c, "reload", true);
+            for def in custom_items::all() {
+                t.literal(c, def.id, true);
+            }
+        }
+        "summon" => {
+            let c = t.literal(ROOT, name, false);
+            for m in ["cow", "pig", "sheep", "chicken", "zombie", "spider"] {
+                t.literal(c, m, true);
+            }
+        }
+        "whitelist" => {
+            let c = t.literal(ROOT, name, false);
+            for sub in ["on", "off", "list"] {
+                t.literal(c, sub, true);
+            }
+            for sub in ["add", "remove"] {
+                let s = t.literal(c, sub, false);
+                t.argument_with(s, "target", STRING, WORD, true);
+            }
+        }
+        "perm" => {
+            let c = t.literal(ROOT, name, true);
+            t.argument_ask_server(c, "args", STRING, GREEDY, true);
+        }
+        _ => {}
+    }
+}
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
     pub(super) async fn command(&mut self, line: &str) -> Result<(), FrameError> {
         let (name, rest) = line.split_once(' ').unwrap_or((line, ""));
         let rest = rest.trim();
+        let args: Vec<&str> = rest.split_whitespace().collect();
+
+        let Some(spec) = admin::spec(name) else {
+            return self
+                .error(&format!("모르는 명령어: /{name} (/help 참고)"))
+                .await;
+        };
+        let actor = Actor {
+            name: self.profile.name.clone(),
+            uuid: Some(self.profile.uuid),
+        };
+        if !actor.allowed(self.server, spec) {
+            return self.error("이 명령어를 쓸 권한이 없습니다.").await;
+        }
+        // 누가 치든 같은 관리 명령어
+        if let Some(lines) = admin::run(self.server, &actor, name, &args) {
+            for l in lines {
+                self.message(&text::plain(&l)).await?;
+            }
+            return Ok(());
+        }
 
         if let Some(dimension) = Dimension::from_command(name) {
             return self.travel(dimension).await;
         }
-        if OP_ONLY.contains(&name) && !self.server.is_op(&self.profile.name) {
-            return self.error("이 명령어를 쓸 권한이 없습니다.").await;
-        }
-        match name {
+        match spec.name {
+            "help" => {
+                for s in admin::COMMANDS
+                    .iter()
+                    .filter(|s| actor.allowed(self.server, s))
+                {
+                    self.message(&text::plain(s.usage)).await?;
+                }
+                Ok(())
+            }
             "give" => {
                 let (spec, count) = rest.split_once(' ').unwrap_or((rest, "1"));
                 // `minecraft:diamond_sword[...]`에서 이름만
                 let id_text = spec.split(['[', '{']).next().unwrap_or("");
                 let Some(id) = items::by_name(id_text).filter(|&id| id > 0) else {
-                    return self.error(&format!("모르는 아이템: {id_text}")).await;
+                    return self
+                        .error(&format!(
+                            "모르는 아이템: {id_text} (우리만의 아이템은 /item)"
+                        ))
+                        .await;
                 };
                 let count = count.trim().parse::<i32>().unwrap_or(1).clamp(1, 64 * 36);
-                let mut left = count;
-                while left > 0 {
-                    let n = left.min(items::max_stack(id));
-                    let taken = self.give(Item { id, count: n }).await?;
-                    if taken < n {
-                        break;
-                    }
-                    left -= n;
-                }
-                let msg = format!("{} {}개를 받았습니다.", items::name(id), count - left);
+                let given = self.give_many(Item::new(id, 1), count).await?;
+                let msg = format!("{} {given}개를 받았습니다.", items::name(id));
                 Ok(self.message(&text::colored(&msg, "green")).await?)
             }
+            "item" => match args.first().copied() {
+                Some("list") | None => {
+                    for d in custom_items::all() {
+                        let line = format!(
+                            "{} — {} ({})",
+                            d.id,
+                            d.name,
+                            d.lore.first().cloned().unwrap_or_default()
+                        );
+                        self.message(&text::colored(&line, &d.color)).await?;
+                    }
+                    Ok(())
+                }
+                Some("reload") => {
+                    let dir = self.server.data_dir.clone();
+                    match custom_items::load(dir.as_deref()) {
+                        Ok(n) => {
+                            self.server
+                                .publish(Event::PermissionsChanged { uuid: None }); // 명령어 트리 다시
+                            Ok(self
+                                .message(&text::colored(
+                                    &format!("사용자 정의 아이템 {n}개를 읽었습니다."),
+                                    "green",
+                                ))
+                                .await?)
+                        }
+                        Err(e) => self.error(&e).await,
+                    }
+                }
+                Some(id) => match custom_items::index_of(id) {
+                    Some(index) => {
+                        let def = custom_items::get(index).unwrap();
+                        let item = Item {
+                            id: def.base,
+                            count: 1,
+                            custom: Some(index),
+                        };
+                        self.give_many(item, args.get(1).and_then(|c| c.parse().ok()).unwrap_or(1))
+                            .await?;
+                        Ok(self
+                            .message(&text::colored(
+                                &format!("{}을(를) 받았습니다.", def.name),
+                                &def.color,
+                            ))
+                            .await?)
+                    }
+                    None => {
+                        self.error(&format!("모르는 사용자 정의 아이템: {id} (/item list)"))
+                            .await
+                    }
+                },
+            },
             "summon" => match MobKind::by_name(rest) {
                 Some(kind) => {
                     // 바닐라처럼 명령어를 친 자리에
@@ -137,18 +283,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 let spawn = terrain::spawn_point(self.dimension, self.server.seed);
                 self.teleport_and_load(spawn).await
             }
-            "help" => {
-                for line in HELP {
-                    self.message(&text::plain(line)).await?;
-                }
-                Ok(())
-            }
-            "list" => {
-                let names: Vec<_> = self.server.players().into_iter().map(|p| p.name).collect();
-                let msg = format!("접속자 {}명: {}", names.len(), names.join(", "));
-                Ok(self.message(&text::plain(&msg)).await?)
-            }
-            "msg" | "tell" | "w" => {
+            "msg" => {
                 let (target, content) = rest.split_once(' ').unwrap_or((rest, ""));
                 self.whisper(target, &sanitize(content)).await
             }
@@ -171,7 +306,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     Ok(self.message(&text::colored(&msg, "green")).await?)
                 }
                 None => {
-                    self.error("사용법: /gamemode <survival|creative|adventure|spectator>")
+                    self.error("사용법: /gamemode <survival|creative|adventure|spectator> [이름]")
                         .await
                 }
             },
@@ -197,6 +332,22 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     .await
             }
         }
+    }
+
+    /// 여러 개를 최대 개수씩 나눠 넣습니다. 넣은 개수.
+    async fn give_many(&mut self, item: Item, count: i32) -> std::io::Result<i32> {
+        let max = custom_items::max_stack(&item);
+        let mut left = count.clamp(1, 64 * 36);
+        let total = left;
+        while left > 0 {
+            let n = left.min(max);
+            let taken = self.give(item.with_count(n)).await?;
+            left -= taken;
+            if taken < n {
+                break;
+            }
+        }
+        Ok(total - left)
     }
 
     async fn travel(&mut self, dimension: Dimension) -> Result<(), FrameError> {

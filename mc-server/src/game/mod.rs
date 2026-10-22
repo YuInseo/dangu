@@ -1,6 +1,7 @@
 //! 게임 진행: 틱마다 움직이는 엔티티, 상자 내용, 플레이어 저장.
 
 pub mod containers;
+pub mod custom_items;
 pub mod entities;
 pub mod mobs;
 pub mod playerdata;

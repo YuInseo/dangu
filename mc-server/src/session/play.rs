@@ -19,6 +19,7 @@ use crate::game::playerdata::{self, PlayerData};
 use crate::packets::chat as pch;
 use crate::packets::container as pc;
 use crate::packets::entity as pe;
+use crate::packets::hud;
 use crate::packets::play::{self as p, ChatKind, GameMode, ListedPlayer, Login, SpawnInfo};
 use crate::packets::world::{self as pw, Item};
 use crate::protocol::conn::{Conn, PacketWriter};
@@ -35,7 +36,7 @@ const SURVIVAL_TICK: Duration = Duration::from_millis(250);
 /// 이 시간 안에 keep-alive 응답이 없으면 끊습니다 (바닐라와 같은 30초).
 const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(30);
 /// 클라이언트가 더 멀리 보겠다고 해도 이만큼만 보냅니다.
-const MAX_VIEW_DISTANCE: i32 = 10;
+pub(super) const MAX_VIEW_DISTANCE: i32 = 10;
 /// 바닐라와 같은 채팅 길이 제한.
 const MAX_CHAT_LENGTH: usize = 256;
 
@@ -128,7 +129,7 @@ pub(super) struct Session<'a, W> {
     pub(super) server: &'a Server,
     pub(super) profile: Profile,
     pub(super) entity_id: i32,
-    view_distance: i32,
+    pub(super) view_distance: i32,
     pub(super) dimension: Dimension,
     pub(super) gamemode: GameMode,
     pub(super) position: (f64, f64, f64),
@@ -160,6 +161,18 @@ pub(super) struct Session<'a, W> {
     /// 저장해 둔 위치로 처음 들어갈 때.
     resume_at: Option<(f64, f64, f64)>,
     pub(super) chat: ChatState,
+    /// 사용자 정의 아이템 능력을 다시 쓸 수 있는 때.
+    pub(super) ability_ready: HashMap<String, Instant>,
+    /// 접속한 IP.
+    pub(super) ip: String,
+    pub(super) skin_parts: u8,
+    pub(super) main_arm: i32,
+    /// 크리에이티브·관전에서 날고 있는가.
+    pub(super) flying: bool,
+    /// 관전 중 빙의한 엔티티.
+    pub(super) camera: Option<i32>,
+    /// F3+F4가 보여 주는 이전 게임 모드.
+    pub(super) previous_gamemode: Option<GameMode>,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
@@ -202,6 +215,13 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             carried: None,
             resume_at: saved.map(|d| d.position),
             chat: ChatState::default(),
+            ability_ready: HashMap::new(),
+            ip: settings.ip.clone(),
+            skin_parts: settings.skin_parts,
+            main_arm: settings.main_hand.clamp(0, 1),
+            flying: false,
+            camera: None,
+            previous_gamemode: None,
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,
@@ -226,6 +246,10 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             properties: self.profile.properties.clone(),
             dead: self.vitals.dead,
             chat_session: self.chat_session(),
+            ip: self.ip.clone(),
+            skin_parts: self.skin_parts,
+            main_arm: self.main_arm,
+            sneaking: self.vitals.sneaking,
         }
     }
 
@@ -275,6 +299,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             // 클라이언트는 이 값을 바이옴 색 섞기에만 씁니다. 실제 시드를 줄 필요는 없습니다.
             hashed_seed: self.server.seed as i64,
             gamemode: self.gamemode,
+            previous: self.previous_gamemode,
         }
     }
 
@@ -288,10 +313,12 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             view_distance: self.view_distance,
             spawn: self.spawn_info(),
             online_mode: self.server.config.online_mode,
+            hardcore: self.server.config.hardcore,
         };
         self.send(p::LOGIN_ID, &login.encode()).await?;
-        self.send(p::COMMANDS_ID, &commands::tree().encode())
-            .await?;
+        self.send_difficulty(self.server.difficulty()).await?;
+        self.send_server_data().await?;
+        self.send_commands().await?;
 
         // 탭 목록: 나 자신과 이미 있던 사람들.
         let me = self.state();
@@ -324,6 +351,8 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         )
         .await?;
         self.send_health().await?;
+        self.broadcast_appearance().await?;
+        self.send_tab_list().await?;
         self.message(&text::colored(
             "순수 Rust 서버에 오신 것을 환영합니다! /help 로 명령어를 볼 수 있습니다.",
             "aqua",
@@ -368,6 +397,11 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             self.show_entity(&e).await?;
         }
         Ok(())
+    }
+
+    /// 이 클라이언트에 떠 있는 엔티티인가 (플레이어 포함).
+    pub(super) fn sees_entity(&self, id: i32) -> bool {
+        self.visible_entities.contains(&id) || self.visible.values().any(|&e| e == id)
     }
 
     async fn show_entity(&mut self, e: &crate::game::entities::Snapshot) -> std::io::Result<()> {
@@ -428,7 +462,19 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         Ok(())
     }
 
-    pub(super) async fn set_gamemode(&mut self, mode: GameMode) -> std::io::Result<()> {
+    pub(super) async fn set_gamemode(&mut self, mode: GameMode) -> Result<(), FrameError> {
+        if mode == self.gamemode {
+            return Ok(());
+        }
+        self.previous_gamemode = Some(self.gamemode);
+        if self.gamemode == GameMode::Spectator {
+            self.set_camera(None).await?;
+        }
+        if mode == GameMode::Spectator {
+            self.close_window(false).await?;
+        }
+        self.flying = mode == GameMode::Spectator;
+        self.reset_fall();
         self.gamemode = mode;
         let body = p::encode_game_event(p::GAME_EVENT_CHANGE_GAME_MODE, mode.id() as f32);
         self.send(p::GAME_EVENT_ID, &body).await?;
@@ -463,7 +509,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
     }
 
     /// 플레이어 주변 청크를 맞춥니다: 멀어진 것은 잊게 하고, 새로 들어온 것은 보냅니다.
-    async fn update_chunks(&mut self, force: bool) -> Result<(), FrameError> {
+    pub(super) async fn update_chunks(&mut self, force: bool) -> Result<(), FrameError> {
         let center = (
             (self.position.0.floor() as i32) >> 4,
             (self.position.2.floor() as i32) >> 4,
@@ -586,7 +632,11 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             }
             pw::SB_SET_CREATIVE_MODE_SLOT_ID => {
                 let (slot, item) = pw::decode_creative_slot(&packet.body)?;
-                self.set_creative_slot(slot, item);
+                if slot == -1 {
+                    self.creative_drop(item);
+                } else {
+                    self.set_creative_slot(slot, item);
+                }
             }
             pw::SB_SET_CARRIED_ITEM_ID => {
                 let slot = pw::decode_carried_item(&packet.body)?;
@@ -597,7 +647,11 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                 }
             }
             pw::SB_PICK_ITEM_FROM_BLOCK_ID => {
-                self.pick_block(pw::decode_pick_item_from_block(&packet.body)?)
+                self.pick_block_any_mode(pw::decode_pick_item_from_block(&packet.body)?)
+                    .await?;
+            }
+            pw::SB_PICK_ITEM_FROM_ENTITY_ID => {
+                self.pick_entity(hud::decode_varint_only(&packet.body)?)
                     .await?;
             }
             pe::SB_ATTACK_ID => self.attack(pe::decode_entity_id(&packet.body)?).await?,
@@ -606,14 +660,28 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                     self.respawn().await?;
                 }
             }
-            pe::SB_PLAYER_COMMAND_ID => match pe::decode_player_command(&packet.body)? {
-                pe::PLAYER_COMMAND_START_SPRINT => self.vitals.sprinting = true,
-                pe::PLAYER_COMMAND_STOP_SPRINT => self.vitals.sprinting = false,
-                _ => {}
-            },
+            pe::SB_PLAYER_COMMAND_ID => {
+                let sprinting = match pe::decode_player_command(&packet.body)? {
+                    pe::PLAYER_COMMAND_START_SPRINT => true,
+                    pe::PLAYER_COMMAND_STOP_SPRINT => false,
+                    _ => self.vitals.sprinting,
+                };
+                if sprinting != self.vitals.sprinting {
+                    self.vitals.sprinting = sprinting;
+                    self.broadcast_appearance().await?;
+                }
+            }
             p::SB_PLAYER_INPUT_ID => {
                 // 0x20 = 웅크리기
-                self.vitals.sneaking = packet.body.first().is_some_and(|f| f & 0x20 != 0);
+                let sneaking = packet.body.first().is_some_and(|f| f & 0x20 != 0);
+                if sneaking != self.vitals.sneaking {
+                    self.vitals.sneaking = sneaking;
+                    // 관전 중 웅크리면 빙의를 풉니다 (바닐라와 같음).
+                    if sneaking && self.camera.is_some() {
+                        self.set_camera(None).await?;
+                    }
+                    self.broadcast_appearance().await?;
+                }
             }
             pe::SB_USE_ITEM_ID => {
                 let (off_hand, sequence) = pe::decode_use_item(&packet.body)?;
@@ -626,8 +694,43 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                 entity_id: self.entity_id,
                 off_hand: false,
             }),
-            // 그 밖의 패킷(클라이언트 틱, 입력, 설정 등)은 아직 쓰지 않습니다.
-            _ => {}
+            hud::SB_CHANGE_GAME_MODE_ID => {
+                self.request_game_mode(hud::decode_change_game_mode(&packet.body)?)
+                    .await?
+            }
+            hud::SB_CHANGE_DIFFICULTY_ID => {
+                self.request_difficulty(hud::decode_varint_only(&packet.body)?)
+                    .await?
+            }
+            hud::SB_LOCK_DIFFICULTY_ID => {
+                self.request_lock_difficulty(hud::decode_bool_only(&packet.body)?)
+                    .await?
+            }
+            hud::SB_PING_REQUEST_ID => self.pong(hud::decode_i64_only(&packet.body)?).await?,
+            hud::SB_COMMAND_SUGGESTION_ID => {
+                let (id, line) = hud::decode_command_suggestion(&packet.body)?;
+                self.suggest(id, &line).await?;
+            }
+            hud::SB_CLIENT_INFORMATION_ID => self.client_information(&packet.body).await?,
+            hud::SB_PLAYER_ABILITIES_ID => {
+                self.player_abilities(packet.body.first().copied().unwrap_or(0))
+                    .await?
+            }
+            hud::SB_SPECTATOR_ACTION_ID => {
+                self.spectate(hud::decode_spectator_action(&packet.body)?)
+                    .await?
+            }
+            hud::SB_TELEPORT_TO_ENTITY_ID => {
+                self.spectator_teleport(hud::decode_uuid_only(&packet.body)?)
+                    .await?
+            }
+            p::SB_MOVE_PLAYER_STATUS_ONLY_ID => {
+                let grounded = on_ground(&packet.body, 0);
+                let old = self.position;
+                self.after_move(old, grounded).await?;
+            }
+            // 나머지는 [`super::ignored`]에 이유와 함께 적어 둔 것들입니다.
+            id => super::ignored::note(id),
         }
         Ok(())
     }
@@ -637,6 +740,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         let me = self.profile.uuid;
         match event {
             Event::Joined(state) if state.uuid != me => {
+                self.send_tab_list().await?;
                 if self.listed.insert(state.uuid) {
                     let entry = ListedPlayer {
                         uuid: state.uuid,
@@ -651,7 +755,11 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                     self.show(&state).await?;
                 }
             }
+            Event::PlayerData { uuid, body } if self.visible.contains_key(&uuid) => {
+                self.send(pe::SET_ENTITY_DATA_ID, &body).await?;
+            }
             Event::Left { uuid, .. } if uuid != me => {
+                self.send_tab_list().await?;
                 self.hide(uuid).await?;
                 if self.listed.remove(&uuid) {
                     self.send(
@@ -874,6 +982,28 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                 )
                 .await?;
             }
+            Event::Kick { uuid, reason } if uuid == me => {
+                let body = p::encode_disconnect(&text::plain(&reason));
+                self.send(p::DISCONNECT_ID, &body).await?;
+                return Err(FrameError::Io(std::io::ErrorKind::ConnectionAborted.into()));
+            }
+            Event::PermissionsChanged { uuid } if uuid.is_none_or(|u| u == me) => {
+                self.send_commands().await?
+            }
+            Event::SetGameMode { uuid, gamemode } if uuid == me => {
+                self.set_gamemode(gamemode).await?;
+                let msg = format!(
+                    "게임 모드가 {}(으)로 바뀌었습니다.",
+                    gamemode.display_name()
+                );
+                self.message(&text::colored(&msg, "green")).await?;
+            }
+            Event::DifficultyChanged(d) => {
+                self.send_difficulty(d).await?;
+                self.send_tab_list().await?;
+            }
+            Event::Title { uuid, title } if uuid == me => self.show_title(&title).await?,
+            Event::SavePlayers => self.save(),
             Event::ContainerChanged {
                 dimension,
                 pos,
@@ -898,6 +1028,16 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         Ok(())
     }
 
+    /// 권한에 맞는 명령어 목록과 OP 단계를 보냅니다 (접속 때, 권한이 바뀔 때).
+    pub(super) async fn send_commands(&mut self) -> std::io::Result<()> {
+        let tree = commands::tree(self.server, self.profile.uuid);
+        self.send(p::COMMANDS_ID, &tree.encode()).await?;
+        // Entity Event 24~28 = OP 0~4단계: F3+F4 게임 모드 전환 등 클라이언트 기능이 켜집니다.
+        let level = self.server.perms.op_level(self.profile.uuid);
+        let body = pe::encode_entity_event(self.entity_id, 24 + level as i8);
+        self.send(pe::ENTITY_EVENT_ID, &body).await
+    }
+
     /// 다른 플레이어를 엔티티로 띄웁니다 (이미 떠 있으면 그대로).
     async fn show(&mut self, other: &PlayerState) -> std::io::Result<()> {
         if self.visible.contains_key(&other.uuid) || !self.listed.contains(&other.uuid) {
@@ -911,6 +1051,14 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             other.pitch,
         );
         self.send(p::ADD_ENTITY_ID, &body).await?;
+        let looks = pe::encode_player_data(
+            other.entity_id,
+            other.sneaking,
+            false,
+            other.skin_parts,
+            other.main_arm,
+        );
+        self.send(pe::SET_ENTITY_DATA_ID, &looks).await?;
         if other.main_hand.is_some() || other.off_hand.is_some() {
             let body = pw::encode_hands(other.entity_id, other.main_hand, other.off_hand);
             self.send(pw::SET_EQUIPMENT_ID, &body).await?;

@@ -107,6 +107,7 @@ ITEM_BLOCK_EXCEPTIONS = {
 # 쓰는 엔티티 종류.
 ENTITY_TYPES = [
     ("PLAYER", "player"),
+    ("LIGHTNING_BOLT", "lightning_bolt"),
     ("ITEM", "item"),
     ("COW", "cow"),
     ("PIG", "pig"),
@@ -116,6 +117,39 @@ ENTITY_TYPES = [
     ("SKELETON", "skeleton"),
     ("CREEPER", "creeper"),
     ("SPIDER", "spider"),
+]
+
+# 아이템 컴포넌트 (`data_component_type`): 사용자 정의 아이템에 씁니다.
+COMPONENTS = [
+    ("CUSTOM_DATA", "custom_data"),
+    ("MAX_STACK_SIZE", "max_stack_size"),
+    ("CUSTOM_NAME", "custom_name"),
+    ("ITEM_NAME", "item_name"),
+    ("ITEM_MODEL", "item_model"),
+    ("LORE", "lore"),
+    ("RARITY", "rarity"),
+    ("ENCHANTMENT_GLINT_OVERRIDE", "enchantment_glint_override"),
+    ("FOOD", "food"),
+]
+
+# 소리 (`sound_event` 레지스트리).
+SOUNDS = [
+    ("THUNDER", "entity.lightning_bolt.thunder"),
+    ("TELEPORT", "entity.enderman.teleport"),
+    ("LEVEL_UP", "entity.player.levelup"),
+    ("LAUNCH", "entity.firework_rocket.launch"),
+    ("EXPERIENCE_ORB", "entity.experience_orb.pickup"),
+]
+
+# 내용 없는 입자 (`particle_type`).
+PARTICLES = [
+    ("HEART", "heart"),
+    ("PORTAL", "portal"),
+    ("CLOUD", "cloud"),
+    ("END_ROD", "end_rod"),
+    ("CRIT", "crit"),
+    ("HAPPY_VILLAGER", "happy_villager"),
+    ("ELECTRIC_SPARK", "electric_spark"),
 ]
 
 # 열 수 있는 창 종류 (`menu` 레지스트리).
@@ -191,6 +225,7 @@ ARGUMENT_TYPES = [
     ("MESSAGE", "message"),
     ("ITEM_STACK", "item_stack"),
     ("INTEGER", "brigadier:integer"),
+    ("STRING", "brigadier:string"),
 ]
 
 
@@ -433,6 +468,13 @@ def main():
         w(f"    ({d[0]}, {d[1]}, {d[2]}, {d[3]})," if d else "    (-1, 0, 0, 0),")
     w("];")
     w("")
+    for mod, table, key in [("component", COMPONENTS, "data_component_type"), ("sound", SOUNDS, "sounds"), ("particle", PARTICLES, "particles")]:
+        w(f"/// `{key}` 네트워크 ID.")
+        w(f"pub mod {mod} {{")
+        for name, k in table:
+            w(f"    pub const {name}: i32 = {mapping[key].index(k)};")
+        w("}")
+        w("")
     w("/// 열 수 있는 창 종류의 네트워크 ID.")
     w("pub mod menu {")
     for name, key in MENUS:

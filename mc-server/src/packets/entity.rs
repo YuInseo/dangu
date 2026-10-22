@@ -98,6 +98,51 @@ const DATA_ITEM: i32 = 7;
 /// `ItemEntity`의 아이템은 기본 엔티티 데이터 8개(0..7) 다음인 8번.
 const ITEM_ENTITY_STACK_INDEX: u8 = 8;
 
+/// 엔티티 데이터 종류: byte, pose, 팔.
+const DATA_BYTE: i32 = 0;
+const DATA_POSE: i32 = 20;
+const DATA_HUMANOID_ARM: i32 = 42;
+/// 플레이어(`Avatar`) 데이터 위치: 0 상태 플래그, 6 자세, 15 주 손, 16 겉옷 레이어.
+const FLAGS_INDEX: u8 = 0;
+const POSE_INDEX: u8 = 6;
+const MAIN_HAND_INDEX: u8 = 15;
+const SKIN_PARTS_INDEX: u8 = 16;
+const POSE_STANDING: i32 = 0;
+const POSE_CROUCHING: i32 = 5;
+
+/// 다른 사람에게 보이는 플레이어 모습: 웅크림·달리기, 겉옷 레이어, 주 손.
+pub fn encode_player_data(
+    id: i32,
+    sneaking: bool,
+    sprinting: bool,
+    skin_parts: u8,
+    main_arm: i32,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_varint(&mut out, id);
+    out.push(FLAGS_INDEX);
+    write_varint(&mut out, DATA_BYTE);
+    out.push(if sneaking { 0x02 } else { 0 } | if sprinting { 0x08 } else { 0 });
+    out.push(POSE_INDEX);
+    write_varint(&mut out, DATA_POSE);
+    write_varint(
+        &mut out,
+        if sneaking {
+            POSE_CROUCHING
+        } else {
+            POSE_STANDING
+        },
+    );
+    out.push(MAIN_HAND_INDEX);
+    write_varint(&mut out, DATA_HUMANOID_ARM);
+    write_varint(&mut out, main_arm);
+    out.push(SKIN_PARTS_INDEX);
+    write_varint(&mut out, DATA_BYTE);
+    out.push(skin_parts);
+    out.push(0xFF);
+    out
+}
+
 /// 떨어진 아이템 엔티티가 무엇인지.
 pub fn encode_item_entity_data(id: i32, item: Item) -> Vec<u8> {
     let mut out = Vec::new();

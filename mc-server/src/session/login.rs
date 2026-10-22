@@ -14,7 +14,11 @@ use crate::server::Server;
 use crate::uuid::{format_uuid, offline_uuid, random_uuid};
 
 /// 끝까지 가면 프로필, 도중에 사유를 보내고 끊었으면 `None`.
-pub async fn run<S>(conn: &mut Conn<S>, server: &Server) -> Result<Option<Profile>, FrameError>
+pub async fn run<S>(
+    conn: &mut Conn<S>,
+    server: &Server,
+    ip: &str,
+) -> Result<Option<Profile>, FrameError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {
@@ -47,6 +51,13 @@ where
         }
     );
 
+    if let Some(reason) = refusal(server, &profile, ip) {
+        println!("{} 접속 거부: {reason}", profile.name);
+        conn.write_packet(login::DISCONNECT_ID, &login::encode_disconnect(&reason))
+            .await?;
+        return Ok(None);
+    }
+
     // 압축은 암호화 다음, Login Finished 전에 켭니다 (Set Compression 자체는 압축하지 않음).
     if let Some(threshold) = server.config.compression_threshold {
         conn.write_packet(
@@ -71,6 +82,45 @@ where
         return Err(unknown("login", packet.id));
     }
     Ok(Some(profile))
+}
+
+/// 밴·IP 밴·화이트리스트 확인. 처음 들어온 `initial_ops`는 여기서 OP 4가 됩니다.
+fn refusal(server: &Server, profile: &Profile, ip: &str) -> Option<String> {
+    let initial = server
+        .config
+        .initial_ops
+        .iter()
+        .any(|n| n.eq_ignore_ascii_case(&profile.name));
+    let (is_op, stale_name) = server.perms.read(|d| {
+        let op = d.ops.iter().find(|o| o.uuid == profile.uuid);
+        (op.is_some(), op.is_some_and(|o| o.name != profile.name))
+    });
+    if (initial && !is_op) || stale_name {
+        server.perms.update(
+            |d| match d.ops.iter_mut().find(|o| o.uuid == profile.uuid) {
+                // 이름이 바뀌었으면 기록도 따라갑니다.
+                Some(op) => op.name.clone_from(&profile.name),
+                None => d.ops.push(crate::perms::Op {
+                    uuid: profile.uuid,
+                    name: profile.name.clone(),
+                    level: 4,
+                }),
+            },
+        );
+    }
+    let level = server.perms.op_level(profile.uuid);
+    server.perms.read(|d| {
+        if let Some(b) = d.banned(profile.uuid) {
+            return Some(format!("이 서버에서 차단되었습니다.\n사유: {}", b.reason));
+        }
+        if let Some(b) = d.ip_banned(ip) {
+            return Some(format!("이 IP는 차단되었습니다.\n사유: {}", b.reason));
+        }
+        if d.whitelist_enabled && level == 0 && !d.whitelisted(profile.uuid) {
+            return Some("화이트리스트에 없습니다.".to_owned());
+        }
+        None
+    })
 }
 
 /// 오프라인: 바닐라처럼 이름에서 UUID를 만들고, 설정에 따라 같은 이름의 정품 스킨을 빌립니다.

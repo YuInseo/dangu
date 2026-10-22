@@ -8,11 +8,13 @@ use crate::protocol::varint::write_varint;
 
 enum Kind {
     Root,
-    Literal(&'static str),
+    Literal(std::borrow::Cow<'static, str>),
     Argument {
         name: &'static str,
         parser: i32,
         properties: &'static [u8],
+        /// 서버에 자동 완성을 물어보는가 (`minecraft:ask_server`).
+        ask_server: bool,
     },
 }
 
@@ -53,8 +55,13 @@ impl CommandTree {
         id
     }
 
-    pub fn literal(&mut self, parent: usize, name: &'static str, executable: bool) -> usize {
-        self.push(parent, Kind::Literal(name), executable)
+    pub fn literal(
+        &mut self,
+        parent: usize,
+        name: impl Into<std::borrow::Cow<'static, str>>,
+        executable: bool,
+    ) -> usize {
+        self.push(parent, Kind::Literal(name.into()), executable)
     }
 
     /// 속성이 없는 파서만 받습니다 (`game_profile`, `message` 등).
@@ -71,6 +78,7 @@ impl CommandTree {
                 name,
                 parser,
                 properties: &[],
+                ask_server: false,
             },
             executable,
         )
@@ -91,6 +99,28 @@ impl CommandTree {
                 name,
                 parser,
                 properties,
+                ask_server: false,
+            },
+            executable,
+        )
+    }
+
+    /// 후보를 서버가 주는 인자: 클라이언트가 칠 때마다 `Command Suggestion`을 보냅니다.
+    pub fn argument_ask_server(
+        &mut self,
+        parent: usize,
+        name: &'static str,
+        parser: i32,
+        properties: &'static [u8],
+        executable: bool,
+    ) -> usize {
+        self.push(
+            parent,
+            Kind::Argument {
+                name,
+                parser,
+                properties,
+                ask_server: true,
             },
             executable,
         )
@@ -100,27 +130,38 @@ impl CommandTree {
         let mut out = Vec::new();
         write_varint(&mut out, self.nodes.len() as i32);
         for node in &self.nodes {
-            let kind = match node.kind {
+            let kind = match &node.kind {
                 Kind::Root => 0,
                 Kind::Literal(_) => 1,
                 Kind::Argument { .. } => 2,
             };
-            out.push(kind | if node.executable { 0x04 } else { 0 });
+            let ask = matches!(
+                node.kind,
+                Kind::Argument {
+                    ask_server: true,
+                    ..
+                }
+            );
+            out.push(kind | if node.executable { 0x04 } else { 0 } | if ask { 0x10 } else { 0 });
             write_varint(&mut out, node.children.len() as i32);
             for &c in &node.children {
                 write_varint(&mut out, c as i32);
             }
-            match node.kind {
+            match &node.kind {
                 Kind::Root => {}
                 Kind::Literal(name) => write_string(&mut out, name),
                 Kind::Argument {
                     name,
                     parser,
                     properties,
+                    ask_server,
                 } => {
                     write_string(&mut out, name);
-                    write_varint(&mut out, parser);
+                    write_varint(&mut out, *parser);
                     out.extend_from_slice(properties);
+                    if *ask_server {
+                        write_string(&mut out, "minecraft:ask_server");
+                    }
                 }
             }
         }

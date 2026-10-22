@@ -69,6 +69,24 @@ pub fn decode_known_packs(mut buf: &[u8]) -> Result<Vec<KnownPack>, DecodeError>
         .collect()
 }
 
+/// `Client Information`: 언어, 시야 거리, 채팅 설정, 채팅 색, 겉옷 레이어, 주 손, …
+/// (Configuration과 Play에서 같은 형식)
+pub fn apply_client_information(
+    mut buf: &[u8],
+    s: &mut crate::session::ClientSettings,
+) -> Result<(), DecodeError> {
+    read_string(&mut buf, 16)?;
+    let view = *buf.first().ok_or(DecodeError::UnexpectedEof)?;
+    buf = &buf[1..];
+    s.view_distance = (view as i8).max(2) as u8;
+    read_varint(&mut buf)?; // 채팅 모드
+    buf = buf.get(1..).ok_or(DecodeError::UnexpectedEof)?; // 채팅 색
+    s.skin_parts = *buf.first().ok_or(DecodeError::UnexpectedEof)?;
+    buf = &buf[1..];
+    s.main_hand = read_varint(&mut buf)?;
+    Ok(())
+}
+
 /// `Client Information`에서 우리가 쓰는 것: 시야 거리(청크).
 pub fn decode_view_distance(mut buf: &[u8]) -> Result<u8, DecodeError> {
     read_string(&mut buf, 16)?; // locale

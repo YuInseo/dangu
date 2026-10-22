@@ -33,6 +33,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             PlayerAction::Other(4) => self.drop_held(true).await?,
             PlayerAction::Other(5) => self.drop_held(false).await?,
             PlayerAction::Other(6) => self.stop_using_item(),
+            PlayerAction::Other(7) => self.swap_hands().await?,
             _ => {}
         }
         if !matches!(
@@ -134,7 +135,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 // 물·용암 양동이는 빈 양동이가 됩니다.
                 let name = items::name(item.id);
                 self.inventory[slot] = if name.ends_with("_bucket") {
-                    items::by_name("bucket").map(|id| Item { id, count: 1 })
+                    items::by_name("bucket").map(|id| Item::new(id, 1))
                 } else {
                     Some(Item {
                         count: item.count - 1,
@@ -266,7 +267,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         let Some(item) = blocks::item_for_block(blocks::block_of(state)) else {
             return Ok(());
         };
-        let item = Some(Item { id: item, count: 1 });
+        let item = Some(Item::new(item, 1));
         // 이미 핫바에 있으면 그 칸을 고르고, 없으면 지금 칸에 넣습니다.
         let existing = (0..9).find(|&i| self.inventory[36 + i].map(|x| x.id) == item.map(|x| x.id));
         match existing {

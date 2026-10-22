@@ -41,13 +41,22 @@ async fn main() -> std::io::Result<()> {
             .ok()
             .and_then(|m| mc_server::packets::play::GameMode::from_name(&m))
             .unwrap_or(mc_server::packets::play::GameMode::Survival),
-        // ops.txt에 해당: 쉼표로 구분한 이름. 없으면 모두가 관리자.
-        ops: std::env::var("MC_OPS").ok().map(|v| {
-            v.split(',')
-                .map(|s| s.trim().to_owned())
-                .filter(|s| !s.is_empty())
-                .collect()
-        }),
+        // 켜면 모두가 OP 4 (혼자 시험할 때). 끄면 ops.json과 권한 파일을 따릅니다.
+        everyone_op: env_flag("MC_EVERYONE_OP", false),
+        // 처음 들어오면 OP 4가 되는 이름들 (쉼표로 구분). ops.json에 기록됩니다.
+        initial_ops: std::env::var("MC_OPS")
+            .map(|v| {
+                v.split(',')
+                    .map(|s| s.trim().to_owned())
+                    .filter(|s| !s.is_empty())
+                    .collect()
+            })
+            .unwrap_or_default(),
+        difficulty: std::env::var("MC_DIFFICULTY")
+            .ok()
+            .and_then(|d| mc_server::server::Difficulty::from_name(&d))
+            .unwrap_or(mc_server::server::Difficulty::Normal),
+        hardcore: env_flag("MC_HARDCORE", false),
     };
     let server = Arc::new(Server::open(info, seed, world_dir.clone())?.with_config(config.clone()));
     if config.online_mode {
@@ -66,8 +75,8 @@ async fn main() -> std::io::Result<()> {
             }
         }
     }
-    if config.ops.is_none() {
-        println!("MC_OPS가 없어 모든 접속자가 관리자 명령어를 쓸 수 있습니다.");
+    if config.everyone_op {
+        println!("MC_EVERYONE_OP: 모든 접속자가 OP 4단계입니다.");
     }
     println!(
         "정품 인증 {}, 압축 {}",
@@ -96,16 +105,40 @@ async fn main() -> std::io::Result<()> {
         let mut tick = tokio::time::interval(AUTOSAVE_INTERVAL);
         loop {
             tick.tick().await;
-            save(&saver);
+            saver.save_all();
         }
     });
+    tokio::spawn(console(Arc::clone(&server)));
 
     tokio::select! {
         result = mc_server::serve(listener, Arc::clone(&server)) => result?,
         _ = tokio::signal::ctrl_c() => println!("끄는 중…"),
+        _ = server.shutdown.notified() => println!("/stop: 끄는 중…"),
     }
-    save(&server);
+    server.save_all();
+    // 세션들이 플레이어를 저장할 틈
+    tokio::time::sleep(Duration::from_millis(300)).await;
     Ok(())
+}
+
+/// 표준 입력의 줄을 콘솔 명령어로 (`/`는 있어도 없어도 됨). 콘솔은 모든 권한을 가집니다.
+async fn console(server: Arc<Server>) {
+    use tokio::io::AsyncBufReadExt;
+    let mut lines = tokio::io::BufReader::new(tokio::io::stdin()).lines();
+    while let Ok(Some(line)) = lines.next_line().await {
+        let line = line.trim().trim_start_matches('/');
+        if line.is_empty() {
+            continue;
+        }
+        let mut words = line.split_whitespace();
+        let name = words.next().unwrap_or_default();
+        let args: Vec<&str> = words.collect();
+        let actor = mc_server::admin::Actor::console();
+        match mc_server::admin::run(&server, &actor, name, &args) {
+            Some(out) => out.iter().for_each(|l| println!("{l}")),
+            None => println!("콘솔에서 쓸 수 없는 명령어입니다: /{name}"),
+        }
+    }
 }
 
 fn env_flag(name: &str, default: bool) -> bool {
@@ -113,19 +146,5 @@ fn env_flag(name: &str, default: bool) -> bool {
         Ok("true" | "1" | "yes" | "on") => true,
         Ok("false" | "0" | "no" | "off") => false,
         _ => default,
-    }
-}
-
-fn save(server: &Server) {
-    if let Err(e) = server.containers.save() {
-        eprintln!("상자 저장 실패: {e}");
-    }
-    match server.world.save() {
-        Ok(true) => println!(
-            "월드 저장: 바뀐 블록 {}개",
-            server.world.changed_block_count()
-        ),
-        Ok(false) => {}
-        Err(e) => eprintln!("월드 저장 실패: {e}"),
     }
 }

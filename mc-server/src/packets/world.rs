@@ -17,6 +17,7 @@ pub const SWING_ANIMATION_ID: i32 = 0x7B;
 
 // Serverbound — ViaVersion `ServerboundPackets26_3`.
 pub const SB_PICK_ITEM_FROM_BLOCK_ID: i32 = 0x24;
+pub const SB_PICK_ITEM_FROM_ENTITY_ID: i32 = 0x25;
 pub const SB_PLAYER_ACTION_ID: i32 = 0x29;
 /// 26.3: 휘두르기(왼클릭·채굴 중 매 틱). 내용 없음.
 pub const SB_PUNCH_ID: i32 = 0x2E;
@@ -213,28 +214,59 @@ pub fn decode_use_item_on(mut buf: &[u8]) -> Result<UseItemOn, DecodeError> {
     })
 }
 
-/// 아이템 한 묶음. 컴포넌트(이름, 마법 부여 등)는 아직 다루지 않습니다.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// 아이템 한 묶음. 바닐라 아이템이면 컴포넌트가 없고, 우리만의 아이템이면 `custom`이
+/// [`crate::game::custom_items`]의 번호를 가리켜 이름·모델·설명 등 컴포넌트가 붙습니다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Item {
     pub id: i32,
     pub count: i32,
+    pub custom: Option<u16>,
 }
 
-/// `Slot`: 개수 VarInt, 0이 아니면 아이템 ID와 컴포넌트 추가·제거 개수.
+impl Item {
+    pub fn new(id: i32, count: i32) -> Self {
+        Self {
+            id,
+            count,
+            custom: None,
+        }
+    }
+
+    /// 개수만 바꾼 것.
+    pub fn with_count(self, count: i32) -> Self {
+        Self { count, ..self }
+    }
+
+    /// 같은 칸에 쌓일 수 있는가 (종류와 사용자 정의가 같음).
+    pub fn stacks_with(&self, other: &Item) -> bool {
+        self.id == other.id && self.custom == other.custom
+    }
+}
+
+/// `Slot`: 개수 VarInt, 0이 아니면 아이템 ID와 컴포넌트 추가·제거 개수, 그리고 컴포넌트들.
 pub fn write_slot(out: &mut Vec<u8>, item: Option<Item>) {
     match item {
-        Some(Item { id, count }) if count > 0 => {
-            write_varint(out, count);
-            write_varint(out, id);
+        Some(item) if item.count > 0 => {
+            write_varint(out, item.count);
+            write_varint(out, item.id);
+            let components = item
+                .custom
+                .map(crate::game::custom_items::components)
+                .unwrap_or_default();
+            write_varint(out, components.len() as i32);
             write_varint(out, 0);
-            write_varint(out, 0);
+            for (kind, data) in components {
+                write_varint(out, kind);
+                out.extend_from_slice(&data);
+            }
         }
         _ => write_varint(out, 0),
     }
 }
 
-/// `Set Creative Mode Slot`: 슬롯 번호(인벤토리 메뉴 기준)와 아이템. 컴포넌트는 건너뜁니다
-/// — 마지막 필드라 읽지 않아도 됩니다.
+/// `Set Creative Mode Slot`: 슬롯 번호(인벤토리 메뉴 기준)와 아이템. 크리에이티브 창에서 온
+/// 아이템은 컴포넌트가 길이 접두사와 함께 오므로(`UntrustedSlot`), 우리 아이템 표시
+/// (`custom_data`)를 찾아 사용자 정의 아이템으로 되돌립니다.
 pub fn decode_creative_slot(mut buf: &[u8]) -> Result<(i16, Option<Item>), DecodeError> {
     let slot = i16::from_be_bytes([read_u8(&mut buf)?, read_u8(&mut buf)?]);
     let count = read_varint(&mut buf)?;
@@ -242,7 +274,26 @@ pub fn decode_creative_slot(mut buf: &[u8]) -> Result<(i16, Option<Item>), Decod
         return Ok((slot, None));
     }
     let id = read_varint(&mut buf)?;
-    Ok((slot, Some(Item { id, count })))
+    let mut custom = None;
+    let added = read_varint(&mut buf)?;
+    if !(0..=256).contains(&added) {
+        return Err(DecodeError::InvalidValue("component count"));
+    }
+    for _ in 0..added {
+        let kind = read_varint(&mut buf)?;
+        let len = read_varint(&mut buf)?;
+        let len = usize::try_from(len)
+            .ok()
+            .filter(|&l| l <= buf.len())
+            .ok_or(DecodeError::UnexpectedEof)?;
+        let (data, rest) = buf.split_at(len);
+        buf = rest;
+        if kind == crate::data::component::CUSTOM_DATA {
+            custom = crate::protocol::nbt::find_string(data, crate::game::custom_items::TAG_KEY)
+                .and_then(|name| crate::game::custom_items::index_of(&name));
+        }
+    }
+    Ok((slot, Some(Item { id, count, custom })))
 }
 
 pub fn decode_carried_item(buf: &[u8]) -> Result<i16, DecodeError> {

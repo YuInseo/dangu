@@ -1,5 +1,6 @@
 //! 프레임워크 없이 tokio만으로 짜는 마인크래프트 Java Edition 26.3 서버.
 
+pub mod admin;
 pub mod auth;
 pub mod chat;
 pub mod connection;
@@ -8,6 +9,7 @@ pub mod data;
 pub mod game;
 pub mod json;
 pub mod packets;
+pub mod perms;
 pub mod protocol;
 pub mod server;
 pub mod session;
@@ -38,7 +40,7 @@ pub async fn serve(listener: TcpListener, server: Arc<Server>) -> std::io::Resul
         stream.set_nodelay(true)?;
         let server = Arc::clone(&server);
         tokio::spawn(async move {
-            if let Err(e) = connection::handle(stream, &server).await {
+            if let Err(e) = connection::handle(stream, &server, peer.ip().to_string()).await {
                 eprintln!("[{peer}] 연결 종료: {e}");
             }
         });

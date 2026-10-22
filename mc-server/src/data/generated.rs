@@ -5551,6 +5551,39 @@ pub const BLOCK_DROPS: &[(i16, u8, u8, u16)] = &[
     (245, 1, 1, 1000),
 ];
 
+/// `data_component_type` 네트워크 ID.
+pub mod component {
+    pub const CUSTOM_DATA: i32 = 0;
+    pub const MAX_STACK_SIZE: i32 = 1;
+    pub const CUSTOM_NAME: i32 = 6;
+    pub const ITEM_NAME: i32 = 9;
+    pub const ITEM_MODEL: i32 = 10;
+    pub const LORE: i32 = 11;
+    pub const RARITY: i32 = 12;
+    pub const ENCHANTMENT_GLINT_OVERRIDE: i32 = 21;
+    pub const FOOD: i32 = 23;
+}
+
+/// `sounds` 네트워크 ID.
+pub mod sound {
+    pub const THUNDER: i32 = 941;
+    pub const TELEPORT: i32 = 603;
+    pub const LEVEL_UP: i32 = 1321;
+    pub const LAUNCH: i32 = 636;
+    pub const EXPERIENCE_ORB: i32 = 622;
+}
+
+/// `particles` 네트워크 ID.
+pub mod particle {
+    pub const HEART: i32 = 55;
+    pub const PORTAL: i32 = 70;
+    pub const CLOUD: i32 = 11;
+    pub const END_ROD: i32 = 27;
+    pub const CRIT: i32 = 13;
+    pub const HAPPY_VILLAGER: i32 = 53;
+    pub const ELECTRIC_SPARK: i32 = 113;
+}
+
 /// 열 수 있는 창 종류의 네트워크 ID.
 pub mod menu {
     pub const GENERIC_9X3: i32 = 2;
@@ -5563,6 +5596,7 @@ pub const ITEM_NAMES: &[&str] = &["air", "stone", "granite", "polished_granite",
 /// 엔티티 종류의 네트워크 ID.
 pub mod entity_type {
     pub const PLAYER: i32 = 159;
+    pub const LIGHTNING_BOLT: i32 = 78;
     pub const ITEM: i32 = 72;
     pub const COW: i32 = 30;
     pub const PIG: i32 = 101;
@@ -5580,6 +5614,7 @@ pub mod argument_type {
     pub const MESSAGE: i32 = 20;
     pub const ITEM_STACK: i32 = 14;
     pub const INTEGER: i32 = 3;
+    pub const STRING: i32 = 5;
 }
 
 /// Configuration 단계에서 보내는 레지스트리와 그 항목. 항목 순서가 곧 네트워크 ID입니다.

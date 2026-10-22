@@ -79,8 +79,111 @@ fn write_nbt_string(out: &mut Vec<u8>, s: &str) {
     out.extend_from_slice(&bytes[..len]);
 }
 
+/// 이름 없는 루트 컴파운드에서 문자열 `key`의 값을 찾습니다 (맨 윗단계만).
+/// 잘못된 NBT면 None.
+pub fn find_string(bytes: &[u8], key: &str) -> Option<String> {
+    let mut r = Reader(bytes);
+    if r.u8()? != TAG_COMPOUND {
+        return None;
+    }
+    loop {
+        let kind = r.u8()?;
+        if kind == TAG_END {
+            return None;
+        }
+        let name = r.string()?;
+        if kind == TAG_STRING && name == key {
+            return r.string();
+        }
+        r.skip(kind, 0)?;
+    }
+}
+
+struct Reader<'a>(&'a [u8]);
+
+impl Reader<'_> {
+    fn take(&mut self, n: usize) -> Option<&[u8]> {
+        if self.0.len() < n {
+            return None;
+        }
+        let (h, rest) = self.0.split_at(n);
+        self.0 = rest;
+        Some(h)
+    }
+
+    fn u8(&mut self) -> Option<u8> {
+        Some(self.take(1)?[0])
+    }
+
+    fn i32(&mut self) -> Option<i32> {
+        Some(i32::from_be_bytes(self.take(4)?.try_into().ok()?))
+    }
+
+    fn string(&mut self) -> Option<String> {
+        let len = u16::from_be_bytes(self.take(2)?.try_into().ok()?) as usize;
+        Some(String::from_utf8_lossy(self.take(len)?).into_owned())
+    }
+
+    /// 내용 하나를 건너뜁니다. 깊이 제한으로 악의적인 중첩을 막습니다.
+    fn skip(&mut self, kind: u8, depth: u32) -> Option<()> {
+        if depth > 32 {
+            return None;
+        }
+        match kind {
+            1 => self.take(1).map(|_| ()),
+            2 => self.take(2).map(|_| ()),
+            3 | 5 => self.take(4).map(|_| ()),
+            4 | 6 => self.take(8).map(|_| ()),
+            7 => {
+                let n = usize::try_from(self.i32()?).ok()?;
+                self.take(n).map(|_| ())
+            }
+            8 => self.string().map(|_| ()),
+            9 => {
+                let elem = self.u8()?;
+                let n = self.i32()?.max(0);
+                for _ in 0..n {
+                    self.skip(elem, depth + 1)?;
+                }
+                Some(())
+            }
+            10 => loop {
+                let k = self.u8()?;
+                if k == TAG_END {
+                    return Some(());
+                }
+                self.string()?;
+                self.skip(k, depth + 1)?;
+            },
+            11 => {
+                let n = usize::try_from(self.i32()?).ok()?;
+                self.take(n * 4).map(|_| ())
+            }
+            12 => {
+                let n = usize::try_from(self.i32()?).ok()?;
+                self.take(n * 8).map(|_| ())
+            }
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn finds_string_after_other_tags() {
+        let tag = Tag::Compound(vec![
+            ("x".into(), Tag::Byte(1)),
+            ("list".into(), Tag::List(vec![Tag::String("a".into())])),
+            ("dangu:item".into(), Tag::String("sword".into())),
+        ]);
+        let mut out = Vec::new();
+        tag.write_root(&mut out);
+        assert_eq!(find_string(&out, "dangu:item").as_deref(), Some("sword"));
+        assert_eq!(find_string(&out, "nope"), None);
+        assert_eq!(find_string(&out[..5], "dangu:item"), None);
+    }
+
     use super::*;
 
     #[test]

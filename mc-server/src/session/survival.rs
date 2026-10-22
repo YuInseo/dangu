@@ -13,7 +13,7 @@ use crate::packets::entity as pe;
 use crate::packets::play::{self as p, GameMode};
 use crate::packets::world::{self as pw, Item};
 use crate::protocol::frame::FrameError;
-use crate::server::Event;
+use crate::server::{Difficulty, Event};
 use crate::text;
 use crate::world::Dimension;
 
@@ -40,6 +40,8 @@ pub struct Vitals {
     invulnerable_until: Instant,
     pub sprinting: bool,
     pub sneaking: bool,
+    /// 다음 착지까지 낙하 피해 없음 (도약의 깃털).
+    pub fall_immune: bool,
     /// (보조 손인가, 아이템, 시작)
     eating: Option<(bool, i32, Instant)>,
     ticks: u32,
@@ -58,6 +60,7 @@ impl Default for Vitals {
             invulnerable_until: Instant::now(),
             sprinting: false,
             sneaking: false,
+            fall_immune: false,
             eating: None,
             ticks: 0,
         }
@@ -135,7 +138,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             *peak = peak.max(new.1);
         } else if let Some(peak) = self.vitals.fall_peak.take() {
             let distance = peak - new.1;
-            if distance > 3.0 {
+            if std::mem::take(&mut self.vitals.fall_immune) {
+                // 도약 뒤 첫 착지
+            } else if distance > 3.0 {
                 self.damage((distance - 3.0).floor() as f32, "fall", None, "")
                     .await?;
             }
@@ -194,11 +199,17 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if t.is_multiple_of(REGEN_EVERY) {
             let v = &mut self.vitals;
             let mut changed = false;
-            if v.food >= 18 && v.health < MAX_HEALTH {
+            let difficulty = self.server.difficulty();
+            if difficulty == Difficulty::Peaceful {
+                // 평화로움: 배고픔 없이 저절로 회복
+                changed = v.health < MAX_HEALTH || v.food < 20;
+                v.health = (v.health + 1.0).min(MAX_HEALTH);
+                v.food = (v.food + 1).min(20);
+            } else if v.food >= 18 && v.health < MAX_HEALTH {
                 v.health = (v.health + 1.0).min(MAX_HEALTH);
                 v.exhaust(6.0);
                 changed = true;
-            } else if v.food == 0 && v.health > 1.0 {
+            } else if v.food == 0 && v.health > difficulty.starvation_floor() {
                 self.damage(1.0, "starve", None, "").await?;
             }
             if changed {
@@ -318,6 +329,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             from,
             state: self.state(),
         });
+        if self.hardcore_after_death() {
+            self.set_gamemode(GameMode::Spectator).await?;
+        }
         Ok(())
     }
 
@@ -331,7 +345,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         } else {
             REACH
         } + 1.0;
-        let amount = items::attack_damage(self.main_hand());
+        let amount = self.held_damage();
         let me = (self.entity_id, self.position);
         if let Some(victim) = self
             .server
@@ -378,6 +392,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             &pw::encode_block_changed_ack(sequence),
         )
         .await?;
+        if self.use_ability(off_hand).await? {
+            return Ok(());
+        }
         let item = if off_hand {
             self.off_hand()
         } else {

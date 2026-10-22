@@ -63,8 +63,24 @@ pub struct Click {
     pub slot: i16,
     pub button: i8,
     pub mode: i32,
-    pub changed: Vec<(i16, Option<Item>)>,
-    pub carried: Option<Item>,
+    pub changed: Vec<(i16, Option<Hashed>)>,
+    pub carried: Option<Hashed>,
+}
+
+/// 해시된 슬롯: 아이템 ID와 개수, 그리고 컴포넌트가 붙었다면 `custom_data`의 해시.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Hashed {
+    pub id: i32,
+    pub count: i32,
+    /// 컴포넌트가 하나라도 붙어 있음 (바닐라 기본값과 다름).
+    pub has_components: bool,
+    pub custom_data_hash: Option<i32>,
+}
+
+impl Hashed {
+    pub fn plain(self) -> Item {
+        Item::new(self.id, self.count)
+    }
 }
 
 fn read_i16(buf: &mut &[u8]) -> Result<i16, DecodeError> {
@@ -72,7 +88,7 @@ fn read_i16(buf: &mut &[u8]) -> Result<i16, DecodeError> {
 }
 
 /// Optional HashedStack: 있음 여부, 아이템 ID, 개수, 추가 컴포넌트(종류, i32 해시)들, 뺀 컴포넌트들.
-fn read_hashed_slot(buf: &mut &[u8]) -> Result<Option<Item>, DecodeError> {
+fn read_hashed_slot(buf: &mut &[u8]) -> Result<Option<Hashed>, DecodeError> {
     if read_u8(buf)? == 0 {
         return Ok(None);
     }
@@ -82,10 +98,15 @@ fn read_hashed_slot(buf: &mut &[u8]) -> Result<Option<Item>, DecodeError> {
     if !(0..=256).contains(&added) {
         return Err(DecodeError::InvalidValue("component count"));
     }
+    let mut custom_data_hash = None;
     for _ in 0..added {
-        read_varint(buf)?;
+        let kind = read_varint(buf)?;
         if buf.len() < 4 {
             return Err(DecodeError::UnexpectedEof);
+        }
+        let hash = i32::from_be_bytes(buf[..4].try_into().unwrap());
+        if kind == crate::data::component::CUSTOM_DATA {
+            custom_data_hash = Some(hash);
         }
         *buf = &buf[4..];
     }
@@ -96,7 +117,12 @@ fn read_hashed_slot(buf: &mut &[u8]) -> Result<Option<Item>, DecodeError> {
     for _ in 0..removed {
         read_varint(buf)?;
     }
-    Ok((count > 0).then_some(Item { id, count }))
+    Ok((count > 0).then_some(Hashed {
+        id,
+        count,
+        has_components: added + removed > 0,
+        custom_data_hash,
+    }))
 }
 
 pub fn decode_click(mut buf: &[u8]) -> Result<Click, DecodeError> {
@@ -154,6 +180,14 @@ mod tests {
         write_varint(&mut b, 0);
         let c = decode_click(&b).unwrap();
         assert_eq!(c.changed, vec![(36, None)]);
-        assert_eq!(c.carried, Some(Item { id: 1, count: 10 }));
+        assert_eq!(
+            c.carried,
+            Some(Hashed {
+                id: 1,
+                count: 10,
+                has_components: true,
+                custom_data_hash: None
+            })
+        );
     }
 }

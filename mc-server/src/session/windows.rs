@@ -73,7 +73,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     /// 주운 아이템을 넣습니다: 같은 것이 있는 칸부터, 그다음 빈 칸 (핫바 먼저).
     /// 넣은 개수를 돌려줍니다.
     pub(super) async fn give(&mut self, item: Item) -> std::io::Result<i32> {
-        let max = items::max_stack(item.id);
+        let max = crate::game::custom_items::max_stack(&item);
         let order: Vec<usize> = (36..45).chain(9..36).collect();
         let mut left = item.count;
         let mut changed = Vec::new();
@@ -83,7 +83,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     break;
                 }
                 match &mut self.inventory[s] {
-                    Some(have) if pass == 0 && have.id == item.id && have.count < max => {
+                    Some(have) if pass == 0 && have.stacks_with(&item) && have.count < max => {
                         let n = (max - have.count).min(left);
                         have.count += n;
                         left -= n;
@@ -91,10 +91,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     }
                     slot @ None if pass == 1 => {
                         let n = max.min(left);
-                        *slot = Some(Item {
-                            id: item.id,
-                            count: n,
-                        });
+                        *slot = Some(item.with_count(n));
                         left -= n;
                         changed.push(s);
                     }
@@ -123,17 +120,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             ..item
         })
         .filter(|i| i.count > 0);
-        self.throw(Item {
-            id: item.id,
-            count: n,
-        });
+        self.throw(item.with_count(n));
         self.sync_slot(slot).await?;
         self.hands_changed();
         Ok(())
     }
 
     /// 바라보는 쪽으로 던집니다.
-    fn throw(&self, item: Item) {
+    pub(super) fn throw(&self, item: Item) {
         let (yaw, pitch) = (self.yaw.to_radians() as f64, self.pitch.to_radians() as f64);
         let vel = (
             -yaw.sin() * pitch.cos() * 0.3,
@@ -294,7 +288,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             None
         };
 
-        let before = totals(&self.window_slots(), self.carried, craft_window);
+        let before_slots = self.window_slots();
+        let before = totals(&before_slots, self.carried, craft_window);
         let snapshot = (
             self.inventory,
             self.window.clone(),
@@ -302,9 +297,17 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             self.window_slots(),
         );
 
-        // 클라이언트가 말한 대로 적용
+        // 클라이언트가 말한 대로 적용. 해시된 슬롯을 우리 아이템으로 되돌립니다.
+        let known: Vec<Item> = before_slots
+            .iter()
+            .flatten()
+            .chain(self.carried.iter())
+            .copied()
+            .collect();
+        let resolve = |h: Option<pc::Hashed>| h.map(|h| resolve_hashed(h, &known));
         let mut chest_changes = Vec::new();
-        for &(slot, item) in &c.changed {
+        for &(slot, hashed) in &c.changed {
+            let item = resolve(hashed);
             let Ok(slot) = usize::try_from(slot) else {
                 continue;
             };
@@ -314,8 +317,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 Some(SlotRef::Result) | None => {}
             }
         }
-        let carried_before = self.carried;
-        self.carried = c.carried;
+        self.carried = resolve(c.carried);
         let mut after_slots = self.window_slots();
         for &(_, _, i, item) in &chest_changes {
             after_slots[i] = item;
@@ -325,10 +327,10 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         // 늘어난 아이템이 있으면: 조합 결과를 꺼낸 것만 허용
         let took_result = craft_window && c.slot == 0;
         let mut ok = true;
-        for (&id, &n) in &after {
-            let had = before.get(&id).copied().unwrap_or(0);
+        for (&key, &n) in &after {
+            let had = before.get(&key).copied().unwrap_or(0);
             if n > had {
-                let allowed = took_result && result_before.is_some_and(|r| r.id == id);
+                let allowed = took_result && result_before.is_some_and(|r| (r.id, r.custom) == key);
                 ok &= allowed && self.gamemode != crate::packets::play::GameMode::Spectator;
             }
         }
@@ -350,17 +352,17 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
         // 던진 것: 줄어든 만큼 바닥에
         if c.slot == pc::OUTSIDE || c.mode == pc::MODE_THROW {
-            for (&id, &had) in &before {
-                let now = after.get(&id).copied().unwrap_or(0);
+            for (&(id, custom), &had) in &before {
+                let now = after.get(&(id, custom)).copied().unwrap_or(0);
                 if had > now {
                     self.throw(Item {
                         id,
                         count: had - now,
+                        custom,
                     });
                 }
             }
         }
-        let _ = carried_before;
 
         // 조합 결과 다시 계산
         if craft_window {
@@ -417,14 +419,46 @@ enum SlotRef<'a> {
     Result,
 }
 
-/// 아이템별 총 개수. 조합 결과 칸(0)은 아직 만들어지지 않은 것이라 셈하지 않습니다.
-fn totals(slots: &[Option<Item>], carried: Option<Item>, skip_result: bool) -> HashMap<i32, i32> {
+/// (아이템, 사용자 정의)별 총 개수. 조합 결과 칸(0)은 아직 만들어지지 않은 것이라 셈하지 않습니다.
+fn totals(
+    slots: &[Option<Item>],
+    carried: Option<Item>,
+    skip_result: bool,
+) -> HashMap<(i32, Option<u16>), i32> {
     let mut t = HashMap::new();
     let start = if skip_result { 1 } else { 0 };
     for item in slots.iter().skip(start).flatten().chain(carried.iter()) {
-        *t.entry(item.id).or_insert(0) += item.count;
+        *t.entry((item.id, item.custom)).or_insert(0) += item.count;
     }
     t
+}
+
+/// 해시된 슬롯 → 우리 아이템. 컴포넌트가 없으면 바닐라 그대로. 있으면 `custom_data` 해시로
+/// 찾고, 처음 보는 해시면 클릭 전에 있던 같은 종류의 사용자 정의 아이템으로 보고 배워 둡니다.
+fn resolve_hashed(h: pc::Hashed, before: &[Item]) -> Item {
+    use crate::game::custom_items;
+    if !h.has_components {
+        return h.plain();
+    }
+    if let Some(index) = h.custom_data_hash.and_then(custom_items::by_hash) {
+        return Item {
+            id: h.id,
+            count: h.count,
+            custom: Some(index),
+        };
+    }
+    let candidate = before
+        .iter()
+        .find(|i| i.id == h.id && i.custom.is_some())
+        .and_then(|i| i.custom);
+    if let (Some(index), Some(hash)) = (candidate, h.custom_data_hash) {
+        custom_items::learn_hash(hash, index);
+    }
+    Item {
+        id: h.id,
+        count: h.count,
+        custom: candidate,
+    }
 }
 
 #[cfg(test)]

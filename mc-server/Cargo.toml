@@ -8,7 +8,7 @@ publish = false
 [dependencies]
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "1"
-tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync", "signal"] }
+tokio = { version = "1.54", features = ["rt-multi-thread", "macros", "net", "io-util", "io-std", "time", "sync", "signal"] }
 
 # 테스트도 RSA 키 생성·청크 압축을 하므로, 개발 빌드도 가볍게 최적화합니다.
 [profile.dev]

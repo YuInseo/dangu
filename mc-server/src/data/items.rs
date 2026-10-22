@@ -85,10 +85,7 @@ pub fn block_drop(state: u32, roll: u32, count_roll: u32) -> Option<Item> {
         return None;
     }
     let count = lo as u32 + count_roll % (hi as u32 - lo as u32 + 1);
-    (count > 0).then_some(Item {
-        id: item as i32,
-        count: count as i32,
-    })
+    (count > 0).then_some(Item::new(item as i32, count as i32))
 }
 
 /// 조합 칸(`width`×`width`, 2 또는 3)에 맞는 결과.
@@ -146,10 +143,7 @@ pub fn craft(grid: &[Option<Item>], width: usize) -> Option<Item> {
                 })
         };
         if ok {
-            return Some(Item {
-                id: result as i32,
-                count: count as i32,
-            });
+            return Some(Item::new(result as i32, count as i32));
         }
     }
     None
@@ -160,10 +154,7 @@ mod tests {
     use super::*;
 
     fn item(name: &str, count: i32) -> Option<Item> {
-        Some(Item {
-            id: by_name(name).unwrap(),
-            count,
-        })
+        Some(Item::new(by_name(name).unwrap(), count))
     }
 
     #[test]

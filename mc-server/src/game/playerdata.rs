@@ -2,7 +2,7 @@
 //!
 //! `players/<uuid>.dat` (빅엔디언):
 //! ```text
-//! "DGP1" | u8 차원 | f64 x y z | f32 yaw pitch | u8 게임 모드 | f32 체력 | u8 배고픔 | f32 포만도
+//! "DGP2" | u8 차원 | f64 x y z | f32 yaw pitch | u8 게임 모드 | f32 체력 | u8 배고픔 | f32 포만도
 //!        | u8 고른 칸 | u8 아이템 수 | 아이템마다 (u8 칸, i32 아이템, u8 개수)
 //! ```
 
@@ -13,7 +13,9 @@ use crate::packets::play::GameMode;
 use crate::packets::world::Item;
 use crate::world::Dimension;
 
-const MAGIC: &[u8; 4] = b"DGP1";
+const MAGIC: &[u8; 4] = b"DGP2";
+/// 사용자 정의 아이템이 생기기 전 형식 (아이템마다 사용자 정의 이름이 없음).
+const MAGIC_V1: &[u8; 4] = b"DGP1";
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PlayerData {
@@ -72,6 +74,7 @@ fn encode(d: &PlayerData) -> Vec<u8> {
         o.push(i as u8);
         o.extend_from_slice(&item.id.to_be_bytes());
         o.push(item.count.clamp(0, 255) as u8);
+        super::custom_items::write_custom_tag(&mut o, item.custom);
     }
     o
 }
@@ -86,7 +89,9 @@ fn decode(b: &[u8]) -> Option<PlayerData> {
         r = rest;
         Some(h)
     };
-    if take(4)? != MAGIC {
+    let magic = take(4)?;
+    let v2 = magic == MAGIC;
+    if !v2 && magic != MAGIC_V1 {
         return None;
     }
     let f64_ = |b: &[u8]| f64::from_be_bytes(b.try_into().unwrap());
@@ -105,7 +110,12 @@ fn decode(b: &[u8]) -> Option<PlayerData> {
         let slot = take(1)?[0] as usize;
         let id = i32::from_be_bytes(take(4)?.try_into().unwrap());
         let count = take(1)?[0] as i32;
-        *inventory.get_mut(slot)? = Some(Item { id, count });
+        let custom = if v2 {
+            super::custom_items::read_custom_tag(&mut take)?
+        } else {
+            None
+        };
+        *inventory.get_mut(slot)? = Some(Item { id, count, custom });
     }
     let finite = position.0.is_finite()
         && position.1.is_finite()
@@ -142,8 +152,8 @@ mod tests {
     #[test]
     fn round_trip() {
         let mut inventory = [None; 46];
-        inventory[36] = Some(Item { id: 1, count: 64 });
-        inventory[45] = Some(Item { id: 900, count: 1 });
+        inventory[36] = Some(Item::new(1, 64));
+        inventory[45] = Some(Item::new(900, 1));
         let d = PlayerData {
             dimension: Dimension::End,
             position: (1.5, 70.0, -3.25),

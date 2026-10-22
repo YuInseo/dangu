@@ -161,13 +161,14 @@ async fn gamemode_and_time_commands() {
     let (mut alice, _) = join(addr, "Alice", 2).await;
     let (mut bob, _) = join(addr, "Bob", 2).await;
 
-    send_string(&mut alice, 0x07, "gamemode survival").await;
+    // 이미 서바이벌이므로 크리에이티브로 (같은 모드면 바닐라처럼 아무것도 보내지 않음)
+    send_string(&mut alice, 0x07, "gamemode creative").await;
     let event = recv_where(&mut alice, |p| p.id == 0x27 && p.body[0] == 3).await;
     assert_eq!(
         f32::from_be_bytes(event.body[1..5].try_into().unwrap()),
-        0.0
+        1.0
     );
-    // Bob의 탭 목록에서도 Alice가 서바이벌로 바뀝니다 (동작 비트 0x04만).
+    // Bob의 탭 목록에서도 Alice가 크리에이티브로 바뀝니다 (동작 비트 0x04만).
     recv_where(&mut bob, |p| {
         p.id == PLAYER_INFO_UPDATE && p.body[0] == 0x04
     })

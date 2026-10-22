@@ -2,7 +2,7 @@
 //!
 //! 저장 파일 (`containers.dat`, 빅엔디언):
 //! ```text
-//! "DGC1" | u32 상자 수 | 상자마다 (u8 차원, i32 x, i32 y, i32 z, u8 칸 수, 칸마다 (u8 번호, i32 아이템, u8 개수))
+//! "DGC2" | u32 상자 수 | 상자마다 (u8 차원, i32 x, i32 y, i32 z, u8 칸 수, 칸마다 (u8 번호, i32 아이템, u8 개수, u8 길이 + 사용자 정의 id))
 //! ```
 
 use std::collections::HashMap;
@@ -15,7 +15,9 @@ use crate::packets::world::{BlockPos, Item};
 use crate::world::Dimension;
 
 pub const CHEST_SLOTS: usize = 27;
-const MAGIC: &[u8; 4] = b"DGC1";
+const MAGIC: &[u8; 4] = b"DGC2";
+/// 사용자 정의 아이템이 생기기 전 형식 (아이템마다 사용자 정의 이름이 없음).
+const MAGIC_V1: &[u8; 4] = b"DGC1";
 const FILE_NAME: &str = "containers.dat";
 
 type Key = (Dimension, BlockPos);
@@ -59,7 +61,9 @@ impl Containers {
             r = rest;
             Ok(h)
         };
-        if take(4)? != MAGIC {
+        let magic = take(4)?;
+        let v2 = magic == MAGIC;
+        if !v2 && magic != MAGIC_V1 {
             return Err(bad());
         }
         let int = |b: &[u8]| i32::from_be_bytes(b.try_into().unwrap());
@@ -74,10 +78,15 @@ impl Containers {
                 let slot = take(1)?[0] as usize;
                 let id = int(take(4)?);
                 let count = take(1)?[0] as i32;
+                let custom = if v2 {
+                    super::custom_items::read_custom_tag(&mut |n| take(n).ok()).ok_or_else(bad)?
+                } else {
+                    None
+                };
                 if slot >= CHEST_SLOTS {
                     return Err(bad());
                 }
-                slots[slot] = Some(Item { id, count });
+                slots[slot] = Some(Item { id, count, custom });
             }
             map.insert((dim, pos), slots);
         }
@@ -141,6 +150,7 @@ impl Containers {
                 out.push(i as u8);
                 out.extend_from_slice(&item.id.to_be_bytes());
                 out.push(item.count.clamp(0, 255) as u8);
+                super::custom_items::write_custom_tag(&mut out, item.custom);
             }
         }
         drop(map);
@@ -158,21 +168,16 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("dangu-chest-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let c = Containers::open(Some(dir.clone())).unwrap();
-        c.set_slot(
-            Dimension::Nether,
-            (1, 70, -2),
-            13,
-            Some(Item { id: 5, count: 32 }),
-        );
+        c.set_slot(Dimension::Nether, (1, 70, -2), 13, Some(Item::new(5, 32)));
         assert!(c.save().unwrap());
         let c2 = Containers::open(Some(dir.clone())).unwrap();
         assert_eq!(
             c2.get(Dimension::Nether, (1, 70, -2))[13],
-            Some(Item { id: 5, count: 32 })
+            Some(Item::new(5, 32))
         );
         assert_eq!(
             c2.take_all(Dimension::Nether, (1, 70, -2)),
-            vec![Item { id: 5, count: 32 }]
+            vec![Item::new(5, 32)]
         );
         std::fs::remove_dir_all(&dir).unwrap();
     }

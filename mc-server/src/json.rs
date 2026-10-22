@@ -58,6 +58,68 @@ impl Json {
         }
     }
 
+    /// 들여 쓴 JSON 문자열 (사람이 고칠 파일용).
+    pub fn pretty(&self) -> String {
+        let mut out = String::new();
+        self.write(&mut out, 0);
+        out.push('\n');
+        out
+    }
+
+    fn write(&self, out: &mut String, depth: usize) {
+        let pad = |out: &mut String, d: usize| out.push_str(&"  ".repeat(d));
+        match self {
+            Json::Null => out.push_str("null"),
+            Json::Bool(b) => out.push_str(if *b { "true" } else { "false" }),
+            Json::Number(n) if n.fract() == 0.0 && n.abs() < 1e15 => {
+                out.push_str(&format!("{}", *n as i64))
+            }
+            Json::Number(n) => out.push_str(&format!("{n}")),
+            Json::String(s) => {
+                out.push('"');
+                out.push_str(&escape(s));
+                out.push('"');
+            }
+            Json::Array(items)
+                if items
+                    .iter()
+                    .all(|i| !matches!(i, Json::Object(_) | Json::Array(_))) =>
+            {
+                out.push('[');
+                for (i, item) in items.iter().enumerate() {
+                    if i > 0 {
+                        out.push_str(", ");
+                    }
+                    item.write(out, depth);
+                }
+                out.push(']');
+            }
+            Json::Array(items) => {
+                out.push_str("[\n");
+                for (i, item) in items.iter().enumerate() {
+                    pad(out, depth + 1);
+                    item.write(out, depth + 1);
+                    out.push_str(if i + 1 < items.len() { ",\n" } else { "\n" });
+                }
+                pad(out, depth);
+                out.push(']');
+            }
+            Json::Object(fields) => {
+                out.push_str("{\n");
+                for (i, (k, v)) in fields.iter().enumerate() {
+                    pad(out, depth + 1);
+                    out.push('"');
+                    out.push_str(&escape(k));
+                    out.push_str("\": ");
+                    v.write(out, depth + 1);
+                    out.push_str(if i + 1 < fields.len() { ",\n" } else { "\n" });
+                }
+                pad(out, depth);
+                out.push('}');
+            }
+        }
+    }
+
     pub fn as_array(&self) -> Option<&[Json]> {
         match self {
             Json::Array(a) => Some(a),

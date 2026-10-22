@@ -47,6 +47,18 @@ impl MobKind {
         }
     }
 
+    /// 레지스트리 이름 (`cow`, `zombie` …).
+    pub fn name(self) -> &'static str {
+        match self {
+            MobKind::Cow => "cow",
+            MobKind::Pig => "pig",
+            MobKind::Sheep => "sheep",
+            MobKind::Chicken => "chicken",
+            MobKind::Zombie => "zombie",
+            MobKind::Spider => "spider",
+        }
+    }
+
     pub fn hostile(self) -> bool {
         Self::HOSTILE.contains(&self)
     }
@@ -164,7 +176,9 @@ pub fn tick(
         .filter(|p| p.dimension == e.dimension)
         .map(|p| dist2(p.position, e.pos))
         .fold(f64::MAX, f64::min);
-    if kind.hostile() && near > DESPAWN_RANGE * DESPAWN_RANGE {
+    // 평화로움이면 적대 몹은 곧바로 사라집니다.
+    let peaceful = server.difficulty() == crate::server::Difficulty::Peaceful;
+    if kind.hostile() && (peaceful || near > DESPAWN_RANGE * DESPAWN_RANGE) {
         m.health = 0.0;
         m.dead_ticks = 100;
         return;
@@ -193,7 +207,7 @@ pub fn tick(
                 m.attack_cooldown = 20;
                 events.push(Event::Damage {
                     target: p.uuid,
-                    amount: kind.attack_damage(),
+                    amount: server.difficulty().scale_mob_damage(kind.attack_damage()),
                     damage_type: "mob_attack",
                     attacker: Some((e.id, e.pos)),
                     attacker_name: kind.display_name().to_owned(),
@@ -346,7 +360,7 @@ pub fn damage(
                     pos.1.floor() as i32,
                     pos.2.floor() as i32,
                 );
-                entities.drop_at_block(server, dimension, at, Item { id: item, count });
+                entities.drop_at_block(server, dimension, at, Item::new(item, count));
             }
         }
     }
@@ -403,7 +417,9 @@ pub fn natural_spawning(server: &Server, players: &[PlayerState], now: u32) {
                 })
                 .count()
         };
-        let (kinds, distance): (&[MobKind], (f64, f64)) = if night && around(true) < 4 {
+        let peaceful = server.difficulty() == crate::server::Difficulty::Peaceful;
+        let (kinds, distance): (&[MobKind], (f64, f64)) = if night && !peaceful && around(true) < 4
+        {
             (&MobKind::HOSTILE, (24.0, 40.0))
         } else if around(false) < 6 {
             (&MobKind::PASSIVE, (12.0, 32.0))

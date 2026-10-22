@@ -59,6 +59,13 @@ pub struct Snapshot {
 }
 
 impl Entity {
+    pub fn mob_kind(&self) -> Option<super::mobs::MobKind> {
+        match &self.kind {
+            Kind::Mob(m) => Some(m.kind),
+            _ => None,
+        }
+    }
+
     pub fn snapshot(&self) -> Snapshot {
         let (type_id, item) = match &self.kind {
             Kind::Item { item, .. } => (entity_type::ITEM, Some(*item)),

@@ -34,8 +34,14 @@ pub struct PlayerState {
     pub properties: std::sync::Arc<Vec<Property>>,
     /// 죽어서 부활을 기다리는 중.
     pub dead: bool,
+    /// 접속한 IP (밴용).
+    pub ip: String,
     /// Mojang 서명을 확인한 채팅 세션 (서명된 채팅용).
     pub chat_session: Option<std::sync::Arc<crate::chat::ChatSession>>,
+    /// 겉옷 레이어 비트와 주 손 (0 왼손, 1 오른손).
+    pub skin_parts: u8,
+    pub main_arm: i32,
+    pub sneaking: bool,
 }
 
 /// 접속자 사이를 오가는 소식. 모든 세션이 받고, 각자 자기와 관련 있는 것만 처리합니다.
@@ -43,6 +49,11 @@ pub struct PlayerState {
 pub enum Event {
     /// 접속함 (탭 목록에 추가, 같은 차원이면 엔티티로 보이기).
     Joined(PlayerState),
+    /// 플레이어 엔티티 메타데이터가 바뀜 (웅크리기, 겉옷 레이어, 주 손). 본문은 그대로 전달.
+    PlayerData {
+        uuid: u128,
+        body: std::sync::Arc<Vec<u8>>,
+    },
     /// 접속을 끊음.
     Left {
         uuid: u128,
@@ -165,6 +176,52 @@ pub enum Event {
         entity_id: i32,
         event: i8,
     },
+    /// 소리.
+    Sound {
+        dimension: Dimension,
+        pos: (f64, f64, f64),
+        sound: i32,
+        source: i32,
+        volume: f32,
+        pitch: f32,
+    },
+    /// 입자.
+    Particles {
+        dimension: Dimension,
+        pos: (f64, f64, f64),
+        particle: i32,
+        spread: f32,
+        count: i32,
+    },
+    /// 번개 (잠깐 보이는 엔티티).
+    Lightning {
+        dimension: Dimension,
+        pos: (f64, f64, f64),
+        entity_id: i32,
+    },
+    /// 난이도가 바뀜.
+    DifficultyChanged(Difficulty),
+    /// 이 사람을 내보냄.
+    Kick {
+        uuid: u128,
+        reason: String,
+    },
+    /// 이 사람의 권한·OP 단계가 바뀜 (명령어 목록을 다시 보냄).
+    PermissionsChanged {
+        uuid: Option<u128>,
+    },
+    /// 접속자 모두 지금 저장.
+    SavePlayers,
+    /// 화면 가운데 큰 글씨.
+    Title {
+        uuid: u128,
+        title: String,
+    },
+    /// 다른 사람(또는 콘솔)이 이 사람의 게임 모드를 바꿈.
+    SetGameMode {
+        uuid: u128,
+        gamemode: GameMode,
+    },
     /// 상자 한 칸이 바뀜.
     ContainerChanged {
         dimension: Dimension,
@@ -200,8 +257,65 @@ pub struct Config {
     pub spawn_mobs: bool,
     /// 처음 들어온 사람의 게임 모드.
     pub default_gamemode: GameMode,
-    /// 관리자 이름. `None`이면 모두가 관리자 (혼자 쓰는 개발 서버용 기본값).
-    pub ops: Option<Vec<String>>,
+    /// 모두를 OP 4로 (혼자 쓰는 개발 서버·테스트용). 공개 서버에서는 끄세요.
+    pub everyone_op: bool,
+    /// 처음 들어오면 OP 4로 올릴 이름들 (UUID를 모를 때를 위해 이름으로).
+    pub initial_ops: Vec<String>,
+    pub difficulty: Difficulty,
+    /// 하드코어: 하트 모양이 바뀌고, 죽으면 관전 모드.
+    pub hardcore: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Difficulty {
+    Peaceful = 0,
+    Easy = 1,
+    Normal = 2,
+    Hard = 3,
+}
+
+impl Difficulty {
+    pub const ALL: [Difficulty; 4] = [
+        Difficulty::Peaceful,
+        Difficulty::Easy,
+        Difficulty::Normal,
+        Difficulty::Hard,
+    ];
+
+    pub fn name(self) -> &'static str {
+        ["peaceful", "easy", "normal", "hard"][self as usize]
+    }
+
+    pub fn from_name(n: &str) -> Option<Difficulty> {
+        Self::ALL.into_iter().find(|d| d.name() == n)
+    }
+
+    pub fn from_id(i: u8) -> Difficulty {
+        Self::ALL[(i as usize).min(3)]
+    }
+
+    pub fn display_name(self) -> &'static str {
+        ["평화로움", "쉬움", "보통", "어려움"][self as usize]
+    }
+
+    /// 몹 공격력 보정 (바닐라: 쉬움 절반+1, 어려움 1.5배).
+    pub fn scale_mob_damage(self, amount: f32) -> f32 {
+        match self {
+            Difficulty::Peaceful => 0.0,
+            Difficulty::Easy => (amount / 2.0 + 1.0).min(amount),
+            Difficulty::Normal => amount,
+            Difficulty::Hard => amount * 1.5,
+        }
+    }
+
+    /// 굶주림이 체력을 어디까지 깎는가 (쉬움 10, 보통 1, 어려움 0).
+    pub fn starvation_floor(self) -> f32 {
+        match self {
+            Difficulty::Peaceful | Difficulty::Easy => 10.0,
+            Difficulty::Normal => 1.0,
+            Difficulty::Hard => 0.0,
+        }
+    }
 }
 
 impl Default for Config {
@@ -213,7 +327,10 @@ impl Default for Config {
             offline_skins: false,
             spawn_mobs: true,
             default_gamemode: GameMode::Survival,
-            ops: None,
+            everyone_op: true,
+            initial_ops: Vec::new(),
+            difficulty: Difficulty::Normal,
+            hardcore: false,
         }
     }
 }
@@ -223,6 +340,8 @@ impl Default for Config {
 pub struct AlreadyOnline;
 
 pub struct Server {
+    /// 인스턴스 이름 (`/server <이름>`으로 오갑니다).
+    pub name: String,
     pub info: ServerInfo,
     pub config: Config,
     pub sessions: Box<dyn SessionService>,
@@ -237,6 +356,12 @@ pub struct Server {
     pub world: WorldStore,
     /// 떨어진 아이템과 몹.
     pub entities: crate::game::entities::Entities,
+    pub perms: crate::perms::Permissions,
+    difficulty: std::sync::atomic::AtomicU8,
+    /// 난이도 잠금 (설정 화면의 자물쇠). 잠그면 다시 풀 수 없습니다.
+    difficulty_locked: std::sync::atomic::AtomicBool,
+    /// `/stop`이 울리면 main이 저장하고 끕니다.
+    pub shutdown: tokio::sync::Notify,
     pub containers: crate::game::containers::Containers,
     /// 플레이어 저장 위치 (없으면 저장하지 않음).
     pub data_dir: Option<std::path::PathBuf>,
@@ -258,6 +383,9 @@ pub const TICKS_PER_DAY: i64 = 24000;
 impl Server {
     /// 메모리에만 두는 서버 (테스트용). 꺼지면 바꾼 블록이 사라집니다.
     pub fn new(info: ServerInfo, seed: u64) -> Self {
+        if crate::game::custom_items::all().is_empty() {
+            crate::game::custom_items::install(crate::game::custom_items::defaults());
+        }
         Self::with_world(
             info,
             seed,
@@ -268,8 +396,11 @@ impl Server {
 
     /// `dir`에 월드를 저장하는 서버. 있던 저장을 읽어 들입니다.
     pub fn open(info: ServerInfo, seed: u64, dir: std::path::PathBuf) -> std::io::Result<Self> {
+        crate::game::custom_items::load(Some(&dir)).map_err(std::io::Error::other)?;
         let world = WorldStore::open(seed, Some(dir.clone()))?;
         let mut s = Self::with_world(info, seed, world, Some(dir.clone()));
+        s.perms = crate::perms::Permissions::open(Some(dir.clone()), s.config.everyone_op)
+            .map_err(std::io::Error::other)?;
         s.containers = crate::game::containers::Containers::open(Some(dir))?;
         Ok(s)
     }
@@ -281,7 +412,12 @@ impl Server {
         data_dir: Option<std::path::PathBuf>,
     ) -> Self {
         Self {
+            name: "main".into(),
             entities: Default::default(),
+            perms: crate::perms::Permissions::open(None, true).expect("memory permissions"),
+            difficulty: std::sync::atomic::AtomicU8::new(Difficulty::Normal as u8),
+            difficulty_locked: std::sync::atomic::AtomicBool::new(false),
+            shutdown: tokio::sync::Notify::new(),
             containers: crate::game::containers::Containers::open(None).expect("memory containers"),
             data_dir,
             info,
@@ -303,6 +439,9 @@ impl Server {
     }
 
     pub fn with_config(mut self, config: Config) -> Self {
+        self.perms.everyone_op = config.everyone_op;
+        self.difficulty
+            .store(config.difficulty as u8, Ordering::Relaxed);
         self.config = config;
         self
     }
@@ -312,11 +451,43 @@ impl Server {
         self
     }
 
-    pub fn is_op(&self, name: &str) -> bool {
-        self.config
-            .ops
-            .as_ref()
-            .is_none_or(|ops| ops.iter().any(|o| o.eq_ignore_ascii_case(name)))
+    /// 월드·상자를 지금 저장합니다 (플레이어는 각 세션이 따로 저장).
+    pub fn save_all(&self) {
+        if let Err(e) = self.containers.save() {
+            eprintln!("상자 저장 실패: {e}");
+        }
+        match self.world.save() {
+            Ok(true) => println!(
+                "월드 저장: 바뀐 블록 {}개",
+                self.world.changed_block_count()
+            ),
+            Ok(false) => {}
+            Err(e) => eprintln!("월드 저장 실패: {e}"),
+        }
+        self.publish(Event::SavePlayers);
+    }
+
+    pub fn difficulty(&self) -> Difficulty {
+        Difficulty::from_id(self.difficulty.load(Ordering::Relaxed))
+    }
+
+    /// 난이도를 바꿉니다. 잠겨 있으면 false.
+    pub fn set_difficulty(&self, d: Difficulty) -> bool {
+        if self.difficulty_locked() {
+            return false;
+        }
+        self.difficulty.store(d as u8, Ordering::Relaxed);
+        self.publish(Event::DifficultyChanged(d));
+        true
+    }
+
+    pub fn difficulty_locked(&self) -> bool {
+        self.difficulty_locked.load(Ordering::Relaxed)
+    }
+
+    pub fn lock_difficulty(&self) {
+        self.difficulty_locked.store(true, Ordering::Relaxed);
+        self.publish(Event::DifficultyChanged(self.difficulty()));
     }
 
     pub fn key(&self) -> &PrivateKey {
@@ -332,6 +503,11 @@ impl Server {
     }
 
     /// 이벤트 구독. 명단에 올리기 **전에** 구독해야, 그 사이의 소식을 놓치지 않습니다.
+    /// 다른 태스크에서 나중에 이벤트를 보낼 때.
+    pub fn events_handle(&self) -> broadcast::Sender<Event> {
+        self.events.clone()
+    }
+
     pub fn subscribe(&self) -> broadcast::Receiver<Event> {
         self.events.subscribe()
     }
