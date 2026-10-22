@@ -185,6 +185,12 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/save-all — 지금 저장",
     },
     Spec {
+        name: "locate",
+        aliases: &[],
+        level: 2,
+        usage: "/locate structure|biome <이름> — 가장 가까운 구조물·바이옴",
+    },
+    Spec {
         name: "server",
         aliases: &["join"],
         level: 0,
@@ -741,6 +747,14 @@ pub fn suggest(server: &Server, actor: &Actor, line: &str) -> (usize, Vec<String
     };
     let mut out: Vec<String> = match (spec.name, &words[1..]) {
         ("server", []) => instance_names(),
+        ("locate", []) => ["structure", "biome"].map(String::from).to_vec(),
+        ("locate", ["structure"]) => crate::world::structure::names()
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        ("locate", ["biome"]) => crate::world::biome::all()
+            .map(|b| b.name().to_owned())
+            .collect(),
         ("instance", []) => ["list", "create", "remove", "default"]
             .map(String::from)
             .to_vec(),

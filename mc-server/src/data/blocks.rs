@@ -12,6 +12,11 @@ pub fn block_of(state: StateId) -> BlockId {
     BLOCKS.partition_point(|&(_, first, _, _)| first <= state) - 1
 }
 
+/// 블록 종류 수.
+pub fn count() -> usize {
+    BLOCKS.len()
+}
+
 pub fn name(block: BlockId) -> &'static str {
     BLOCKS[block].0
 }

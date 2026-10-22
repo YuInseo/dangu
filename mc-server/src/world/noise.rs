@@ -48,6 +48,38 @@ pub fn fbm(seed: u64, x: f64, z: f64, scale: f64, octaves: u32) -> f64 {
     sum / norm
 }
 
+/// 3차원 정수 좌표 → [0, 1).
+pub fn hash3_01(seed: u64, x: i32, y: i32, z: i32) -> f64 {
+    let h = hash(
+        seed ^ (y as u32 as u64).wrapping_mul(0xD6E8_FEB8_6659_FD93),
+        x,
+        z,
+    );
+    (h >> 11) as f64 / (1u64 << 53) as f64
+}
+
+/// 3차원 값 노이즈, 결과 [-1, 1). 축마다 격자 간격이 다를 수 있습니다 (동굴은 납작하게).
+pub fn value3(seed: u64, x: f64, y: f64, z: f64, sxz: f64, sy: f64) -> f64 {
+    let (fx, fy, fz) = (x / sxz, y / sy, z / sxz);
+    let (x0, y0, z0) = (fx.floor(), fy.floor(), fz.floor());
+    let (tx, ty, tz) = (smooth(fx - x0), smooth(fy - y0), smooth(fz - z0));
+    let (ix, iy, iz) = (x0 as i32, y0 as i32, z0 as i32);
+    let c = |dx, dy, dz| hash3_01(seed, ix + dx, iy + dy, iz + dz);
+    let lerp = |a: f64, b: f64, t: f64| a + (b - a) * t;
+    let x00 = lerp(c(0, 0, 0), c(1, 0, 0), tx);
+    let x10 = lerp(c(0, 1, 0), c(1, 1, 0), tx);
+    let x01 = lerp(c(0, 0, 1), c(1, 0, 1), tx);
+    let x11 = lerp(c(0, 1, 1), c(1, 1, 1), tx);
+    let y0v = lerp(x00, x10, ty);
+    let y1v = lerp(x01, x11, ty);
+    lerp(y0v, y1v, tz) * 2.0 - 1.0
+}
+
+/// 옥타브 두 개짜리 3차원 노이즈.
+pub fn fbm3(seed: u64, x: f64, y: f64, z: f64, sxz: f64, sy: f64) -> f64 {
+    (value3(seed, x, y, z, sxz, sy) * 2.0 + value3(seed ^ 0x51, x, y, z, sxz / 2.0, sy / 2.0)) / 3.0
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

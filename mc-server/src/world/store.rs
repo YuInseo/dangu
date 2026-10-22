@@ -139,6 +139,25 @@ impl WorldStore {
             .get(lx as usize, y, lz as usize)
     }
 
+    /// 그 자리가 구조물이 만든(플레이어가 바꾸지 않은) 상자라면 전리품 표.
+    pub fn loot_at(&self, dim: Dimension, x: i32, y: i32, z: i32) -> Option<&'static str> {
+        let ((cx, cz), (lx, lz)) = split(x, z);
+        if self
+            .changes
+            .lock()
+            .unwrap()
+            .get(&(dim, cx, cz))
+            .is_some_and(|c| c.contains_key(&(lx, y, lz)))
+        {
+            return None;
+        }
+        let col = self.terrain.lock().unwrap().get(self.seed, (dim, cx, cz));
+        col.loot
+            .iter()
+            .find(|(p, _)| *p == (x, y, z))
+            .map(|(_, t)| *t)
+    }
+
     pub fn set(&self, dim: Dimension, x: i32, y: i32, z: i32, state: u32) {
         let ((cx, cz), (lx, lz)) = split(x, z);
         self.changes

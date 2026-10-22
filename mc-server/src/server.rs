@@ -558,6 +558,26 @@ impl Server {
         self.publish(Event::SavePlayers);
     }
 
+    /// 구조물 상자를 처음 열 때 바닐라 전리품 표로 채웁니다 (시드와 위치로 정해짐).
+    pub fn fill_structure_loot(&self, dim: Dimension, pos: BlockPos) {
+        if self.containers.contains(dim, pos) {
+            return;
+        }
+        let Some(table) = self.world.loot_at(dim, pos.0, pos.1, pos.2) else {
+            return;
+        };
+        let roll_seed = crate::world::noise_hash(self.seed ^ pos.1 as u64, pos.0, pos.2);
+        let mut slots = vec![None; crate::game::containers::CHEST_SLOTS];
+        for (slot, name, count, _enchanted) in crate::world::structure::roll_loot(table, roll_seed)
+        {
+            if let Some(id) = crate::data::items::by_name(name) {
+                let max = crate::data::items::max_stack(id);
+                slots[slot] = Some(Item::new(id, count.min(max)));
+            }
+        }
+        self.containers.fill(dim, pos, slots);
+    }
+
     pub fn difficulty(&self) -> Difficulty {
         Difficulty::from_id(self.difficulty.load(Ordering::Relaxed))
     }

@@ -8,8 +8,8 @@ pub mod blocks;
 pub mod items;
 
 pub use generated::{
-    BLOCK_STATE_COUNT, SYNCED_REGISTRIES, TAGS, argument_type, block, component, entity_type, menu,
-    particle, sound,
+    BLOCK_ENTITY_TYPES, BLOCK_STATE_COUNT, ENTITY_NAMES, SYNCED_REGISTRIES, TAGS, argument_type,
+    block, component, entity_type, menu, particle, sound,
 };
 
 /// 동기화 레지스트리 안에서 `entry`의 네트워크 ID. 생성 데이터에 없는 이름이면 패닉 —

@@ -12,8 +12,13 @@
 //! 팔레트 컨테이너는 1.21.5부터 데이터 배열의 길이 접두사가 없습니다 — 길이는 비트 수와
 //! 항목 수로 정해지기 때문입니다.
 
+use std::sync::OnceLock;
+
+use super::biome::Biome;
 use super::terrain::Column;
-use crate::data::{BLOCK_STATE_COUNT, block};
+use crate::data::BLOCK_ENTITY_TYPES;
+use crate::data::{BLOCK_STATE_COUNT, block, blocks};
+use crate::protocol::nbt::Tag;
 use crate::protocol::types::{write_bitset, write_byte_array, write_i32, write_long_array};
 use crate::protocol::varint::write_varint;
 
@@ -58,30 +63,261 @@ pub fn encode(col: &Column, cx: i32, cz: i32) -> Vec<u8> {
     // ---- 섹션 ----
     let mut sections = Vec::with_capacity(16 * 1024);
     for s in 0..dim.section_count() {
-        write_section(&mut sections, col.section(s), dim.biome_id());
+        write_section(&mut sections, col.section(s), col.section_biomes(s));
     }
     write_byte_array(&mut out, &sections);
 
-    write_varint(&mut out, 0); // 블록 엔티티
+    write_block_entities(&mut out, col, cx, cz);
 
     write_light(&mut out, col);
     out
 }
 
 fn blocks_motion(state: u32) -> bool {
-    !matches!(state, block::AIR | block::SHORT_GRASS)
+    !crate::world::features::soft(state) || state == block::WATER
 }
 
 fn is_fluid(state: u32) -> bool {
     matches!(state, block::WATER | block::LAVA)
 }
 
-/// 하늘빛이 이 블록을 지날 때 줄어드는 양. 15면 완전히 막힘.
+/// 하늘빛이 이 블록을 지날 때 줄어드는 양. 15면 완전히 막힘. 상태마다 한 번 계산해 둡니다.
 fn sky_opacity(state: u32) -> u8 {
-    match state {
-        block::AIR | block::SHORT_GRASS => 0,
-        block::WATER | block::OAK_LEAVES => 1,
-        _ => 15,
+    static T: OnceLock<Vec<u8>> = OnceLock::new();
+    T.get_or_init(|| (0..BLOCK_STATE_COUNT).map(opacity_of).collect())
+        .get(state as usize)
+        .copied()
+        .unwrap_or(15)
+}
+
+fn opacity_of(state: u32) -> u8 {
+    let n = blocks::name(blocks::block_of(state));
+    const CLEAR: &[&str] = &[
+        "air",
+        "grass",
+        "fern",
+        "flower",
+        "sapling",
+        "torch",
+        "rail",
+        "fence",
+        "pane",
+        "bars",
+        "door",
+        "carpet",
+        "button",
+        "lever",
+        "pressure_plate",
+        "sign",
+        "vine",
+        "ladder",
+        "lantern",
+        "chain",
+        "glass",
+        "cobweb",
+        "bush",
+        "roots",
+        "sprouts",
+        "sugar_cane",
+        "bamboo",
+        "petals",
+        "wildflowers",
+        "leaf_litter",
+        "dead_bush",
+        "lily_pad",
+        "wheat",
+        "carrots",
+        "potatoes",
+        "beetroots",
+        "spike",
+        "dripstone",
+        "campfire",
+        "bed",
+        "chest",
+        "end_rod",
+        "rod",
+        "candle",
+        "mushroom",
+        "fungus",
+        "tulip",
+        "orchid",
+        "allium",
+        "bluet",
+        "daisy",
+        "poppy",
+        "dandelion",
+        "cornflower",
+        "lily_of_the_valley",
+        "eyeblossom",
+        "chorus",
+        "cactus",
+        "frame",
+        "pot",
+        "moss_carpet",
+        "hanging_moss",
+        "kelp",
+        "seagrass",
+        "berry",
+        "melon_stem",
+        "pumpkin_stem",
+        "azalea",
+        "cave_vines",
+        "weeping",
+        "twisting",
+        "snow",
+        "scaffolding",
+        "sensor",
+        "shrieker",
+        "lectern",
+        "anvil",
+        "bell",
+        "brewing_stand",
+        "cauldron",
+        "composter",
+        "slab",
+        "stairs",
+        "wall",
+        "trapdoor",
+        "nether_wart",
+        "farmland",
+        "dirt_path",
+        "light",
+    ];
+    if n == "snow_block" || n.ends_with("_wall") && n.contains("brick") && false {
+        return 15;
+    }
+    if n == "water"
+        || n.ends_with("leaves")
+        || n == "ice"
+        || n == "frosted_ice"
+        || n == "slime_block"
+        || n == "honey_block"
+    {
+        return 1;
+    }
+    if n == "lava" {
+        return 15;
+    }
+    if CLEAR.iter().any(|c| n.contains(c)) && n != "snow_block" && n != "glass_bottle" {
+        return 0;
+    }
+    15
+}
+
+/// 상태 → 블록 엔티티 종류 번호 (없으면 -1). 상자·생성기·표지판 등은 이 목록이 있어야
+/// 클라이언트가 그립니다.
+fn block_entity_type(state: u32) -> i16 {
+    static T: OnceLock<Vec<i16>> = OnceLock::new();
+    T.get_or_init(|| {
+        let id = |name: &str| {
+            BLOCK_ENTITY_TYPES
+                .iter()
+                .position(|t| *t == name)
+                .map_or(-1, |i| i as i16)
+        };
+        (0..BLOCK_STATE_COUNT)
+            .map(|s| {
+                let n = blocks::name(blocks::block_of(s));
+                let t = match n {
+                    "chest"
+                    | "trapped_chest"
+                    | "ender_chest"
+                    | "barrel"
+                    | "furnace"
+                    | "smoker"
+                    | "blast_furnace"
+                    | "bell"
+                    | "lectern"
+                    | "enchanting_table"
+                    | "brewing_stand"
+                    | "beacon"
+                    | "conduit"
+                    | "hopper"
+                    | "dispenser"
+                    | "dropper"
+                    | "jukebox"
+                    | "end_portal"
+                    | "end_gateway"
+                    | "daylight_detector"
+                    | "comparator"
+                    | "sculk_sensor"
+                    | "calibrated_sculk_sensor"
+                    | "sculk_catalyst"
+                    | "sculk_shrieker"
+                    | "chiseled_bookshelf"
+                    | "decorated_pot"
+                    | "crafter"
+                    | "trial_spawner"
+                    | "vault"
+                    | "creaking_heart"
+                    | "potent_sulfur"
+                    | "structure_block"
+                    | "jigsaw" => n,
+                    "spawner" => "mob_spawner",
+                    "campfire" | "soul_campfire" => "campfire",
+                    "beehive" | "bee_nest" => "beehive",
+                    "suspicious_sand" | "suspicious_gravel" => "brushable_block",
+                    "command_block" | "chain_command_block" | "repeating_command_block" => {
+                        "command_block"
+                    }
+                    _ if n.ends_with("hanging_sign") => "hanging_sign",
+                    _ if n.ends_with("_sign") => "sign",
+                    _ if n.ends_with("_banner") => "banner",
+                    _ if n.ends_with("shulker_box") => "shulker_box",
+                    _ if n.ends_with("_skull") || n.ends_with("_head") => "skull",
+                    _ if n.ends_with("_shelf") && n != "shelf_mushroom" => "shelf",
+                    _ if n.contains("copper_chest") => "chest",
+                    _ if n.contains("copper_golem_statue") => "copper_golem_statue",
+                    _ => "",
+                };
+                if t.is_empty() { -1 } else { id(t) }
+            })
+            .collect()
+    })
+    .get(state as usize)
+    .copied()
+    .unwrap_or(-1)
+}
+
+/// 블록 엔티티 목록: 묶은 xz(바이트), y(i16), 종류, NBT(생성기만 SpawnData).
+fn write_block_entities(out: &mut Vec<u8>, col: &Column, cx: i32, cz: i32) {
+    let dim = col.dimension;
+    let mut list: Vec<(u8, i16, i16, Tag)> = Vec::new();
+    for y in dim.min_y()..dim.min_y() + dim.height() {
+        for z in 0..16 {
+            for x in 0..16 {
+                let s = col.get(x, y, z);
+                if s == block::AIR || s == block::STONE || s == block::WATER {
+                    continue;
+                }
+                let t = block_entity_type(s);
+                if t < 0 {
+                    continue;
+                }
+                let world = (cx * 16 + x as i32, y, cz * 16 + z as i32);
+                let nbt = match col.spawners.iter().find(|(p, _)| *p == world) {
+                    Some((_, entity)) => Tag::Compound(vec![(
+                        "SpawnData".into(),
+                        Tag::Compound(vec![(
+                            "entity".into(),
+                            Tag::Compound(vec![(
+                                "id".into(),
+                                Tag::String(format!("minecraft:{entity}")),
+                            )]),
+                        )]),
+                    )]),
+                    None => Tag::Compound(Vec::new()),
+                };
+                list.push((((x as u8) << 4) | z as u8, y as i16, t, nbt));
+            }
+        }
+    }
+    write_varint(out, list.len() as i32);
+    for (xz, y, t, nbt) in list {
+        out.push(xz);
+        out.extend_from_slice(&y.to_be_bytes());
+        write_varint(out, t as i32);
+        nbt.write_root(out);
     }
 }
 
@@ -95,7 +331,7 @@ fn pack(values: &[i64], bits: u8) -> Vec<i64> {
     longs
 }
 
-fn write_section(out: &mut Vec<u8>, blocks: &[u32], biome: i32) {
+fn write_section(out: &mut Vec<u8>, blocks: &[u32], biomes: &[u8]) {
     let non_air = blocks.iter().filter(|&&b| b != block::AIR).count() as i16;
     let fluids = blocks.iter().filter(|&&b| is_fluid(b)).count() as i16;
     out.extend_from_slice(&non_air.to_be_bytes());
@@ -136,9 +372,43 @@ fn write_section(out: &mut Vec<u8>, blocks: &[u32], biome: i32) {
         }
     }
 
-    // 바이옴: 차원마다 하나뿐이므로 늘 단일 값.
-    out.push(0);
-    write_varint(out, biome);
+    // 바이옴 64칸: 한 가지면 단일 값, 아니면 간접 팔레트(1~3비트), 그 이상이면 전역.
+    let ids: Vec<u16> = biomes.iter().map(|&b| Biome(b).network_id()).collect();
+    let mut palette: Vec<u16> = Vec::new();
+    for &b in &ids {
+        if !palette.contains(&b) {
+            palette.push(b);
+        }
+    }
+    if palette.len() == 1 {
+        out.push(0);
+        write_varint(out, palette[0] as i32);
+    } else if palette.len() <= 8 {
+        let bits = (u32::BITS - (palette.len() as u32 - 1).leading_zeros()).max(1) as u8;
+        out.push(bits);
+        write_varint(out, palette.len() as i32);
+        for &p in &palette {
+            write_varint(out, p as i32);
+        }
+        let indices: Vec<i64> = ids
+            .iter()
+            .map(|b| palette.iter().position(|p| p == b).unwrap() as i64)
+            .collect();
+        for l in pack(&indices, bits) {
+            out.extend_from_slice(&l.to_be_bytes());
+        }
+    } else {
+        let count = crate::data::SYNCED_REGISTRIES
+            .iter()
+            .find(|(n, _)| *n == "worldgen/biome")
+            .map_or(64, |(_, e)| e.len()) as u32;
+        let bits = (u32::BITS - (count - 1).leading_zeros()) as u8;
+        out.push(bits);
+        let v: Vec<i64> = ids.iter().map(|&b| b as i64).collect();
+        for l in pack(&v, bits) {
+            out.extend_from_slice(&l.to_be_bytes());
+        }
+    }
 }
 
 /// 빛 섹션은 블록 섹션보다 위아래로 하나씩 더 있습니다. 비트 i = (최하단 섹션 - 1 + i).
@@ -250,7 +520,9 @@ mod tests {
             }
             assert!(data.is_empty(), "{dim:?}: section bytes left over");
 
-            assert_eq!(read_varint(&mut buf).unwrap(), 0);
+            // 블록 엔티티: 이 시드의 원점 청크에는 없거나 있음 — 개수만큼 건너뜀
+            let n = read_varint(&mut buf).unwrap();
+            assert_eq!(n, 0, "no block entities expected at origin");
             let mut masks = [0u64; 4];
             for m in &mut masks {
                 let n = read_varint(&mut buf).unwrap() as usize;

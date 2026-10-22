@@ -137,6 +137,13 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
                 t.argument_with(s, "target", STRING, WORD, true);
             }
         }
+        "locate" => {
+            let c = t.literal(ROOT, name, false);
+            for sub in ["structure", "biome"] {
+                let s = t.literal(c, sub, false);
+                t.argument_ask_server(s, "name", STRING, WORD, true);
+            }
+        }
         "server" => {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "instance", STRING, WORD, true);
@@ -184,6 +191,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
         match spec.name {
             "server" => self.server_command(args.first().copied()).await,
+            "locate" => self.locate(&args).await,
             "help" => {
                 for s in admin::COMMANDS
                     .iter()
@@ -357,6 +365,48 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
         }
         Ok(total - left)
+    }
+
+    /// `/locate structure|biome <이름>`.
+    async fn locate(&mut self, args: &[&str]) -> Result<(), FrameError> {
+        use crate::world::{biome, structure};
+        let from = (self.position.0 as i32, self.position.2 as i32);
+        let (seed, dim) = (self.server.seed, self.dimension);
+        let found = match args {
+            ["structure", name] => {
+                let name = name.strip_prefix("minecraft:").unwrap_or(name).to_owned();
+                tokio::task::spawn_blocking(move || {
+                    structure::locate(seed, dim, &name, from, 800)
+                        .map(|(x, z, n)| (x, z, n.to_owned()))
+                })
+                .await
+                .ok()
+                .flatten()
+            }
+            ["biome", name] => match biome::by_name(name) {
+                Some(b) => {
+                    let n = b.name().to_owned();
+                    tokio::task::spawn_blocking(move || {
+                        structure::locate_biome(seed, dim, b, from, 6400)
+                    })
+                    .await
+                    .ok()
+                    .flatten()
+                    .map(|(x, z)| (x, z, n))
+                }
+                None => return self.error(&format!("모르는 바이옴: {name}")).await,
+            },
+            _ => return self.error("사용법: /locate structure|biome <이름>").await,
+        };
+        match found {
+            Some((x, z, what)) => {
+                let d =
+                    (((x - from.0) as f64).powi(2) + ((z - from.1) as f64).powi(2)).sqrt() as i32;
+                let msg = format!("가장 가까운 {what}: {x}, ~, {z} ({d}블록)");
+                Ok(self.message(&text::colored(&msg, "green")).await?)
+            }
+            None => self.error("가까이에 없습니다.").await,
+        }
     }
 
     /// `/server`: 목록 또는 이동.

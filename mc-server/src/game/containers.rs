@@ -114,6 +114,19 @@ impl Containers {
         }
     }
 
+    /// 한 번이라도 열었거나 채운 상자인가.
+    pub fn contains(&self, dim: Dimension, pos: BlockPos) -> bool {
+        self.map.lock().unwrap().contains_key(&(dim, pos))
+    }
+
+    /// 처음 여는 구조물 상자를 전리품으로 채웁니다.
+    pub fn fill(&self, dim: Dimension, pos: BlockPos, slots: Vec<Option<Item>>) {
+        let mut slots = slots;
+        slots.resize(CHEST_SLOTS, None);
+        self.map.lock().unwrap().insert((dim, pos), slots);
+        self.dirty.store(true, Ordering::Relaxed);
+    }
+
     /// 상자를 부술 때: 내용을 꺼내고 지웁니다.
     pub fn take_all(&self, dim: Dimension, pos: BlockPos) -> Vec<Item> {
         let removed = self.map.lock().unwrap().remove(&(dim, pos));

@@ -116,7 +116,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     .await?;
                     return Ok(self.open_crafting().await?);
                 }
-                "chest" => {
+                "chest" | "barrel" | "trapped_chest" => {
                     self.send(
                         pw::BLOCK_CHANGED_ACK_ID,
                         &pw::encode_block_changed_ack(u.sequence),

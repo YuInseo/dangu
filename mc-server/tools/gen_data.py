@@ -484,6 +484,12 @@ def main():
     w("/// 아이템 이름 → ID (명령어, 도구 판별용). 순서 = 네트워크 ID.")
     w("pub const ITEM_NAMES: &[&str] = &[" + ", ".join(rust_str(n) for n in mapping["items"]) + "];")
     w("")
+    w("/// 블록 엔티티 종류 이름. 순서 = 네트워크 ID (청크 패킷의 블록 엔티티 목록).")
+    w("pub const BLOCK_ENTITY_TYPES: &[&str] = &[" + ", ".join(rust_str(n) for n in mapping["blockentities"]) + "];")
+    w("")
+    w("/// 엔티티 종류 이름. 순서 = 네트워크 ID.")
+    w("pub const ENTITY_NAMES: &[&str] = &[" + ", ".join(rust_str(n) for n in mapping["entities"]) + "];")
+    w("")
     w("/// 엔티티 종류의 네트워크 ID.")
     w("pub mod entity_type {")
     for name, key in ENTITY_TYPES:

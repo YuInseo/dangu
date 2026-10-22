@@ -134,10 +134,12 @@ async fn survival_loop() {
             assert_eq!(read_varint(&mut b).unwrap(), me);
             took = true;
         } else {
-            assert_eq!(
-                inventory_update(&p.body),
-                (0, Some((by_name("dirt").unwrap(), 1)))
-            );
+            // 발밑 블록의 바닐라 전리품 (잔디면 흙, 모래면 모래 …)
+            let (ccx, ccz) = (under.0 >> 4, under.2 >> 4);
+            let col = mc_server::world::terrain::generate(Dimension::Overworld, SEED, ccx, ccz);
+            let state = col.get((under.0 & 15) as usize, under.1, (under.2 & 15) as usize);
+            let expected = mc_server::data::items::block_drop(state, 0, 0).unwrap();
+            assert_eq!(inventory_update(&p.body), (0, Some((expected.id, 1))));
             stored = true;
         }
     }

@@ -165,6 +165,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
     pub(super) async fn open_chest(&mut self, pos: BlockPos) -> std::io::Result<()> {
         self.close_window(false).await?;
+        self.server.fill_structure_loot(self.dimension, pos);
         self.next_window = self.next_window % 100 + 1;
         let id = self.next_window;
         self.window = Some(Window {
