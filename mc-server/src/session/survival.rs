@@ -166,6 +166,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
         }
         self.vitals.was_on_ground = on_ground;
+        self.rank_moved(old, on_ground).await?;
         // 압력판을 밟음
         let feet = (
             new.0.floor() as i32,
@@ -333,9 +334,10 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             .update_player(self.profile.uuid, |s| s.dead = true);
         self.close_window(false).await?;
 
-        // 가진 것을 모두 떨어뜨립니다.
+        // 가진 것을 모두 떨어뜨립니다 (인벤세이브 등급이면 그대로).
         let at = self.position;
-        for slot in 0..self.inventory.len() {
+        let keep = self.rank_keeps_inventory();
+        for slot in (0..self.inventory.len()).filter(|_| !keep) {
             if let Some(item) = self.inventory[slot].take() {
                 let vel = (
                     crate::game::rand_f64() * 0.4 - 0.2,

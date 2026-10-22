@@ -8,6 +8,11 @@ pub fn name(item: i32) -> &'static str {
     ITEM_NAMES.get(item as usize).copied().unwrap_or("air")
 }
 
+/// 아이템 종류 수.
+pub fn count() -> usize {
+    ITEM_NAMES.len()
+}
+
 pub fn by_name(name: &str) -> Option<i32> {
     let name = name.strip_prefix("minecraft:").unwrap_or(name);
     ITEM_NAMES.iter().position(|n| *n == name).map(|i| i as i32)
@@ -72,7 +77,22 @@ pub fn can_harvest(block: BlockId, tool: Option<Item>) -> bool {
 }
 
 /// 블록을 부쉈을 때 떨어지는 것. `roll`은 0..1000의 난수.
+/// 금지 아이템인지 묻는 곳 (서버 규칙 플러그인이 정함). 금지면 만들 수도, 부숴서 얻을 수도 없음.
+static BAN_CHECK: std::sync::OnceLock<fn(i32) -> bool> = std::sync::OnceLock::new();
+
+pub fn set_ban_check(f: fn(i32) -> bool) {
+    let _ = BAN_CHECK.set(f);
+}
+
+pub fn banned(item: i32) -> bool {
+    BAN_CHECK.get().is_some_and(|f| f(item))
+}
+
 pub fn block_drop(state: u32, roll: u32, count_roll: u32) -> Option<Item> {
+    block_drop_any(state, roll, count_roll).filter(|i| !banned(i.id))
+}
+
+fn block_drop_any(state: u32, roll: u32, count_roll: u32) -> Option<Item> {
     let block = blocks::block_of(state);
     // 두 칸짜리는 아래 반쪽(또는 침대 머리)에서만
     if blocks::property(state, "half") == Some("upper")
@@ -88,8 +108,12 @@ pub fn block_drop(state: u32, roll: u32, count_roll: u32) -> Option<Item> {
     (count > 0).then_some(Item::new(item as i32, count as i32))
 }
 
-/// 조합 칸(`width`×`width`, 2 또는 3)에 맞는 결과.
+/// 조합 칸(`width`×`width`, 2 또는 3)에 맞는 결과 (금지 아이템은 안 나옴).
 pub fn craft(grid: &[Option<Item>], width: usize) -> Option<Item> {
+    craft_any(grid, width).filter(|i| !banned(i.id))
+}
+
+fn craft_any(grid: &[Option<Item>], width: usize) -> Option<Item> {
     let ids: Vec<Option<u16>> = grid
         .iter()
         .map(|s| s.filter(|i| i.count > 0).map(|i| i.id as u16))

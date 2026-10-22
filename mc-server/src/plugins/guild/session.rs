@@ -562,7 +562,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if let Some((job, xp)) = job {
             let bonus = level.as_ref().map_or(0.0, |l| l.job_xp_bonus);
             let xp = xp * (1.0 + bonus / 100.0) * if events.0 { 2.0 } else { 1.0 };
-            crate::dambi::child::job_xp(me, job, xp).await;
+            crate::plugins::rank::job_xp(me, job, xp).await;
         }
         // 높은 등급 재료: 광석이면 5% + 길드 레벨 보너스 (이벤트면 2배)로 한 번 더
         if name.ends_with("_ore") && self.gamemode == crate::packets::play::GameMode::Survival {
@@ -671,7 +671,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 }
 
 /// 다 자란 작물인가 (밀·당근·감자 age 7, 비트 3, 네더 사마귀 3, 코코아 2).
-fn crop_is_mature(state: u32) -> bool {
+pub(crate) fn crop_is_mature(state: u32) -> bool {
     use crate::data::blocks;
     let name = blocks::name(blocks::block_of(state));
     let max = match name {

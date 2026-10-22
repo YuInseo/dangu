@@ -806,7 +806,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
         self.give_key(&r.result, r.count).await?;
         let job = config::with(|c| c.smith_job.clone());
-        crate::dambi::child::job_xp(self.profile.uuid, &job, r.xp).await;
+        crate::plugins::rank::job_xp(self.profile.uuid, &job, r.xp).await;
         self.play_sound("block.smithing_table.use");
         let name = config::with(|c| c.item_name(&r.result)).unwrap_or(r.result.clone());
         self.message(&text::colored(

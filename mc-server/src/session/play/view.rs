@@ -83,6 +83,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
         self.send(p::PLAYER_ABILITIES_ID, &p::encode_abilities(self.gamemode))
             .await?;
+        self.rank.abilities_reset();
         let block = (
             spawn.0.floor() as i32,
             spawn.1.floor() as i32,
@@ -206,6 +207,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         self.send(p::GAME_EVENT_ID, &body).await?;
         self.send(p::PLAYER_ABILITIES_ID, &p::encode_abilities(mode))
             .await?;
+        self.rank.abilities_reset();
         self.server
             .update_player(self.profile.uuid, |s| s.gamemode = mode);
         self.server.publish(Event::GameModeChanged {
@@ -316,8 +318,16 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             other.main_arm,
         );
         self.send(pe::SET_ENTITY_DATA_ID, &looks).await?;
-        if other.main_hand.is_some() || other.off_hand.is_some() {
-            let body = pw::encode_hands(other.entity_id, other.main_hand, other.off_hand);
+        if other.main_hand.is_some()
+            || other.off_hand.is_some()
+            || other.armor.iter().any(Option::is_some)
+        {
+            let body = pw::encode_equipment(
+                other.entity_id,
+                other.main_hand,
+                other.off_hand,
+                Some(other.armor),
+            );
             self.send(pw::SET_EQUIPMENT_ID, &body).await?;
         }
         self.visible.insert(other.uuid, other.entity_id);

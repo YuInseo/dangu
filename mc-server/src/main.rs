@@ -25,6 +25,9 @@ async fn main() -> std::io::Result<()> {
     mc_server::plugins::quest::open_global();
     // 장비 내용(아이템 목록이 여기서 나오므로 콘텐츠보다 먼저)과 장비 하나하나의 상태
     mc_server::plugins::equip::open_global();
+    // 금지 아이템 (제작·드랍 막기)
+    mc_server::plugins::rules::open_global();
+    mc_server::plugins::rank::open_global();
     mc_server::plugins::guild::store::open_global(
         std::env::var_os("MC_GUILDS")
             .map(std::path::PathBuf::from)

@@ -120,6 +120,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         self.set_block(pos, after, Some(old));
         if self.gamemode == GameMode::Survival {
             self.guild_block_broken(pos, old).await?;
+            self.rank_autoplant(pos, old);
         }
         // 문·침대는 나머지 반쪽도 함께
         if let Some((other, other_state)) = placement::partner(pos, old)
@@ -334,7 +335,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         true
     }
 
-    fn set_block(&mut self, pos: BlockPos, state: u32, broken: Option<u32>) {
+    pub(crate) fn set_block(&mut self, pos: BlockPos, state: u32, broken: Option<u32>) {
         self.server
             .world
             .set(self.dimension, pos.0, pos.1, pos.2, state);
@@ -412,16 +413,26 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     pub(crate) fn hands_changed(&mut self) {
-        let (main, off) = (self.main_hand(), self.off_hand());
+        let (main, off, armor) = (self.main_hand(), self.off_hand(), self.shown_armor());
         self.server.update_player(self.profile.uuid, |s| {
             s.main_hand = main;
             s.off_hand = off;
+            s.armor = armor;
         });
         self.server.publish(Event::HandsChanged {
             uuid: self.profile.uuid,
             entity_id: self.entity_id,
             main,
             off,
+            armor,
         });
+    }
+
+    /// 남에게 보일 갑옷 (발·다리·몸·머리). 갑옷 숨기기면 비움.
+    pub(crate) fn shown_armor(&self) -> [Option<Item>; 4] {
+        if self.rank.hide_armor {
+            return [None; 4];
+        }
+        [8, 7, 6, 5].map(|s| self.inventory[s])
     }
 }

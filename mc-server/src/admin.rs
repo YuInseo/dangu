@@ -299,6 +299,66 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/복권 [정보|추첨] — 복권 판매소 열기, 이번 회차 정보, (OP 4) 지금 추첨",
     },
     Spec {
+        name: "등급",
+        aliases: &["rank", "후원"],
+        level: 0,
+        usage: "/등급 — 후원 등급과 특혜 · /등급 목록 · (OP) /등급 설정 <이름> <등급|없음> [일] · /등급 플라이 <이름> <분> · /등급 자동심기 <이름> <개수>",
+    },
+    Spec {
+        name: "ec",
+        aliases: &["엔더상자", "enderchest"],
+        level: 0,
+        usage: "/ec — 개인 엔더상자 (후원 등급)",
+    },
+    Spec {
+        name: "제작대",
+        aliases: &["workbench", "wb"],
+        level: 0,
+        usage: "/제작대 — 어디서나 작업대 (후원 등급)",
+    },
+    Spec {
+        name: "수리",
+        aliases: &["repair"],
+        level: 0,
+        usage: "/수리 — 손에 든 장비 수리 (후원 등급)",
+    },
+    Spec {
+        name: "셋홈",
+        aliases: &["sethome"],
+        level: 0,
+        usage: "/셋홈 [이름] — 지금 자리를 홈으로 (기본 1개, 후원 등급이면 더)",
+    },
+    Spec {
+        name: "홈",
+        aliases: &["home"],
+        level: 0,
+        usage: "/홈 [이름] — 홈으로 이동",
+    },
+    Spec {
+        name: "홈목록",
+        aliases: &["homes"],
+        level: 0,
+        usage: "/홈목록 — 내 홈들",
+    },
+    Spec {
+        name: "홈삭제",
+        aliases: &["delhome"],
+        level: 0,
+        usage: "/홈삭제 <이름>",
+    },
+    Spec {
+        name: "갑옷숨기기",
+        aliases: &["hidearmor"],
+        level: 0,
+        usage: "/갑옷숨기기 — 남에게 내 갑옷을 숨기기/보이기 (후원 등급)",
+    },
+    Spec {
+        name: "플라이",
+        aliases: &["fly"],
+        level: 0,
+        usage: "/플라이 — 남은 플라이 시간",
+    },
+    Spec {
         name: "이동",
         aliases: &["move", "goto"],
         level: 0,
@@ -353,6 +413,77 @@ pub fn resolve(server: &Server, name: &str) -> Option<(u128, String)> {
         .then(|| (crate::uuid::offline_uuid(name), name.to_owned()))
 }
 
+/// `/등급 목록|설정|플라이|자동심기`.
+fn rank_admin(server: &Server, actor: &Actor, sub: &str, rest: &[&str]) -> Vec<String> {
+    use crate::plugins::rank;
+    if sub == "목록" || sub == "list" {
+        return rank::get_config()
+            .ranks
+            .iter()
+            .map(|r| {
+                format!(
+                    "{} ({}) {}원 — {}",
+                    r.name,
+                    r.id,
+                    r.price,
+                    r.perks.lines().join(", ")
+                )
+            })
+            .collect();
+    }
+    if actor.level(server) < 4 {
+        return vec!["등급을 주고 바꾸는 것은 OP 4만 할 수 있습니다.".into()];
+    }
+    let Some((uuid, name)) = rest.first().and_then(|n| resolve(server, n)) else {
+        return vec!["사용법: /등급 설정 <이름> <등급|없음> [일] · 플라이 <이름> <분> · 자동심기 <이름> <개수>".into()];
+    };
+    let number = |i: usize| rest.get(i).and_then(|n| n.parse::<i64>().ok());
+    match sub {
+        "설정" | "set" => {
+            let Some(id) = rest.get(1) else {
+                return vec!["사용법: /등급 설정 <이름> <등급|없음> [일]".into()];
+            };
+            let days = number(2).unwrap_or(0).max(0);
+            if matches!(*id, "없음" | "none") {
+                rank::grant(uuid, None, 0);
+                return vec![format!("{name}님의 등급을 없앴습니다.")];
+            }
+            let Some(def) = rank::config(|c| c.rank(id).cloned()) else {
+                return vec![format!("모르는 등급: {id} (/등급 목록)")];
+            };
+            rank::grant(uuid, Some(&def), days);
+            server.publish_all(Event::System(text::colored(
+                &format!("{name}님이 {} 등급이 되었습니다!", def.name),
+                "gold",
+            )));
+            let span = if days > 0 {
+                format!("{days}일")
+            } else {
+                "영구".into()
+            };
+            vec![format!(
+                "{name}님에게 {} 등급을 주었습니다 ({span}).",
+                def.name
+            )]
+        }
+        "플라이" | "fly" => match number(1) {
+            Some(m) if m > 0 => {
+                rank::add_fly_minutes(uuid, m);
+                vec![format!("{name}님에게 플라이 {m}분을 주었습니다.")]
+            }
+            _ => vec!["사용법: /등급 플라이 <이름> <분>".into()],
+        },
+        "자동심기" | "autoplant" => match number(1) {
+            Some(n) if n > 0 => {
+                rank::add_autoplant(uuid, n as u64);
+                vec![format!("{name}님에게 자동심기 {n}블록을 주었습니다.")]
+            }
+            _ => vec!["사용법: /등급 자동심기 <이름> <개수>".into()],
+        },
+        _ => vec!["사용법: /등급 [목록|설정|플라이|자동심기]".into()],
+    }
+}
+
 /// 관리 명령어를 실행합니다. 관리 명령어가 아니면 None. 결과는 친 쪽에 보일 줄들.
 pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<Vec<String>> {
     let Some(spec) = spec(name) else {
@@ -378,6 +509,7 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
             | "title"
     ) || (spec.name == "gamemode" && args.len() >= 2)
         || (spec.name == "복권" && !args.is_empty())
+        || (spec.name == "등급" && !args.is_empty())
         || spec.name == "iareload";
     if !handled {
         return None;
@@ -437,6 +569,7 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
                 _ => usage(),
             }
         }
+        ("등급", [sub, rest @ ..]) => rank_admin(server, actor, sub, rest),
         ("list", _) => {
             let mut lines = Vec::new();
             for inst in server.instances() {

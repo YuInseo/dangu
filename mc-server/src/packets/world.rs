@@ -341,12 +341,27 @@ pub fn encode_level_event(event: i32, pos: BlockPos, data: i32) -> Vec<u8> {
 
 /// `Set Equipment`: 주 손(0)과 보조 손(1). 이어지는 항목이 있으면 슬롯 바이트의 최상위 비트를 켭니다.
 pub fn encode_hands(entity_id: i32, main: Option<Item>, off: Option<Item>) -> Vec<u8> {
+    encode_equipment(entity_id, main, off, None)
+}
+
+/// `Set Equipment`: 두 손과 (있으면) 갑옷 넷 — 발(2)·다리(3)·몸(4)·머리(5).
+pub fn encode_equipment(
+    entity_id: i32,
+    main: Option<Item>,
+    off: Option<Item>,
+    armor: Option<[Option<Item>; 4]>,
+) -> Vec<u8> {
     let mut out = Vec::new();
     write_varint(&mut out, entity_id);
-    out.push(0x80);
-    write_slot(&mut out, main);
-    out.push(1);
-    write_slot(&mut out, off);
+    let mut entries = vec![(0u8, main), (1, off)];
+    if let Some(a) = armor {
+        entries.extend((2u8..).zip(a));
+    }
+    let last = entries.len() - 1;
+    for (i, (slot, item)) in entries.into_iter().enumerate() {
+        out.push(if i < last { slot | 0x80 } else { slot });
+        write_slot(&mut out, item);
+    }
     out
 }
 

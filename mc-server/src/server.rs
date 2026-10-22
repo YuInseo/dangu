@@ -30,6 +30,8 @@ pub struct PlayerState {
     /// 손에 든 것 (다른 사람에게 보이는 것).
     pub main_hand: Option<Item>,
     pub off_hand: Option<Item>,
+    /// 남에게 보이는 갑옷: 발·다리·몸·머리 (갑옷 숨기기면 모두 None).
+    pub armor: [Option<Item>; 4],
     /// 프로필 속성 (스킨). 탭 목록에 넣으면 다른 사람에게도 그 스킨으로 보입니다.
     pub properties: std::sync::Arc<Vec<Property>>,
     /// 죽어서 부활을 기다리는 중.
@@ -58,6 +60,7 @@ impl PlayerState {
             gamemode: GameMode::Survival,
             main_hand: None,
             off_hand: None,
+            armor: [None; 4],
             properties: Default::default(),
             dead: false,
             ip: String::new(),
@@ -291,12 +294,13 @@ pub enum Event {
         center: (f64, f64, f64),
         power: f32,
     },
-    /// 손에 든 것이 바뀜.
+    /// 손에 든 것이나 입은 갑옷이 바뀜.
     HandsChanged {
         uuid: u128,
         entity_id: i32,
         main: Option<Item>,
         off: Option<Item>,
+        armor: [Option<Item>; 4],
     },
     /// 팔을 휘두름.
     Swing {

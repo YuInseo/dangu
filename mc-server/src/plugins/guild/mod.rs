@@ -25,7 +25,7 @@ pub mod config;
 pub mod gui;
 pub mod land;
 mod map;
-mod session;
+pub(crate) mod session;
 pub mod store;
 
 use crate::packets::world::Item;

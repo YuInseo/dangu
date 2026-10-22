@@ -74,7 +74,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             child::shared_add(me, "cash", r.cash).await;
         }
         for (job, xp) in &r.job_xp {
-            child::job_xp(me, job, *xp).await;
+            crate::plugins::rank::job_xp(me, job, *xp).await;
         }
         for (name, count) in &r.items {
             if let Some(item) = item_by_name(name, 1) {

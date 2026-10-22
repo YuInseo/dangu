@@ -417,7 +417,9 @@ fn hurt(
     }
     for &(name, lo, hi) in m.kind.drops() {
         let count = lo + (rand_u32() % (hi - lo + 1) as u32) as i32;
-        if let (Some(item), true) = (by_name(name), count > 0) {
+        if let (Some(item), true) = (by_name(name), count > 0)
+            && !crate::data::items::banned(item)
+        {
             out.drops.push((e.dimension, at, Item::new(item, count)));
         }
     }

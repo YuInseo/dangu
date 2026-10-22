@@ -174,8 +174,25 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
             let id = t.argument_ask_server(g, "id", STRING, WORD, true);
             t.argument_with(id, "count", INTEGER, &[0], true);
         }
-        "강화" => {
+        "강화" | "ec" | "제작대" | "수리" | "홈목록" | "갑옷숨기기" | "플라이" => {
             t.literal(ROOT, name, true);
+        }
+        "셋홈" | "홈" | "홈삭제" => {
+            let c = t.literal(ROOT, name, kind != "홈삭제");
+            t.argument_with(c, "name", STRING, WORD, true);
+        }
+        "등급" => {
+            let c = t.literal(ROOT, name, true);
+            t.literal(c, "목록", true);
+            let set = t.literal(c, "설정", false);
+            let who = t.argument(set, "target", GAME_PROFILE, false);
+            let id = t.argument_with(who, "rank", STRING, WORD, true);
+            t.argument_with(id, "days", INTEGER, &[0], true);
+            for sub in ["플라이", "자동심기"] {
+                let s = t.literal(c, sub, false);
+                let who = t.argument(s, "target", GAME_PROFILE, false);
+                t.argument_with(who, "amount", INTEGER, &[0], true);
+            }
         }
         "대장간" => {
             let c = t.literal(ROOT, name, true);
@@ -293,6 +310,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
             "ia" | "iaget" | "iaimage" => self.ia_command(spec.name, &args).await,
             "재화" => self.money_command(&args).await,
+            "등급" | "ec" | "제작대" | "수리" | "셋홈" | "홈" | "홈목록" | "홈삭제"
+            | "갑옷숨기기" | "플라이" => self.rank_command(spec.name, &args).await,
             "locate" => self.locate(&args).await,
             "help" => {
                 for s in admin::COMMANDS

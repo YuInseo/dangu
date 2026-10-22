@@ -17,6 +17,10 @@
 //! | `GET /api/quests/default` | 기본값 |
 //! | `GET /api/equipment` · `PUT` | 장비 JSON (강화 확률·잠재능력·주문서·보스·조합법·장비 능력치) |
 //! | `GET /api/equipment/default` | 기본값 |
+//! | `GET /api/ranks` · `PUT` | 후원 등급 JSON (특혜·홈 수·tp 대기·잠수 보상) |
+//! | `GET /api/ranks/default` | 기본값 |
+//! | `GET /api/rules` · `PUT` | 서버 규칙 JSON (금지 아이템) |
+//! | `GET /api/rules/default` | 기본값 |
 //!
 //! `/api/`는 모두 `Authorization: Bearer <토큰>`이 있어야 합니다. `PUT`에 `X-Dry-Run: 1`을 붙이면
 //! 확인만 하고 저장하지 않습니다.
@@ -33,6 +37,7 @@ use crate::plugins::equip::config as equip_config;
 use crate::plugins::guild::config as guild_config;
 use crate::plugins::quest::config as quest_config;
 use crate::plugins::store::data_path;
+use crate::plugins::{rank, rules};
 
 const PAGE: &str = include_str!("page.html");
 const MAX_HEAD: usize = 16 * 1024;
@@ -298,9 +303,35 @@ pub fn handle(req: &Request, token: &str) -> Response {
             equip_config::set(c.clone())?;
             Ok(equip_config::encode(&equip_config::get()))
         }),
+        ("GET", "ranks") => Response::json(200, &rank::encode_config(&rank::get_config())),
+        ("GET", "ranks/default") => {
+            Response::json(200, &rank::encode_config(&rank::RankConfig::default()))
+        }
+        ("PUT" | "POST", "ranks") => save(&req.body, rank::decode_config, |c| {
+            if dry {
+                c.validate()?;
+                return Ok(rank::encode_config(c));
+            }
+            rank::set_config(c.clone())?;
+            Ok(rank::encode_config(&rank::get_config()))
+        }),
+        ("GET", "rules") => Response::json(200, &rules::encode(&rules::get())),
+        ("GET", "rules/default") => Response::json(200, &rules::encode(&rules::Rules::default())),
+        ("PUT" | "POST", "rules") => save(&req.body, rules::decode, |r| {
+            if dry {
+                r.validate()?;
+                return Ok(rules::encode(r));
+            }
+            rules::set(r.clone())?;
+            Ok(rules::encode(&rules::get()))
+        }),
         (
             _,
-            "guild-config"
+            "ranks"
+            | "ranks/default"
+            | "rules"
+            | "rules/default"
+            | "guild-config"
             | "guild-config/default"
             | "quests"
             | "quests/default"
@@ -442,6 +473,27 @@ mod tests {
             t,
         );
         assert_eq!(r.status, 400, "확률 30개가 아니면 거절");
+        // 등급·규칙: 확인만 하면 저장하지 않고, 잘못된 것은 거절
+        let r = handle(&req("GET", "/api/ranks", Some(t), ""), t);
+        assert!(body(&r).get("ranks").is_some());
+        let mut dry = req(
+            "PUT",
+            "/api/ranks",
+            Some(t),
+            r#"{"ranks": [{"id": "a"}, {"id": "a"}]}"#,
+        );
+        dry.headers.push(("x-dry-run".into(), "1".into()));
+        assert_eq!(handle(&dry, t).status, 400, "겹치는 id");
+        let r = handle(&req("GET", "/api/rules/default", Some(t), ""), t);
+        assert!(body(&r).get("banned_count").and_then(Json::as_f64).unwrap() > 30.0);
+        let mut dry = req(
+            "PUT",
+            "/api/rules",
+            Some(t),
+            r#"{"banned_items": ["tnt", "no_such_item"]}"#,
+        );
+        dry.headers.push(("x-dry-run".into(), "1".into()));
+        assert_eq!(handle(&dry, t).status, 400, "모르는 아이템");
         let r = handle(&req("DELETE", "/api/quests", Some(t), ""), t);
         assert_eq!(r.status, 405);
         assert!(same("abc", "abc") && !same("abc", "abd") && !same("abc", "ab"));

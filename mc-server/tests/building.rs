@@ -41,8 +41,11 @@ async fn place_and_break_are_shared_and_saved() {
     }
     send(&mut alice, 0x39, &slot).await;
     let eq = recv_where(&mut bob, |p| p.id == SET_EQUIPMENT).await;
-    // 주 손(0x80 = 뒤에 더 있음) 돌 64개, 보조 손(1) 비어 있음
-    assert_eq!(eq.body[eq.body.len() - 7..], [0x80, 64, 1, 0, 0, 1, 0]);
+    // 주 손(0x80 = 뒤에 더 있음) 돌 64개, 보조 손(1)과 갑옷 넷(2..5)은 비어 있음
+    assert_eq!(
+        eq.body[eq.body.len() - 15..],
+        [0x80, 64, 1, 0, 0, 0x81, 0, 0x82, 0, 0x83, 0, 0x84, 0, 5, 0]
+    );
 
     // 발밑 블록의 윗면을 누릅니다 → 발 자리에 돌.
     let (sx, sy, sz) = terrain::spawn_point(Dimension::Overworld, SEED);

@@ -56,6 +56,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     /// 클라이언트가 비행을 켜고 끔. 날 수 없는 모드면 능력을 다시 보내 끕니다.
     pub(crate) async fn player_abilities(&mut self, flags: u8) -> Result<(), FrameError> {
         let flying = flags & 0x02 != 0;
+        if self.rank_fly_request(flying).await? {
+            return Ok(());
+        }
         let can_fly = matches!(self.gamemode, GameMode::Creative | GameMode::Spectator);
         if flying && !can_fly {
             self.send(p::PLAYER_ABILITIES_ID, &p::encode_abilities(self.gamemode))

@@ -43,6 +43,10 @@ pub enum WindowKind {
     Quest(crate::plugins::quest::gui::Page),
     /// `/장비` · `/강화` · `/대장간` 메뉴.
     Equip(crate::plugins::equip::gui::Page),
+    /// `/등급` 창 (메뉴).
+    Rank,
+    /// `/ec` 개인 엔더상자 27칸.
+    Ender,
     /// 길드 창고 한 페이지: 위 45칸은 진짜 칸, 아래 줄은 버튼.
     GuildStorage {
         guild: u32,
@@ -285,6 +289,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             WindowKind::Guild(page) => self.guild_slots(page),
             WindowKind::Quest(page) => self.quest_slots(page),
             WindowKind::Equip(page) => self.equip_slots(page),
+            WindowKind::Rank => self.rank_slots(),
+            WindowKind::Ender => self.ender_slots(),
             WindowKind::GuildStorage { guild, page } => {
                 let mut v = crate::plugins::guild::guilds().read(|d| {
                     d.guild(*guild)
@@ -329,6 +335,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         | WindowKind::Guild(_)
                         | WindowKind::Quest(_)
                         | WindowKind::Equip(_)
+                        | WindowKind::Rank
                         | WindowKind::GuildStorage { .. }
                 ) {
                     self.lottery_closed();
@@ -371,6 +378,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 WindowKind::Guild(ref page) => page.size(),
                 WindowKind::Quest(_) | WindowKind::Equip(_) => 54,
                 WindowKind::GuildStorage { .. } => 54,
+                WindowKind::Rank | WindowKind::Ender => 27,
             },
         }
     }
@@ -397,7 +405,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         | WindowKind::Catalog(_)
                         | WindowKind::Guild(_)
                         | WindowKind::Quest(_)
-                        | WindowKind::Equip(_) => None,
+                        | WindowKind::Equip(_)
+                        | WindowKind::Rank => None,
+                        WindowKind::Ender => Some(SlotRef::Ender(slot)),
                         WindowKind::GuildStorage { guild, page } => (slot
                             < crate::plugins::guild::PAGE_SLOTS)
                             .then_some(SlotRef::Guild(*guild, *page, slot)),
@@ -437,7 +447,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             | WindowKind::Catalog(_)
             | WindowKind::Guild(_)
             | WindowKind::Quest(_)
-            | WindowKind::Equip(_),
+            | WindowKind::Equip(_)
+            | WindowKind::Rank,
         ) = menu
         {
             // 메뉴: 무엇을 집든 되돌리고, 누른 칸만 버튼으로
@@ -453,6 +464,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 Some(WindowKind::Equip(page)) => {
                     self.equip_click(page, c.slot, c.button, c.mode).await?
                 }
+                Some(WindowKind::Rank) => self.rank_click(c.slot).await?,
                 _ => {}
             }
             if self.window.as_ref().is_some_and(|w| w.id == window_id) {
@@ -532,6 +544,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         let carried_after = resolved.pop().flatten();
         let mut chest_changes = Vec::new();
         let mut guild_changes = Vec::new();
+        let mut ender_changes = Vec::new();
         for (&(slot, _), item) in c.changed.iter().zip(resolved) {
             let Ok(slot) = usize::try_from(slot) else {
                 continue;
@@ -540,6 +553,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 Some(SlotRef::Inventory(s)) => *s = item,
                 Some(SlotRef::Chest(d, p, i)) => chest_changes.push((d, p, i, item)),
                 Some(SlotRef::Guild(g, p, i)) => guild_changes.push((g, p, i, item)),
+                Some(SlotRef::Ender(i)) => ender_changes.push((i, item)),
                 Some(SlotRef::Result) | None => {}
             }
         }
@@ -549,6 +563,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             after_slots[i] = item;
         }
         for &(_, _, i, item) in &guild_changes {
+            after_slots[i] = item;
+        }
+        for &(i, item) in &ender_changes {
             after_slots[i] = item;
         }
         let after = totals(&after_slots, self.carried, result_slot);
@@ -603,6 +620,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             (self.inventory, self.window, self.carried) = (snapshot.0, snapshot.1, snapshot.2);
             self.send_window().await?;
             return Ok(());
+        }
+        if !ender_changes.is_empty() {
+            self.commit_ender(&ender_changes);
         }
         for (d, p, i, item) in chest_changes {
             self.server.containers.set_slot(d, p, i, item);
@@ -691,6 +711,8 @@ enum SlotRef<'a> {
     Chest(Dimension, BlockPos, usize),
     /// 길드 창고 (길드, 페이지, 칸).
     Guild(u32, usize, usize),
+    /// 개인 엔더상자 칸.
+    Ender(usize),
     Result,
 }
 

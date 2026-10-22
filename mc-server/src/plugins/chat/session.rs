@@ -55,7 +55,16 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         details.push(format!("있는 곳\t{}", self.server.name));
         let mins = data.playtime_secs / 60;
         details.push(format!("놀이 시간\t{}시간 {}분", mins / 60, mins % 60));
+        let badge = self
+            .rank
+            .rank
+            .as_ref()
+            .map(|r| (r.name.clone(), r.color.clone()));
+        if let Some((name, _)) = &badge {
+            details.push(format!("후원 등급\t{name}"));
+        }
         super::Card {
+            badge,
             job: jobs.first().map(|j| j.name.clone()),
             level: jobs.first().map_or(1, |j| j.level),
             details,

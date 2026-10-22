@@ -172,10 +172,11 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 entity_id,
                 main,
                 off,
+                armor,
             } if self.visible.contains_key(&uuid) => {
                 self.send(
                     pw::SET_EQUIPMENT_ID,
-                    &pw::encode_hands(entity_id, main, off),
+                    &pw::encode_equipment(entity_id, main, off, Some(armor)),
                 )
                 .await?;
             }

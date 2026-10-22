@@ -165,6 +165,8 @@ pub struct Card {
     pub level: u32,
     /// 설명 줄들 (`이름표\t값` 이면 이름표를 회색으로).
     pub details: Vec<String>,
+    /// 후원 등급 (이름, 색): 머리말 앞에 `[VIP]`.
+    pub badge: Option<(String, String)>,
 }
 
 /// 받는 사람 쪽에서 본 자기 자신.
@@ -212,6 +214,9 @@ pub fn render(m: &Message) -> Tag {
         tag = format!("[{g}]");
     }
     let mut parts = vec![text::colored(&format!("{tag} "), head)];
+    if let Some((name, color)) = &m.card.badge {
+        parts.push(text::colored(&format!("[{name}] "), color));
+    }
     let job = m.card.job.as_deref().unwrap_or("무직");
     parts.push(text::colored(&format!("[{job}]"), "#c9b3ff"));
     parts.push(text::colored(".", "dark_gray"));
@@ -324,6 +329,10 @@ fn to_json(m: &Message) -> Json {
     if let Some(g) = &m.guild {
         f.push(("guild".into(), Json::String(g.clone())));
     }
+    if let Some((name, color)) = &m.card.badge {
+        f.push(("badge".into(), Json::String(name.clone())));
+        f.push(("badge_color".into(), Json::String(color.clone())));
+    }
     if let Some(j) = &m.card.job {
         f.push(("job".into(), Json::String(j.clone())));
     }
@@ -354,6 +363,8 @@ fn from_json(j: &Json) -> Option<Message> {
         guild: s("guild").map(str::to_owned),
         content: s("content")?.to_owned(),
         card: Card {
+            badge: s("badge")
+                .map(|b| (b.to_owned(), s("badge_color").unwrap_or("gold").to_owned())),
             job: s("job").map(str::to_owned),
             level: j.get("level").and_then(Json::as_f64).unwrap_or(1.0) as u32,
             details: j
@@ -388,6 +399,7 @@ mod tests {
                 job: Some("광부".into()),
                 level: 12,
                 details: vec!["길드\t달빛 · 길드원".into()],
+                badge: Some(("VIP".into(), "#ffd866".into())),
             },
         }
     }
@@ -459,7 +471,7 @@ mod tests {
         let shown = format!("{:?}", render(&m));
         assert!(shown.contains("[달빛]") && shown.contains("Alex") && shown.contains("안녕"));
         let flat = text::plain_text(&render(&msg(Channel::Global)));
-        assert_eq!(flat, "[전체] [광부].(Lv.12) Alex : 안녕");
+        assert_eq!(flat, "[전체] [VIP] [광부].(Lv.12) Alex : 안녕");
         assert!(shown.contains("길드  ") && shown.contains("show_text"));
     }
 

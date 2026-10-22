@@ -65,6 +65,7 @@ button.danger { color: var(--bad); }
     <button data-tab="guild" class="on">길드</button>
     <button data-tab="quests">퀘스트</button>
     <button data-tab="equip">장비</button>
+    <button data-tab="server">서버</button>
     <button data-tab="raw">JSON</button>
   </nav>
   <span class="spacer"></span>
@@ -162,6 +163,27 @@ button.danger { color: var(--bad); }
     <div class="row"><button class="btn" id="equip-default">기본값으로 채우기 (저장 전)</button></div>
   </div>
 
+  <div id="tab-server" hidden>
+    <section class="card">
+      <h2>후원 등급</h2>
+      <p class="hint">줄은 특혜, 칸은 등급. 등급 주기: 게임·콘솔에서 <code>/등급 설정 &lt;이름&gt; &lt;id&gt; [일]</code> (0일 = 영구).
+        자동심기는 등급을 줄 때 그만큼 블록을 더해 줍니다. 경매장·추천·출석·자동판매·셜커는 그 기능이 생기면 쓰이는 값입니다.</p>
+      <div class="scroll"><table id="ranks"></table></div>
+      <div class="row" style="margin-top:8px"><button class="btn small" id="add-rank">등급 추가</button></div>
+    </section>
+    <section class="card">
+      <h2>등급 공통</h2>
+      <div class="grid" id="rank-misc"></div>
+    </section>
+    <section class="card">
+      <h2>금지 아이템 <span class="chip" id="n-banned"></span></h2>
+      <p class="hint">한 줄에 하나 (바닐라 이름). 여기 있는 아이템은 조합으로 만들 수 없고, 블록을 부수거나 몹이 죽어도 떨어지지 않습니다.
+        <code>*</code> 하나로 여러 개 (<code>*_head</code>, <code>sculk*</code>).</p>
+      <textarea class="wide" id="banned" rows="12" spellcheck="false"></textarea>
+    </section>
+    <div class="row"><button class="btn" id="server-default">기본값으로 채우기 (저장 전)</button></div>
+  </div>
+
   <div id="tab-raw" hidden>
     <section class="card">
       <h2>길드 설정 JSON <span class="chip">world/guild_config.json</span></h2>
@@ -178,6 +200,14 @@ button.danger { color: var(--bad); }
         장비·재료를 새로 더하면 그림이 필요해 서버를 다시 켤 때 반영됩니다.</p>
       <textarea class="code" id="raw-equip" spellcheck="false"></textarea>
     </section>
+    <section class="card">
+      <h2>후원 등급 JSON <span class="chip">world/ranks.json</span></h2>
+      <textarea class="code" id="raw-ranks" spellcheck="false"></textarea>
+    </section>
+    <section class="card">
+      <h2>서버 규칙 JSON <span class="chip">world/rules.json</span></h2>
+      <textarea class="code" id="raw-rules" spellcheck="false"></textarea>
+    </section>
   </div>
 </main>
 
@@ -186,7 +216,7 @@ button.danger { color: var(--bad); }
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 let token = "";
-let guild = null, quests = null, equipment = null;
+let guild = null, quests = null, equipment = null, ranks = null, rules = null;
 let tab = "guild";
 let dirty = false;
 
@@ -366,34 +396,88 @@ function renderEquip() {
 $("#add-potential").onclick = () => { equipment.potentials.push({ stat: "str", weight: 5, min: 1, max: 3 }); markDirty(); renderEquip(); };
 $("#equip-default").onclick = async () => { equipment = await api("GET", "equipment/default"); markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다."); };
 
+// ---- 서버: 후원 등급 · 금지 아이템 ----
+const PERKS = [
+  ["commands", "/ec /제작대 /수리", "bool"], ["guild_fly", "마을 안 플라이", "bool"], ["double_jump", "더블점프", "bool"],
+  ["homes", "셋홈 +", 1], ["tp_cooldown_cut", "tp 쿨타임 -% (100 = 없음)", 10], ["referral_bonus", "추천보상 증가", "bool"],
+  ["premium_attendance", "프리미엄 출석보상", "bool"], ["auction_no_fee", "경매장 수수료 없음", "bool"], ["auction_slots", "경매장 판매 +", 1],
+  ["autoplant", "자동심기 블록", 10000], ["shulker_open", "셜커 쉬프트+우클릭", "bool"], ["keep_inventory", "인벤세이브", "bool"],
+  ["afk_mult", "잠수보상 배율", 0.5], ["auto_sell", "인벤 자동판매", "bool"], ["xp_mult", "경험치 배율", 0.5], ["hide_armor", "갑옷 숨기기", "bool"],
+];
+const RANK_MISC = [
+  ["base_homes", "기본 홈 수", 1], ["tp_cooldown_secs", "기본 tp 쿨타임 (초)", 1], ["afk_after_secs", "잠수로 보는 시간 (초)", 10],
+  ["afk_points_per_minute", "잠수 1분마다 포인트", 1],
+];
+function renderServer() {
+  const t = $("#ranks");
+  const cell = (r, k, kind, set) => kind === "bool"
+    ? el("input", { type: "checkbox", checked: !!r[k], on: { change: e => { set(e.target.checked); markDirty(); } } })
+    : kind === "text" ? text(r[k], set) : num(r[k], kind, set);
+  const head = [el("th", {}, "")], rows = [];
+  ranks.ranks.forEach((r, i) => head.push(el("th", {}, el("span", { textContent: r.name, style: "color:" + r.color }),
+    " ", el("button", { className: "btn small danger", textContent: "빼기", on: { click: () => { ranks.ranks.splice(i, 1); markDirty(); renderServer(); } } }))));
+  for (const [k, name, kind] of [["id", "id", "text"], ["name", "이름", "text"], ["color", "색 (#rrggbb)", "text"], ["price", "값 (원)", 100]]) {
+    rows.push(el("tr", {}, el("th", {}, name), ...ranks.ranks.map(r => el("td", {}, cell(r, k, kind, v => r[k] = v)))));
+  }
+  for (const [k, name, kind] of PERKS) {
+    rows.push(el("tr", {}, el("th", {}, name), ...ranks.ranks.map(r => el("td", {}, cell(r.perks, k, kind, v => r.perks[k] = v)))));
+  }
+  t.replaceChildren(el("tr", {}, ...head), ...rows);
+  $("#rank-misc").replaceChildren(
+    ...RANK_MISC.map(([k, name, step]) => el("label", {}, name, num(ranks[k], step, v => ranks[k] = v))),
+    el("label", {}, "잠수 포인트가 쌓이는 인스턴스 (쉼표, 비우면 모두)",
+      text((ranks.afk_instances || []).join(", "), v => ranks.afk_instances = v.split(",").map(s => s.trim()).filter(Boolean))),
+    el("label", {}, "후원 안내 (/등급 창)", text(ranks.shop_url, v => ranks.shop_url = v)));
+  $("#banned").value = (rules.banned_items || []).join("\n");
+  $("#n-banned").textContent = rules.banned_count != null ? `아이템 ${rules.banned_count}종` : "";
+}
+$("#banned").oninput = () => { rules.banned_items = $("#banned").value.split("\n").map(s => s.trim()).filter(Boolean); markDirty(); };
+$("#add-rank").onclick = () => {
+  const last = ranks.ranks[ranks.ranks.length - 1];
+  ranks.ranks.push({ id: "rank" + (ranks.ranks.length + 1), name: "새 등급", color: "#ffffff", price: 0,
+    perks: last ? JSON.parse(JSON.stringify(last.perks)) : { afk_mult: 1, xp_mult: 1 } });
+  markDirty(); renderServer();
+};
+$("#server-default").onclick = async () => {
+  [ranks, rules] = await Promise.all([api("GET", "ranks/default"), api("GET", "rules/default")]);
+  markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다.");
+};
+
 // ---- JSON / 탭 ----
 function renderRaw() {
   $("#raw-guild").value = JSON.stringify(guild, null, 2);
   $("#raw-quests").value = JSON.stringify(quests, null, 2);
   $("#raw-equip").value = JSON.stringify(equipment, null, 2);
+  $("#raw-ranks").value = JSON.stringify(ranks, null, 2);
+  $("#raw-rules").value = JSON.stringify(rules, null, 2);
 }
 $("#raw-guild").oninput = markDirty;
 $("#raw-quests").oninput = markDirty;
 $("#raw-equip").oninput = markDirty;
+$("#raw-ranks").oninput = markDirty;
+$("#raw-rules").oninput = markDirty;
 function readRaw() {
   // JSON 탭에서 고친 것을 폼에 반영 (망가졌으면 알림)
   try { guild = JSON.parse($("#raw-guild").value); } catch (e) { throw new Error("길드 JSON: " + e.message); }
   try { quests = JSON.parse($("#raw-quests").value); } catch (e) { throw new Error("퀘스트 JSON: " + e.message); }
   try { equipment = JSON.parse($("#raw-equip").value); } catch (e) { throw new Error("장비 JSON: " + e.message); }
+  try { ranks = JSON.parse($("#raw-ranks").value); } catch (e) { throw new Error("등급 JSON: " + e.message); }
+  try { rules = JSON.parse($("#raw-rules").value); } catch (e) { throw new Error("규칙 JSON: " + e.message); }
 }
-function renderAll() { renderGuild(); renderQuests(); renderEquip(); renderRaw(); }
+function renderAll() { renderGuild(); renderQuests(); renderEquip(); renderServer(); renderRaw(); }
 function show(t) {
-  if (tab === "raw" && t !== "raw") { try { readRaw(); renderGuild(); renderQuests(); renderEquip(); } catch (e) { status(e.message, "bad"); return; } }
+  if (tab === "raw" && t !== "raw") { try { readRaw(); renderGuild(); renderQuests(); renderEquip(); renderServer(); } catch (e) { status(e.message, "bad"); return; } }
   if (t === "raw") renderRaw();
   tab = t;
   $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
-  for (const k of ["guild", "quests", "equip", "raw"]) $("#tab-" + k).hidden = k !== t;
+  for (const k of ["guild", "quests", "equip", "server", "raw"]) $("#tab-" + k).hidden = k !== t;
 }
 $$("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
 
 async function load() {
   status("불러오는 중…");
-  [guild, quests, equipment] = await Promise.all([api("GET", "guild-config"), api("GET", "quests"), api("GET", "equipment")]);
+  [guild, quests, equipment, ranks, rules] = await Promise.all([api("GET", "guild-config"), api("GET", "quests"), api("GET", "equipment"),
+    api("GET", "ranks"), api("GET", "rules")]);
   renderAll(); clean(); show(tab);
   status("불러왔습니다", "ok");
 }
@@ -406,18 +490,22 @@ $("#save").onclick = async () => {
     await api("PUT", "guild-config", guild, true).catch(e => { throw new Error("길드: " + e.message); });
     await api("PUT", "quests", quests, true).catch(e => { throw new Error("퀘스트: " + e.message); });
     await api("PUT", "equipment", equipment, true).catch(e => { throw new Error("장비: " + e.message); });
+    await api("PUT", "ranks", ranks, true).catch(e => { throw new Error("등급: " + e.message); });
+    await api("PUT", "rules", rules, true).catch(e => { throw new Error("금지 아이템: " + e.message); });
     status("저장하는 중…");
     const g = await api("PUT", "guild-config", guild);
     const q = await api("PUT", "quests", quests);
     const eq = await api("PUT", "equipment", equipment);
-    guild = g.saved; quests = q.saved; equipment = eq.saved;
+    const rk = await api("PUT", "ranks", ranks);
+    const ru = await api("PUT", "rules", rules);
+    guild = g.saved; quests = q.saved; equipment = eq.saved; ranks = rk.saved; rules = ru.saved;
     renderAll(); clean();
     status("저장했습니다 — 모든 인스턴스에 곧바로 적용", "ok");
   } catch (e) { status("저장 못 함: " + e.message, "bad"); }
 };
 window.addEventListener("beforeunload", e => { if (dirty) e.preventDefault(); });
 
-function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "equip", "raw"]) $("#tab-" + k).hidden = true; }
+function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "equip", "server", "raw"]) $("#tab-" + k).hidden = true; }
 $("#login-go").onclick = () => {
   token = $("#token").value.trim();
   try { sessionStorage.setItem("dangu-token", token); } catch {}

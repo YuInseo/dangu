@@ -84,6 +84,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
         let power = now_stats.combat_power();
         self.guild_tick(power).await?;
+        self.rank_tick().await?;
         if !self.hud_active() {
             return Ok(());
         }

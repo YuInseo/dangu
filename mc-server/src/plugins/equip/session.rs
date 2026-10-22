@@ -355,7 +355,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 .entities
                 .drop_at_block(self.server, self.dimension, pos, item);
         }
-        crate::dambi::child::job_xp(self.profile.uuid, "광부", ore.xp).await;
+        crate::plugins::rank::job_xp(self.profile.uuid, "광부", ore.xp).await;
         self.quest_happened(crate::plugins::quest::Happened {
             kind: "ores",
             name: id.trim_start_matches("dangu:").to_owned(),
