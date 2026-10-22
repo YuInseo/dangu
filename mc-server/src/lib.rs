@@ -13,6 +13,7 @@ pub mod network;
 pub mod packets;
 pub mod perms;
 pub mod protocol;
+pub mod resource_pack;
 pub mod server;
 pub mod session;
 pub mod text;

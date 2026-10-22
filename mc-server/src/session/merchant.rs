@@ -246,6 +246,12 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if m.dead() {
             return Ok(());
         }
+        if m.npc == Some("lottery") {
+            if hand == 0 {
+                self.open_lottery(super::lottery::Page::Hub).await?;
+            }
+            return Ok(());
+        }
         let slot = if hand == 0 { 36 + self.held } else { 45 };
         let held = self.inventory[slot].filter(|i| i.custom.is_none());
         let held_name = held.map(|i| items::name(i.id));

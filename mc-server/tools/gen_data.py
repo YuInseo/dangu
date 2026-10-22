@@ -154,7 +154,7 @@ PARTICLES = [
 
 # 열 수 있는 창 종류 (`menu` 레지스트리).
 MENUS = [
-    ("GENERIC_9X3", "generic_9x3"), ("GENERIC_3X3", "generic_3x3"), ("CRAFTING", "crafting"),
+    ("GENERIC_9X3", "generic_9x3"), ("GENERIC_9X6", "generic_9x6"), ("GENERIC_3X3", "generic_3x3"), ("CRAFTING", "crafting"),
     ("FURNACE", "furnace"), ("BLAST_FURNACE", "blast_furnace"), ("SMOKER", "smoker"),
     ("ENCHANTMENT", "enchantment"), ("ANVIL", "anvil"), ("STONECUTTER", "stonecutter"),
     ("SMITHING", "smithing"), ("GRINDSTONE", "grindstone"), ("MERCHANT", "merchant"),

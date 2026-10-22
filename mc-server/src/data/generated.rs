@@ -6062,6 +6062,7 @@ pub mod particle {
 /// 열 수 있는 창 종류의 네트워크 ID.
 pub mod menu {
     pub const GENERIC_9X3: i32 = 2;
+    pub const GENERIC_9X6: i32 = 5;
     pub const GENERIC_3X3: i32 = 6;
     pub const CRAFTING: i32 = 12;
     pub const FURNACE: i32 = 14;

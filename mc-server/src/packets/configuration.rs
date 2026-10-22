@@ -18,6 +18,8 @@ pub const REGISTRY_DATA_ID: i32 = 0x07;
 pub const UPDATE_ENABLED_FEATURES_ID: i32 = 0x0D;
 pub const UPDATE_TAGS_ID: i32 = 0x0E;
 pub const SELECT_KNOWN_PACKS_ID: i32 = 0x0F;
+/// `Add Resource Pack`: UUID, 주소, SHA-1(16진수 40자), 강제, 안내 문구(선택).
+pub const ADD_RESOURCE_PACK_ID: i32 = 0x09;
 
 // Serverbound
 pub const CLIENT_INFORMATION_ID: i32 = 0x00;
@@ -25,6 +27,38 @@ pub const SB_CUSTOM_PAYLOAD_ID: i32 = 0x02;
 pub const FINISH_CONFIGURATION_ACK_ID: i32 = 0x03;
 pub const SB_KEEP_ALIVE_ID: i32 = 0x04;
 pub const SB_SELECT_KNOWN_PACKS_ID: i32 = 0x07;
+/// `Resource Pack Response`: UUID, 결과.
+pub const SB_RESOURCE_PACK_ID: i32 = 0x06;
+
+pub fn encode_add_resource_pack(
+    uuid: u128,
+    url: &str,
+    hash: &str,
+    forced: bool,
+    prompt: Option<&crate::protocol::nbt::Tag>,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    crate::protocol::types::write_uuid(&mut out, uuid);
+    crate::protocol::types::write_string(&mut out, url);
+    crate::protocol::types::write_string(&mut out, hash);
+    out.push(forced as u8);
+    match prompt {
+        Some(t) => {
+            out.push(1);
+            out.extend_from_slice(&crate::text::to_nbt(t));
+        }
+        None => out.push(0),
+    }
+    out
+}
+
+/// (UUID, 결과). 결과: 0 적용됨, 1 거절, 2 내려받기 실패, 3 수락, 4 내려받음, 5 주소 잘못,
+/// 6 다시 읽기 실패, 7 버림.
+pub fn decode_resource_pack_response(mut buf: &[u8]) -> Result<(u128, i32), DecodeError> {
+    let uuid = crate::protocol::types::read_uuid(&mut buf)?;
+    let result = crate::protocol::varint::read_varint(&mut buf)?;
+    Ok((uuid, result))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KnownPack {

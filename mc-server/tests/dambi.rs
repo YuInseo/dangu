@@ -59,6 +59,7 @@ async fn master_routes_players_between_child_processes() {
         .env("MC_ONLINE_MODE", "false")
         .env("MC_PREGEN", "0")
         .env("MC_SPAWN_MOBS", "false")
+        .env("MC_PACK_PORT", "0")
         .env("MC_SEED", SEED.to_string())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())

@@ -7,6 +7,7 @@ mod hud;
 mod ignored;
 mod interact;
 mod login;
+mod lottery;
 mod merchant;
 mod modes;
 mod play;
@@ -80,6 +81,8 @@ pub struct ClientSettings {
     pub ip: String,
     /// 클라이언트가 접속한 주소와 포트 (Transfer 패킷으로 다시 보낼 곳).
     pub origin: (String, u16),
+    /// 서버 리소스 팩을 이미 적용함 (인스턴스를 옮겨 다시 설정할 때 또 묻지 않음).
+    pub pack_loaded: bool,
 }
 
 impl ClientSettings {
@@ -90,6 +93,7 @@ impl ClientSettings {
             main_hand: 1,
             ip,
             origin: ("localhost".into(), 25565),
+            pack_loaded: false,
         }
     }
 }

@@ -1,0 +1,327 @@
+//! 서버가 직접 만들어 내려 주는 리소스 팩: 우리만의 아이템 그림(도트).
+//!
+//! 그림은 아래 문자열 격자로 그려 두고, 켤 때 PNG(직접 인코딩: zlib + CRC32)로 굽고, 무압축
+//! ZIP으로 묶어 내장 HTTP 서버로 내려 줍니다. 클라이언트에게는 Configuration 단계에서
+//! `Add Resource Pack`(주소 + SHA-1)으로 알립니다. 아이템은 `item_model`이
+//! `dangu:<이름>`을 가리키면 이 팩의 그림으로 보입니다.
+//!
+//! 팩 내용은 코드에서 정해지므로 어느 프로세스에서 만들어도 같은 바이트·같은 해시입니다
+//! (담비 마스터가 내려 주고, 자식 인스턴스는 주소만 알려 줘도 됨).
+
+use std::sync::OnceLock;
+
+use crate::protocol::zlib;
+
+/// 26.3의 리소스 팩 판 (`version.json`의 `resource_pack_version` 97.1).
+pub const PACK_FORMAT: (u32, u32) = (97, 1);
+
+/// 그림 하나: 이름(`dangu:item/<이름>`), 16×16 격자, 팔레트.
+pub struct Sprite {
+    pub name: &'static str,
+    pub rows: [&'static str; 16],
+    pub palette: &'static [(char, [u8; 4])],
+}
+
+/// 복권: 빨간 머리띠에 불빛, 숫자 칸, 금빛 도장, 양옆 절취선 홈.
+pub const LOTTERY_TICKET: Sprite = Sprite {
+    name: "lottery_ticket",
+    rows: [
+        "................",
+        ".OOOOOOOOOOOOOO.",
+        "OrrrrrrrrrrrrrRO",
+        "OrwrrwrrwrrwrrRO",
+        "ORRRRRRRRRRRRRRO",
+        "OccccccccccccCCO",
+        ".OckkcckkcckkcO.",
+        "OccccccccccccCCO",
+        "OcbbcbbcbbcbbcCO",
+        ".OcccccccccccCO.",
+        "OcccccccccgggcCO",
+        "OckkkkkkccgwgcCO",
+        "OCCCCCCCCCgggCCO",
+        ".OOOOOOOOOOOOOO.",
+        "................",
+        "................",
+    ],
+    palette: &[
+        ('.', [0, 0, 0, 0]),
+        ('O', [0x4a, 0x2c, 0x12, 0xff]),
+        ('r', [0xe0, 0x40, 0x40, 0xff]),
+        ('R', [0xa8, 0x24, 0x24, 0xff]),
+        ('w', [0xff, 0xf6, 0xc8, 0xff]),
+        ('c', [0xff, 0xf4, 0xcf, 0xff]),
+        ('C', [0xec, 0xd9, 0xa0, 0xff]),
+        ('k', [0x3b, 0x2a, 0x1e, 0xff]),
+        ('b', [0x3d, 0x7b, 0xe0, 0xff]),
+        ('g', [0xff, 0xc8, 0x2a, 0xff]),
+    ],
+};
+
+pub const SPRITES: &[&Sprite] = &[&LOTTERY_TICKET];
+
+impl Sprite {
+    pub fn rgba(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(16 * 16 * 4);
+        for row in self.rows {
+            for ch in row.chars() {
+                let px = self
+                    .palette
+                    .iter()
+                    .find(|(c, _)| *c == ch)
+                    .map_or([0xff, 0, 0xff, 0xff], |(_, p)| *p);
+                out.extend_from_slice(&px);
+            }
+        }
+        out
+    }
+}
+
+/// RGBA 이미지를 PNG로.
+pub fn png(width: u32, height: u32, rgba: &[u8]) -> Vec<u8> {
+    fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend_from_slice(&(data.len() as u32).to_be_bytes());
+        let mut body = kind.to_vec();
+        body.extend_from_slice(data);
+        out.extend_from_slice(&body);
+        out.extend_from_slice(&zlib::crc32(&body).to_be_bytes());
+    }
+    let mut out = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A];
+    let mut ihdr = Vec::new();
+    ihdr.extend_from_slice(&width.to_be_bytes());
+    ihdr.extend_from_slice(&height.to_be_bytes());
+    ihdr.extend_from_slice(&[8, 6, 0, 0, 0]); // 8비트 RGBA
+    chunk(&mut out, b"IHDR", &ihdr);
+    let mut raw = Vec::with_capacity(rgba.len() + height as usize);
+    for row in rgba.chunks(width as usize * 4) {
+        raw.push(0); // 필터 없음
+        raw.extend_from_slice(row);
+    }
+    chunk(&mut out, b"IDAT", &zlib::compress(&raw));
+    chunk(&mut out, b"IEND", &[]);
+    out
+}
+
+/// 무압축(stored) ZIP. 날짜는 1980-01-01로 고정해 같은 내용이면 같은 바이트.
+pub fn zip(files: &[(String, Vec<u8>)]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut central = Vec::new();
+    for (name, data) in files {
+        let offset = out.len() as u32;
+        let crc = zlib::crc32(data);
+        let header = |sig: u32, central: bool| {
+            let mut h = Vec::new();
+            h.extend_from_slice(&sig.to_le_bytes());
+            if central {
+                h.extend_from_slice(&20u16.to_le_bytes()); // 만든 판
+            }
+            h.extend_from_slice(&20u16.to_le_bytes()); // 필요한 판
+            h.extend_from_slice(&0u16.to_le_bytes()); // 플래그
+            h.extend_from_slice(&0u16.to_le_bytes()); // 무압축
+            h.extend_from_slice(&0u16.to_le_bytes()); // 시각
+            h.extend_from_slice(&0x21u16.to_le_bytes()); // 1980-01-01
+            h.extend_from_slice(&crc.to_le_bytes());
+            h.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            h.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            h.extend_from_slice(&(name.len() as u16).to_le_bytes());
+            h.extend_from_slice(&0u16.to_le_bytes()); // 덧붙임
+            if central {
+                h.extend_from_slice(&0u16.to_le_bytes()); // 설명
+                h.extend_from_slice(&0u16.to_le_bytes()); // 디스크
+                h.extend_from_slice(&0u16.to_le_bytes()); // 내부 속성
+                h.extend_from_slice(&0u32.to_le_bytes()); // 외부 속성
+                h.extend_from_slice(&offset.to_le_bytes());
+            }
+            h.extend_from_slice(name.as_bytes());
+            h
+        };
+        out.extend_from_slice(&header(0x0403_4b50, false));
+        out.extend_from_slice(data);
+        central.extend_from_slice(&header(0x0201_4b50, true));
+    }
+    let cd_offset = out.len() as u32;
+    out.extend_from_slice(&central);
+    out.extend_from_slice(&0x0605_4b50u32.to_le_bytes());
+    out.extend_from_slice(&[0, 0, 0, 0]);
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(files.len() as u16).to_le_bytes());
+    out.extend_from_slice(&(central.len() as u32).to_le_bytes());
+    out.extend_from_slice(&cd_offset.to_le_bytes());
+    out.extend_from_slice(&0u16.to_le_bytes());
+    out
+}
+
+pub struct Pack {
+    pub bytes: Vec<u8>,
+    pub sha1_hex: String,
+    pub uuid: u128,
+}
+
+/// 팩을 만듭니다 (한 번만).
+pub fn pack() -> &'static Pack {
+    static PACK: OnceLock<Pack> = OnceLock::new();
+    PACK.get_or_init(|| {
+        let mut files = vec![(
+            "pack.mcmeta".to_owned(),
+            format!(
+                r#"{{"pack":{{"description":"담비 서버 아이템","pack_format":{0},"min_format":[{0},0],"max_format":[{0},{1}]}}}}"#,
+                PACK_FORMAT.0, PACK_FORMAT.1
+            )
+            .into_bytes(),
+        )];
+        for s in SPRITES {
+            files.push((
+                format!("assets/dangu/items/{}.json", s.name),
+                format!(
+                    r#"{{"model":{{"type":"minecraft:model","model":"dangu:item/{}"}}}}"#,
+                    s.name
+                )
+                .into_bytes(),
+            ));
+            files.push((
+                format!("assets/dangu/models/item/{}.json", s.name),
+                format!(
+                    r#"{{"parent":"minecraft:item/generated","textures":{{"layer0":"dangu:item/{}"}}}}"#,
+                    s.name
+                )
+                .into_bytes(),
+            ));
+            files.push((
+                format!("assets/dangu/textures/item/{}.png", s.name),
+                png(16, 16, &s.rgba()),
+            ));
+        }
+        let bytes = zip(&files);
+        let hash = crate::crypto::sha1::sha1(&bytes);
+        let sha1_hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+        let uuid = u128::from_be_bytes(hash[..16].try_into().unwrap()) & !(0xF << 76) | (5 << 76);
+        Pack {
+            bytes,
+            sha1_hex,
+            uuid,
+        }
+    })
+}
+
+struct Settings {
+    port: u16,
+    url: Option<String>,
+    forced: bool,
+}
+
+static SETTINGS: OnceLock<Settings> = OnceLock::new();
+
+/// 이 프로세스가 클라이언트에게 팩을 권하게 합니다. `url`이 없으면
+/// `http://<클라이언트가 접속한 주소>:<port>/…`.
+pub fn enable(port: u16, url: Option<String>, forced: bool) {
+    let _ = SETTINGS.set(Settings { port, url, forced });
+}
+
+pub fn enabled() -> bool {
+    SETTINGS.get().is_some()
+}
+
+/// 클라이언트에게 보낼 것: (UUID, 주소, SHA-1, 강제 여부).
+pub fn offer(origin_host: &str) -> Option<(u128, String, String, bool)> {
+    let s = SETTINGS.get()?;
+    let p = pack();
+    let url = match &s.url {
+        Some(u) => u.clone(),
+        None => format!(
+            "http://{origin_host}:{}/dangu-{}.zip",
+            s.port,
+            &p.sha1_hex[..12]
+        ),
+    };
+    Some((p.uuid, url, p.sha1_hex.clone(), s.forced))
+}
+
+/// 팩을 내려 주는 아주 작은 HTTP 서버 (GET만, `.zip`이면 팩).
+pub async fn serve(listener: tokio::net::TcpListener) -> std::io::Result<()> {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    loop {
+        let (mut s, _) = listener.accept().await?;
+        tokio::spawn(async move {
+            let mut buf = vec![0u8; 4096];
+            let mut len = 0;
+            while len < buf.len() {
+                match tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    s.read(&mut buf[len..]),
+                )
+                .await
+                {
+                    Ok(Ok(0)) | Err(_) | Ok(Err(_)) => break,
+                    Ok(Ok(n)) => len += n,
+                }
+                if buf[..len].windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let req = String::from_utf8_lossy(&buf[..len]);
+            let path = req.split_whitespace().nth(1).unwrap_or("");
+            let ok = req.starts_with("GET ") && path.ends_with(".zip");
+            let (status, body, kind): (&str, &[u8], &str) = if ok {
+                ("200 OK", &pack().bytes, "application/zip")
+            } else {
+                ("404 Not Found", b"not found", "text/plain")
+            };
+            let head = format!(
+                "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = s.write_all(head.as_bytes()).await;
+            let _ = s.write_all(body).await;
+            let _ = s.shutdown().await;
+        });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sprites_are_16_by_16_with_known_colors() {
+        for s in SPRITES {
+            assert_eq!(s.rows.len(), 16);
+            for (y, row) in s.rows.iter().enumerate() {
+                assert_eq!(row.chars().count(), 16, "{} row {y}", s.name);
+                for c in row.chars() {
+                    assert!(s.palette.iter().any(|(p, _)| *p == c), "{} '{c}'", s.name);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn png_decodes_back() {
+        let rgba = LOTTERY_TICKET.rgba();
+        let file = png(16, 16, &rgba);
+        assert_eq!(&file[1..4], b"PNG");
+        // IDAT를 풀면 행마다 필터 바이트 + 원래 픽셀
+        let idat = file.windows(4).position(|w| w == b"IDAT").unwrap();
+        let len = u32::from_be_bytes(file[idat - 4..idat].try_into().unwrap()) as usize;
+        let raw = zlib::decompress(&file[idat + 4..idat + 4 + len], 1 << 20).unwrap();
+        assert_eq!(raw.len(), 16 * (1 + 64));
+        assert_eq!(&raw[1..65], &rgba[..64]);
+    }
+
+    #[test]
+    fn pack_zip_lists_every_file_and_is_stable() {
+        let p = pack();
+        assert_eq!(&p.bytes[..4], &[0x50, 0x4b, 0x03, 0x04]);
+        let text = String::from_utf8_lossy(&p.bytes);
+        for name in [
+            "pack.mcmeta",
+            "assets/dangu/items/lottery_ticket.json",
+            "assets/dangu/textures/item/lottery_ticket.png",
+        ] {
+            assert!(text.contains(name), "{name}");
+        }
+        assert_eq!(p.sha1_hex.len(), 40);
+        assert_eq!(
+            zip(&[("a".into(), b"x".to_vec())]),
+            zip(&[("a".into(), b"x".to_vec())])
+        );
+    }
+}

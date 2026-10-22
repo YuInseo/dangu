@@ -224,6 +224,7 @@ pub(super) struct Session<'a, W> {
     /// 접속한 IP.
     pub(super) ip: String,
     pub(super) origin: (String, u16),
+    pub(super) pack_loaded: bool,
     pub(super) skin_parts: u8,
     pub(super) main_arm: i32,
     /// 크리에이티브·관전에서 날고 있는가.
@@ -281,6 +282,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             ability_ready: HashMap::new(),
             ip: settings.ip.clone(),
             origin: settings.origin.clone(),
+            pack_loaded: settings.pack_loaded,
             skin_parts: settings.skin_parts,
             main_arm: settings.main_hand.clamp(0, 1),
             flying: false,
@@ -305,6 +307,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             main_hand: self.main_arm,
             ip: self.ip.clone(),
             origin: self.origin.clone(),
+            pack_loaded: self.pack_loaded,
         }
     }
 

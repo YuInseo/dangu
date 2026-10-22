@@ -74,7 +74,7 @@ fn encode(d: &PlayerData) -> Vec<u8> {
         o.push(i as u8);
         o.extend_from_slice(&item.id.to_be_bytes());
         o.push(item.count.clamp(0, 255) as u8);
-        super::custom_items::write_custom_tag(&mut o, item.custom);
+        super::custom_items::write_custom_tag(&mut o, item.custom, item.serial);
     }
     o
 }
@@ -110,12 +110,17 @@ fn decode(b: &[u8]) -> Option<PlayerData> {
         let slot = take(1)?[0] as usize;
         let id = i32::from_be_bytes(take(4)?.try_into().unwrap());
         let count = take(1)?[0] as i32;
-        let custom = if v2 {
+        let (custom, serial) = if v2 {
             super::custom_items::read_custom_tag(&mut take)?
         } else {
-            None
+            (None, 0)
         };
-        *inventory.get_mut(slot)? = Some(Item { id, count, custom });
+        *inventory.get_mut(slot)? = Some(Item {
+            id,
+            count,
+            custom,
+            serial,
+        });
     }
     let finite = position.0.is_finite()
         && position.1.is_finite()

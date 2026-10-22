@@ -16,7 +16,30 @@ async fn main() -> std::io::Result<()> {
     // `mc-server master`: 담비 마스터 노드 (프록시 + CLI, 인스턴스마다 자식 프로세스).
     // `mc-server child`: 마스터가 띄우는 인스턴스 (DAMBI_IPC로 마스터에 붙음).
     // 인자 없음: 혼자 도는 서버 (한 프로세스 안의 인스턴스들).
-    if std::env::args().nth(1).as_deref() == Some("master") {
+    let master = std::env::args().nth(1).as_deref() == Some("master");
+    // 우리 아이템 그림(리소스 팩): MC_PACK_PORT(기본 25566, 0이면 끔)에서 내려 줍니다. 자식
+    // 인스턴스는 마스터가 내려 주는 팩을 알려 주기만 합니다.
+    let pack_port: u16 = std::env::var("MC_PACK_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(25566);
+    if pack_port != 0 {
+        mc_server::resource_pack::enable(
+            pack_port,
+            std::env::var("MC_PACK_URL").ok(),
+            env_flag("MC_PACK_REQUIRED", true),
+        );
+        if !mc_server::dambi::child::active() {
+            match TcpListener::bind(("0.0.0.0", pack_port)).await {
+                Ok(l) => {
+                    println!("리소스 팩을 :{pack_port}에서 내려 줍니다");
+                    tokio::spawn(mc_server::resource_pack::serve(l));
+                }
+                Err(e) => eprintln!("리소스 팩 포트 {pack_port}를 열지 못했습니다: {e}"),
+            }
+        }
+    }
+    if master {
         mc_server::dambi::master::run().await?;
         // CLI가 표준 입력을 막고(블로킹 스레드) 있어 런타임이 스스로 끝나지 않으므로
         std::process::exit(0);
@@ -70,6 +93,7 @@ async fn main() -> std::io::Result<()> {
             .ok()
             .and_then(|v| v.parse().ok())
             .unwrap_or(8),
+        lottery_npc: env_flag("MC_LOTTERY_NPC", true),
     };
     // 인스턴스: MC_INSTANCES="lobby,survival:12345:survival,build::creative" (이름[:시드[:모드]]).
     // 처음 켤 때만 쓰이고, 그 뒤로는 world/instances.json이 기준입니다.

@@ -221,6 +221,9 @@ pub struct Item {
     pub id: i32,
     pub count: i32,
     pub custom: Option<u16>,
+    /// 한 장 한 장 다른 아이템(복권 등)의 일련번호. 0이면 없음. 이름·설명은
+    /// [`crate::game::custom_items::set_look`]로 번호마다 정합니다.
+    pub serial: u32,
 }
 
 impl Item {
@@ -229,6 +232,7 @@ impl Item {
             id,
             count,
             custom: None,
+            serial: 0,
         }
     }
 
@@ -239,7 +243,7 @@ impl Item {
 
     /// 같은 칸에 쌓일 수 있는가 (종류와 사용자 정의가 같음).
     pub fn stacks_with(&self, other: &Item) -> bool {
-        self.id == other.id && self.custom == other.custom
+        self.id == other.id && self.custom == other.custom && self.serial == other.serial
     }
 }
 
@@ -251,7 +255,7 @@ pub fn write_slot(out: &mut Vec<u8>, item: Option<Item>) {
             write_varint(out, item.id);
             let components = item
                 .custom
-                .map(crate::game::custom_items::components)
+                .map(|c| crate::game::custom_items::components_with(c, item.serial))
                 .unwrap_or_default();
             write_varint(out, components.len() as i32);
             write_varint(out, 0);
@@ -293,7 +297,15 @@ pub fn decode_creative_slot(mut buf: &[u8]) -> Result<(i16, Option<Item>), Decod
                 .and_then(|name| crate::game::custom_items::index_of(&name));
         }
     }
-    Ok((slot, Some(Item { id, count, custom })))
+    Ok((
+        slot,
+        Some(Item {
+            id,
+            count,
+            custom,
+            serial: 0,
+        }),
+    ))
 }
 
 pub fn decode_carried_item(buf: &[u8]) -> Result<i16, DecodeError> {

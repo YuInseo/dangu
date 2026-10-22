@@ -148,6 +148,12 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "instance", STRING, WORD, true);
         }
+        "복권" => {
+            let c = t.literal(ROOT, name, true);
+            for sub in ["정보", "추첨"] {
+                t.literal(c, sub, true);
+            }
+        }
         "재화" => {
             let c = t.literal(ROOT, name, true);
             let pay = t.literal(c, "보내기", false);
@@ -198,6 +204,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         match spec.name {
             "server" => self.server_command(args.first().copied()).await,
             "이동" => self.move_command(args.first().copied()).await,
+            "복권" => Ok(self.open_lottery(super::lottery::Page::Hub).await?),
             "재화" => self.money_command(&args).await,
             "locate" => self.locate(&args).await,
             "help" => {
@@ -261,6 +268,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                             id: def.base,
                             count: 1,
                             custom: Some(index),
+                            serial: 0,
                         };
                         self.give_many(item, args.get(1).and_then(|c| c.parse().ok()).unwrap_or(1))
                             .await?;
@@ -597,7 +605,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(self.message(&text::colored(&msg, "green")).await?)
     }
 
-    async fn error(&mut self, message: &str) -> Result<(), FrameError> {
+    pub(super) async fn error(&mut self, message: &str) -> Result<(), FrameError> {
         Ok(self.message(&text::colored(message, "red")).await?)
     }
 }

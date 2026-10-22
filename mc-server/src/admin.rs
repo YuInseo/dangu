@@ -215,6 +215,12 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/재화 [보내기 <플레이어> <양>] — 돈·캐시·잠수포인트, 생활 직업",
     },
     Spec {
+        name: "복권",
+        aliases: &["lottery", "로또"],
+        level: 0,
+        usage: "/복권 [정보|추첨] — 복권 판매소 열기, 이번 회차 정보, (OP 4) 지금 추첨",
+    },
+    Spec {
         name: "이동",
         aliases: &["move", "goto"],
         level: 0,
@@ -292,7 +298,8 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
             | "stop"
             | "save-all"
             | "title"
-    ) || (spec.name == "gamemode" && args.len() >= 2);
+    ) || (spec.name == "gamemode" && args.len() >= 2)
+        || (spec.name == "복권" && !args.is_empty());
     if !handled {
         return None;
     }
@@ -304,6 +311,52 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
     let changed = |uuid: u128| server.publish_all(Event::PermissionsChanged { uuid: Some(uuid) });
 
     Some(match (spec.name, args) {
+        ("복권", [sub, ..]) => {
+            use crate::game::lottery::{self, format_short, numbers_text, won};
+            let l = &server.lottery;
+            match *sub {
+                "정보" | "info" => {
+                    let mut v = vec![
+                        format!(
+                            "[{}] 제{}회 복권 — 추첨 {}",
+                            server.name,
+                            l.round(),
+                            format_short(l.next_draw())
+                        ),
+                        format!(
+                            "판매 {}장 · 1등 예상 당첨금 {}",
+                            l.sales(),
+                            won(l.jackpot())
+                        ),
+                    ];
+                    if let Some(d) = l.last_draw() {
+                        v.push(format!(
+                            "지난 제{}회: {} (1등 {}명 · 2등 {}명 · 3등 {}명 · 4등 {}명)",
+                            d.round,
+                            numbers_text(&d.numbers),
+                            d.winners[0],
+                            d.winners[1],
+                            d.winners[2],
+                            d.winners[3]
+                        ));
+                    }
+                    v
+                }
+                "추첨" | "draw" => {
+                    if actor.level(server) < 4 {
+                        return Some(vec!["지금 추첨은 OP 4만 할 수 있습니다.".into()]);
+                    }
+                    let d = l.draw(None, lottery::now());
+                    lottery::announce(server, &d);
+                    vec![format!(
+                        "제{}회 추첨: {}",
+                        d.round,
+                        numbers_text(&d.numbers)
+                    )]
+                }
+                _ => usage(),
+            }
+        }
         ("list", _) => {
             let mut lines = Vec::new();
             for inst in server.instances() {

@@ -146,8 +146,10 @@ pub fn encode_player_data(
 
 /// 몹 엔티티 데이터 한 칸 (번호는 26.3 클래스 계층 순서: 0..8 `Entity`, 8..15 `LivingEntity`,
 /// 15 `Mob` 플래그, 그다음 종류별).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Meta {
+    /// 이름표 (선택적 텍스트 컴포넌트, 2번 칸).
+    Name(u8, String),
     Byte(u8, u8),
     Int(u8, i32),
     Bool(u8, bool),
@@ -156,6 +158,7 @@ pub enum Meta {
 }
 
 const DATA_INT: i32 = 1;
+const DATA_OPTIONAL_COMPONENT: i32 = 6;
 const DATA_BOOL: i32 = 8;
 const DATA_VILLAGER: i32 = 18;
 
@@ -163,7 +166,13 @@ pub fn encode_entity_data(id: i32, meta: &[Meta]) -> Vec<u8> {
     let mut out = Vec::new();
     write_varint(&mut out, id);
     for m in meta {
-        match *m {
+        match m.clone() {
+            Meta::Name(i, name) => {
+                out.push(i);
+                write_varint(&mut out, DATA_OPTIONAL_COMPONENT);
+                out.push(1);
+                out.extend_from_slice(&crate::text::to_nbt(&crate::text::colored(&name, "gold")));
+            }
             Meta::Byte(i, v) => {
                 out.push(i);
                 write_varint(&mut out, DATA_BYTE);

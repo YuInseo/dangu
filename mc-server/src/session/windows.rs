@@ -33,6 +33,8 @@ pub enum WindowKind {
         villager: i32,
         selected: usize,
     },
+    /// 서버가 그리는 메뉴 (복권): 클릭은 버튼으로만 쓰고 아이템은 움직이지 않음.
+    Lottery(super::lottery::Page),
 }
 
 #[derive(Debug, Clone)]
@@ -265,6 +267,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 v.truncate(*size);
                 v
             }
+            WindowKind::Lottery(page) => self.lottery_slots(page),
             WindowKind::Merchant { villager, selected } => {
                 let result = self
                     .merchant_result(*villager, *selected, w.grid[0], w.grid[1])
@@ -292,6 +295,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             Some(w) => {
                 if let WindowKind::Merchant { villager, .. } = w.kind {
                     self.merchant_closed(villager);
+                }
+                if matches!(w.kind, WindowKind::Lottery(_)) {
+                    self.lottery_closed();
                 }
                 if !by_client {
                     self.send(0x11, &{
@@ -327,6 +333,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     WindowKind::Crafting => 10,
                     WindowKind::Chest { size, .. } => size,
                     WindowKind::Merchant { .. } => 3,
+                    WindowKind::Lottery(ref page) => page.size(),
                 };
                 if slot < own {
                     match &w.kind {
@@ -340,6 +347,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         WindowKind::Chest { dimension, pos, .. } => {
                             Some(SlotRef::Chest(*dimension, *pos, slot))
                         }
+                        WindowKind::Lottery(_) => None,
                         WindowKind::Merchant { .. } => {
                             if slot == 2 {
                                 Some(SlotRef::Result)
@@ -361,6 +369,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         let window_id = self.window.as_ref().map_or(0, |w| w.id);
         if c.window != window_id {
             return Ok(()); // 이미 닫힌 창에 대한 클릭
+        }
+        if let Some(WindowKind::Lottery(page)) = self.window.as_ref().map(|w| w.kind.clone()) {
+            // 메뉴: 무엇을 집든 되돌리고, 누른 칸만 버튼으로
+            self.lottery_click(page, c.slot).await?;
+            if self.window.as_ref().is_some_and(|w| w.id == window_id) {
+                self.send_window().await?;
+            }
+            return Ok(());
         }
         let craft_window = matches!(
             self.window.as_ref().map(|w| &w.kind),
@@ -397,16 +413,25 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         );
 
         // 클라이언트가 말한 대로 적용. 해시된 슬롯을 우리 아이템으로 되돌립니다.
-        let known: Vec<Item> = before_slots
+        // 이 클릭으로 자리를 떠난 것들 (바뀐 칸들의 원래 내용 + 손에 들고 있던 것): 처음 보는
+        // 해시는 이 가운데 같은 종류로 봅니다.
+        let moved: Vec<Item> = c
+            .changed
             .iter()
-            .flatten()
-            .chain(self.carried.iter())
-            .copied()
+            .filter_map(|&(s, _)| usize::try_from(s).ok())
+            .filter_map(|s| before_slots.get(s).copied().flatten())
+            .chain(self.carried)
             .collect();
-        let resolve = |h: Option<pc::Hashed>| h.map(|h| resolve_hashed(h, &known));
+        let all_hashed: Vec<Option<pc::Hashed>> = c
+            .changed
+            .iter()
+            .map(|&(_, h)| h)
+            .chain(std::iter::once(c.carried))
+            .collect();
+        let mut resolved = resolve_all(&all_hashed, &moved, &before_slots);
+        let carried_after = resolved.pop().flatten();
         let mut chest_changes = Vec::new();
-        for &(slot, hashed) in &c.changed {
-            let item = resolve(hashed);
+        for (&(slot, _), item) in c.changed.iter().zip(resolved) {
             let Ok(slot) = usize::try_from(slot) else {
                 continue;
             };
@@ -416,7 +441,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 Some(SlotRef::Result) | None => {}
             }
         }
-        self.carried = resolve(c.carried);
+        self.carried = carried_after;
         let mut after_slots = self.window_slots();
         for &(_, _, i, item) in &chest_changes {
             after_slots[i] = item;
@@ -429,7 +454,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         for (&key, &n) in &after {
             let had = before.get(&key).copied().unwrap_or(0);
             if n > had {
-                let allowed = took_result && result_before.is_some_and(|r| (r.id, r.custom) == key);
+                let allowed =
+                    took_result && result_before.is_some_and(|r| (r.id, r.custom, r.serial) == key);
                 ok &= allowed && self.gamemode != crate::packets::play::GameMode::Spectator;
             }
         }
@@ -440,13 +466,13 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             && let (Some((villager, _)), Some((offer, gives, wants, extra))) =
                 (merchant, trade_before)
         {
-            let key = (gives.id, gives.custom);
+            let key = (gives.id, gives.custom, gives.serial);
             let gained =
                 after.get(&key).copied().unwrap_or(0) - before.get(&key).copied().unwrap_or(0);
             if gained > 0 {
                 let times = gained / gives.count;
                 let paid = |(id, n): (i32, i32)| {
-                    let k = (id, None);
+                    let k = (id, None, 0);
                     before.get(&k).copied().unwrap_or(0) - after.get(&k).copied().unwrap_or(0)
                         >= n * times
                 };
@@ -480,13 +506,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
         // 던진 것: 줄어든 만큼 바닥에
         if c.slot == pc::OUTSIDE || c.mode == pc::MODE_THROW {
-            for (&(id, custom), &had) in &before {
-                let now = after.get(&(id, custom)).copied().unwrap_or(0);
+            for (&(id, custom, serial), &had) in &before {
+                let now = after.get(&(id, custom, serial)).copied().unwrap_or(0);
                 if had > now {
                     self.throw(Item {
                         id,
                         count: had - now,
                         custom,
+                        serial,
                     });
                 }
             }
@@ -554,13 +581,13 @@ enum SlotRef<'a> {
     Result,
 }
 
-/// (아이템, 사용자 정의)별 총 개수. 결과 칸(조합 0, 거래 2)은 아직 만들어지지 않은 것이라
+/// (아이템, 사용자 정의, 일련번호)별 총 개수. 결과 칸(조합 0, 거래 2)은 아직 만들어지지 않은 것이라
 /// 셈하지 않습니다.
 fn totals(
     slots: &[Option<Item>],
     carried: Option<Item>,
     result_slot: Option<usize>,
-) -> HashMap<(i32, Option<u16>), i32> {
+) -> HashMap<(i32, Option<u16>, u32), i32> {
     let mut t = HashMap::new();
     let kept = slots
         .iter()
@@ -568,37 +595,74 @@ fn totals(
         .filter(|(i, _)| Some(*i) != result_slot)
         .filter_map(|(_, s)| s.as_ref());
     for item in kept.chain(carried.iter()) {
-        *t.entry((item.id, item.custom)).or_insert(0) += item.count;
+        *t.entry((item.id, item.custom, item.serial)).or_insert(0) += item.count;
     }
     t
 }
 
-/// 해시된 슬롯 → 우리 아이템. 컴포넌트가 없으면 바닐라 그대로. 있으면 `custom_data` 해시로
-/// 찾고, 처음 보는 해시면 클릭 전에 있던 같은 종류의 사용자 정의 아이템으로 보고 배워 둡니다.
-fn resolve_hashed(h: pc::Hashed, before: &[Item]) -> Item {
+/// 해시된 슬롯들 → 우리 아이템. 컴포넌트가 없으면 바닐라 그대로. 있으면 `custom_data` 해시로
+/// 찾고, 처음 보는 해시면 이 클릭으로 자리를 떠난 것(`moved`) 가운데 같은 종류로 봅니다.
+/// 그 후보가 하나뿐이면 해시를 배워 둡니다 (복권처럼 일련번호가 다른 것도 한 장씩 구별).
+fn resolve_all(
+    hashed: &[Option<pc::Hashed>],
+    moved: &[Item],
+    before: &[Option<Item>],
+) -> Vec<Option<Item>> {
     use crate::game::custom_items;
-    if !h.has_components {
-        return h.plain();
+    let mut pool: Vec<Item> = moved.to_vec();
+    let mut out: Vec<Option<Item>> = Vec::with_capacity(hashed.len());
+    let mut pending = Vec::new();
+    for (i, h) in hashed.iter().enumerate() {
+        let item = h.map(|h| {
+            if !h.has_components {
+                return Some(h.plain());
+            }
+            let (custom, serial) = h.custom_data_hash.and_then(custom_items::by_hash)?;
+            Some(Item {
+                id: h.id,
+                count: h.count,
+                custom: Some(custom),
+                serial,
+            })
+        });
+        match item {
+            Some(None) => {
+                pending.push(i);
+                out.push(None);
+            }
+            Some(Some(it)) => {
+                if let Some(k) = pool.iter().position(|p| p.stacks_with(&it)) {
+                    pool.remove(k);
+                }
+                out.push(Some(it));
+            }
+            None => out.push(None),
+        }
     }
-    if let Some(index) = h.custom_data_hash.and_then(custom_items::by_hash) {
-        return Item {
+    for i in pending {
+        let h = hashed[i].unwrap();
+        let same = |p: &Item| p.id == h.id && p.custom.is_some();
+        let candidates = pool.iter().filter(|p| same(p)).count();
+        let pick = match pool.iter().position(same) {
+            Some(k) => Some(pool.remove(k)),
+            // 떠난 것 중에 없으면 (클라이언트가 예측만 한 것) 창 안의 같은 종류 — 일련번호 없이
+            None => before
+                .iter()
+                .flatten()
+                .find(|p| same(p))
+                .map(|p| Item { serial: 0, ..*p }),
+        };
+        if let (Some(p), Some(hash), 1) = (pick, h.custom_data_hash, candidates) {
+            custom_items::learn_hash(hash, p.custom.unwrap(), p.serial);
+        }
+        out[i] = Some(Item {
             id: h.id,
             count: h.count,
-            custom: Some(index),
-        };
+            custom: pick.and_then(|p| p.custom),
+            serial: pick.map_or(0, |p| p.serial),
+        });
     }
-    let candidate = before
-        .iter()
-        .find(|i| i.id == h.id && i.custom.is_some())
-        .and_then(|i| i.custom);
-    if let (Some(index), Some(hash)) = (candidate, h.custom_data_hash) {
-        custom_items::learn_hash(hash, index);
-    }
-    Item {
-        id: h.id,
-        count: h.count,
-        custom: candidate,
-    }
+    out
 }
 
 #[cfg(test)]

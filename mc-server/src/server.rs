@@ -314,6 +314,8 @@ pub struct Config {
     pub hardcore: bool,
     /// 새 월드를 만들 때 스폰 둘레를 미리 만들 반지름 (청크). 0이면 안 함.
     pub pregen_radius: i32,
+    /// 스폰에 복권 NPC를 세움.
+    pub lottery_npc: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -382,6 +384,7 @@ impl Default for Config {
             difficulty: Difficulty::Normal,
             hardcore: false,
             pregen_radius: 0,
+            lottery_npc: false,
         }
     }
 }
@@ -420,6 +423,8 @@ pub struct Server {
     pub ticks: crate::game::mechanics::Ticks,
     pub furnaces: crate::game::mechanics::furnace::Furnaces,
     pub redstone: crate::game::mechanics::redstone::State,
+    /// 이 채널의 복권.
+    pub lottery: crate::game::lottery::Lottery,
     difficulty: std::sync::atomic::AtomicU8,
     /// 난이도 잠금 (설정 화면의 자물쇠). 잠그면 다시 풀 수 없습니다.
     difficulty_locked: std::sync::atomic::AtomicBool,
@@ -564,6 +569,9 @@ impl Server {
             ticks: Default::default(),
             furnaces: Default::default(),
             redstone: Default::default(),
+            lottery: crate::game::lottery::Lottery::open(
+                data_dir.as_ref().map(|d| d.join("lottery.json")),
+            ),
             perms: Arc::new(
                 crate::perms::Permissions::open(None, true).expect("memory permissions"),
             ),

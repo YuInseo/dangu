@@ -78,15 +78,20 @@ impl Containers {
                 let slot = take(1)?[0] as usize;
                 let id = int(take(4)?);
                 let count = take(1)?[0] as i32;
-                let custom = if v2 {
+                let (custom, serial) = if v2 {
                     super::custom_items::read_custom_tag(&mut |n| take(n).ok()).ok_or_else(bad)?
                 } else {
-                    None
+                    (None, 0)
                 };
                 if slot >= CHEST_SLOTS {
                     return Err(bad());
                 }
-                slots[slot] = Some(Item { id, count, custom });
+                slots[slot] = Some(Item {
+                    id,
+                    count,
+                    custom,
+                    serial,
+                });
             }
             map.insert((dim, pos), slots);
         }
@@ -163,7 +168,7 @@ impl Containers {
                 out.push(i as u8);
                 out.extend_from_slice(&item.id.to_be_bytes());
                 out.push(item.count.clamp(0, 255) as u8);
-                super::custom_items::write_custom_tag(&mut out, item.custom);
+                super::custom_items::write_custom_tag(&mut out, item.custom, item.serial);
             }
         }
         drop(map);

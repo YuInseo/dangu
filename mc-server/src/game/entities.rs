@@ -414,6 +414,9 @@ impl Entities {
             super::mechanics::explosion::explode(server, dim, at, power, drops_all);
         }
         super::mechanics::tick(server, now as u64, &players);
+        if now.is_multiple_of(100) {
+            super::lottery::tick(server);
+        }
         super::spawning::tick(server, &players, now);
     }
 }

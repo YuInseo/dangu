@@ -267,6 +267,10 @@ pub struct Mob {
     pub sheared: bool,
     /// 누가 거래 창을 열어 둠 (그동안 서 있음).
     pub trading: bool,
+    /// 움직이지 않고 맞지 않는 NPC (역할: `lottery` 등).
+    pub npc: Option<&'static str>,
+    /// 머리 위 이름표.
+    pub custom_name: Option<String>,
     /// 마지막으로 보낸 상태 플래그 (불붙음).
     flags_sent: u8,
 }
@@ -296,6 +300,8 @@ impl Mob {
             }),
             sheared: false,
             trading: false,
+            npc: None,
+            custom_name: None,
             flags_sent: 0,
         }
     }
@@ -322,6 +328,13 @@ impl Mob {
         }
         if let Some(v) = &self.villager {
             m.push(villager_meta(v));
+        }
+        if let Some(name) = &self.custom_name {
+            m.push(Meta::Name(2, name.clone()));
+            m.push(Meta::Bool(3, true));
+        }
+        if self.npc.is_some() {
+            m.push(Meta::Byte(15, 0x01)); // AI 없음 (클라이언트도 고개를 돌리지 않음)
         }
         m
     }
@@ -361,6 +374,11 @@ fn think(
 ) {
     if m.dead() {
         m.dead_ticks += 1;
+        return;
+    }
+    if m.npc.is_some() {
+        stop(e);
+        physics(server, e, 0.08, 0.91);
         return;
     }
     let kind = m.kind;
@@ -842,7 +860,7 @@ fn hurt(
     now: u32,
     out: &mut TickOut,
 ) -> bool {
-    if m.dead() {
+    if m.dead() || m.npc.is_some() {
         return false;
     }
     if attacker.is_some() || attacker_pos.is_some() {

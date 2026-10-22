@@ -21,6 +21,8 @@ use crate::protocol::varint::write_varint;
 
 /// `custom_data` 안의 표시 키.
 pub const TAG_KEY: &str = "dangu:item";
+/// `custom_data` 안의 일련번호 키.
+pub const SERIAL_KEY: &str = "dangu:serial";
 const FILE_NAME: &str = "custom_items.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -80,9 +82,38 @@ pub struct CustomItem {
 }
 
 static REGISTRY: RwLock<Vec<CustomItem>> = RwLock::new(Vec::new());
-/// 클라이언트가 보내는 `custom_data` 해시 → 사용자 정의 아이템. 해시 계산(CRC32C 기반의
-/// HashOps)을 따라 하지 않고, 어느 아이템인지 분명할 때 보고 배워 둡니다.
-static LEARNED_HASHES: Mutex<Option<HashMap<i32, u16>>> = Mutex::new(None);
+/// 클라이언트가 보내는 `custom_data` 해시 → (사용자 정의 아이템, 일련번호). 해시 계산(CRC32C
+/// 기반의 HashOps)을 따라 하지 않고, 어느 아이템인지 분명할 때 보고 배워 둡니다.
+static LEARNED_HASHES: Mutex<Option<HashMap<i32, (u16, u32)>>> = Mutex::new(None);
+
+/// 일련번호마다 다른 겉모습 (복권 한 장 한 장의 이름·설명).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Look {
+    pub name: Option<(String, String)>,
+    pub lore: Vec<String>,
+    pub glint: Option<bool>,
+}
+
+static LOOKS: RwLock<Option<HashMap<u32, Look>>> = RwLock::new(None);
+
+/// 이 일련번호의 아이템을 이렇게 보이게 합니다 (다음에 보내는 칸부터).
+pub fn set_look(serial: u32, look: Look) {
+    LOOKS
+        .write()
+        .unwrap()
+        .get_or_insert_with(HashMap::new)
+        .insert(serial, look);
+}
+
+pub fn remove_look(serial: u32) {
+    if let Some(m) = LOOKS.write().unwrap().as_mut() {
+        m.remove(&serial);
+    }
+}
+
+fn look(serial: u32) -> Option<Look> {
+    LOOKS.read().unwrap().as_ref()?.get(&serial).cloned()
+}
 
 pub fn get(index: u16) -> Option<CustomItem> {
     REGISTRY.read().unwrap().get(index as usize).cloned()
@@ -101,15 +132,15 @@ pub fn all() -> Vec<CustomItem> {
     REGISTRY.read().unwrap().clone()
 }
 
-pub fn learn_hash(hash: i32, index: u16) {
+pub fn learn_hash(hash: i32, index: u16, serial: u32) {
     LEARNED_HASHES
         .lock()
         .unwrap()
         .get_or_insert_with(HashMap::new)
-        .insert(hash, index);
+        .insert(hash, (index, serial));
 }
 
-pub fn by_hash(hash: i32) -> Option<u16> {
+pub fn by_hash(hash: i32) -> Option<(u16, u32)> {
     LEARNED_HASHES.lock().unwrap().as_ref()?.get(&hash).copied()
 }
 
@@ -135,22 +166,38 @@ fn text(s: &str, color: &str) -> Tag {
 
 /// 이 아이템을 보낼 때 붙이는 (컴포넌트 종류, 내용) 목록.
 pub fn components(index: u16) -> Vec<(i32, Vec<u8>)> {
-    let Some(c) = get(index) else {
+    components_with(index, 0)
+}
+
+/// 일련번호가 있으면 `custom_data`에 번호를 넣고(클라이언트가 한 장씩 구별하도록), 그 번호의
+/// [`Look`]으로 이름·설명·반짝임을 바꿉니다.
+pub fn components_with(index: u16, serial: u32) -> Vec<(i32, Vec<u8>)> {
+    let Some(mut c) = get(index) else {
         return Vec::new();
     };
+    if serial != 0
+        && let Some(l) = look(serial)
+    {
+        if let Some((name, color)) = l.name {
+            c.name = name;
+            c.color = color;
+        }
+        c.lore = l.lore;
+        if let Some(g) = l.glint {
+            c.glint = g;
+        }
+    }
     let mut out = Vec::new();
     let nbt = |t: Tag| {
         let mut b = Vec::new();
         t.write_root(&mut b);
         b
     };
-    out.push((
-        component::CUSTOM_DATA,
-        nbt(Tag::Compound(vec![(
-            TAG_KEY.into(),
-            Tag::String(c.id.clone()),
-        )])),
-    ));
+    let mut data = vec![(TAG_KEY.into(), Tag::String(c.id.clone()))];
+    if serial != 0 {
+        data.push((SERIAL_KEY.into(), Tag::Int(serial as i32)));
+    }
+    out.push((component::CUSTOM_DATA, nbt(Tag::Compound(data))));
     out.push((component::ITEM_NAME, nbt(text(&c.name, &c.color))));
     if !c.lore.is_empty() {
         let mut b = Vec::new();
@@ -277,11 +324,16 @@ pub fn defaults() -> Vec<CustomItem> {
 // ---- 저장 파일 ----
 
 /// 저장 파일의 아이템 꼬리: u8 길이 + 사용자 정의 id (0 = 바닐라). 번호가 아니라 이름을
-/// 저장하므로 정의 순서가 바뀌어도 그대로입니다.
-pub fn write_custom_tag(out: &mut Vec<u8>, custom: Option<u16>) {
+/// 저장하므로 정의 순서가 바뀌어도 그대로입니다. 일련번호가 있으면 `id#번호`.
+pub fn write_custom_tag(out: &mut Vec<u8>, custom: Option<u16>, serial: u32) {
     match custom.and_then(get) {
         Some(c) => {
-            let id = &c.id.as_bytes()[..c.id.len().min(255)];
+            let text = if serial != 0 {
+                format!("{}#{serial}", c.id)
+            } else {
+                c.id.clone()
+            };
+            let id = &text.as_bytes()[..text.len().min(255)];
             out.push(id.len() as u8);
             out.extend_from_slice(id);
         }
@@ -289,16 +341,20 @@ pub fn write_custom_tag(out: &mut Vec<u8>, custom: Option<u16>) {
     }
 }
 
-/// 읽을 수 없으면 None, 바닐라거나 지금은 없는 정의면 Some(None).
+/// 읽을 수 없으면 None, 바닐라거나 지금은 없는 정의면 Some((None, 0)).
 pub fn read_custom_tag<'a>(
     take: &mut impl FnMut(usize) -> Option<&'a [u8]>,
-) -> Option<Option<u16>> {
+) -> Option<(Option<u16>, u32)> {
     let len = take(1)?[0] as usize;
     if len == 0 {
-        return Some(None);
+        return Some((None, 0));
     }
-    let id = String::from_utf8_lossy(take(len)?).into_owned();
-    Some(index_of(&id))
+    let text = String::from_utf8_lossy(take(len)?).into_owned();
+    let (id, serial) = match text.split_once('#') {
+        Some((id, n)) => (id.to_owned(), n.parse().unwrap_or(0)),
+        None => (text, 0),
+    };
+    Some((index_of(&id), serial))
 }
 
 // ---- JSON 읽기·쓰기 ----

@@ -224,7 +224,15 @@ fn item_from_tag(t: &Tag) -> Option<(usize, Item)> {
         .and_then(|c| c.get("dangu:item"))
         .and_then(Tag::as_str)
         .and_then(crate::game::custom_items::index_of);
-    Some((slot, Item { id, count, custom }))
+    Some((
+        slot,
+        Item {
+            id,
+            count,
+            custom,
+            serial: 0,
+        },
+    ))
 }
 
 /// 블록 엔티티 이름 (월드 파일용). 클라이언트용 번호표와 같은 규칙.
