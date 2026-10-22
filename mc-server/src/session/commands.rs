@@ -168,6 +168,31 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
                 }
             }
         }
+        "길드" => {
+            let c = t.literal(ROOT, name, true);
+            for sub in [
+                "만들기",
+                "가입",
+                "탈퇴",
+                "정보",
+                "목록",
+                "창고",
+                "스폰",
+                "스폰지정",
+                "땅",
+                "설명",
+                "입장메시지",
+                "퇴장메시지",
+                "방문객",
+                "강퇴",
+                "위임",
+                "부길드장",
+                "해산",
+            ] {
+                let s = t.literal(c, sub, true);
+                t.argument(s, "args", MESSAGE, true);
+            }
+        }
         "npc" => {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "args", STRING, GREEDY, true);
@@ -234,6 +259,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             "npc" => self.npc_command(&args).await,
             "채널" => self.channel_command(&args).await,
             "hud" => self.hud_command().await,
+            "길드" => self.guild_command(&args).await,
             "ia" | "iaget" | "iaimage" => self.ia_command(spec.name, &args).await,
             "재화" => self.money_command(&args).await,
             "locate" => self.locate(&args).await,

@@ -64,6 +64,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if !self.vitals.dead {
             self.mana.tick(HUD_SECS, max);
         }
+        let power = self.rpg_stats(self.hud.jobs.clone()).combat_power();
+        self.guild_tick(power).await?;
         if !self.hud_active() {
             return Ok(());
         }

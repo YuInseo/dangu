@@ -148,6 +148,16 @@ impl Dimension {
     pub fn from_index(i: u8) -> Option<Dimension> {
         Dimension::ALL.get(i as usize).copied()
     }
+
+    /// 사람이 읽는 저장용 이름 (`overworld`, `the_nether`, `the_end`).
+    pub fn key(self) -> &'static str {
+        self.type_key()
+    }
+
+    pub fn from_key(key: &str) -> Option<Dimension> {
+        let key = key.strip_prefix("minecraft:").unwrap_or(key);
+        Dimension::ALL.into_iter().find(|d| d.type_key() == key)
+    }
 }
 
 #[cfg(test)]

@@ -121,6 +121,16 @@ pub enum Event {
     },
     /// 모두에게 가는 서버 알림.
     System(Tag),
+    /// 몇 사람에게만 가는 알림 (길드 등).
+    Notice {
+        to: std::sync::Arc<Vec<u128>>,
+        message: String,
+    },
+    /// 길드 창고 한 페이지가 바뀜 (보고 있던 사람은 다시 받음).
+    GuildStorageChanged {
+        guild: u32,
+        page: usize,
+    },
     /// 채널 채팅 ([`crate::plugins::chat`]). 받을지는 받는 세션이 정합니다.
     ChannelChat(std::sync::Arc<crate::plugins::chat::Message>),
     /// 서명을 확인한 채팅. 받는 세션마다 서명째 전합니다.

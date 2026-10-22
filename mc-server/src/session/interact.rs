@@ -26,7 +26,12 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 | (GameMode::Survival, PlayerAction::StopDestroy)
         );
         if breaks && !self.vitals.dead && self.can_reach(a.pos) && self.in_world(a.pos) {
-            self.break_block(a.pos).await?;
+            if self.may_build_at(a.pos) {
+                self.break_block(a.pos).await?;
+            } else {
+                // 길드 땅: 부수지 않음 (아래 확인 응답으로 클라이언트가 되돌림)
+                self.deny_build().await?;
+            }
         }
         match a.action {
             // 26.3 번호: 4 = 묶음째 버리기, 5 = 하나 버리기, 6 = 아이템 쓰기 그만
@@ -112,6 +117,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             crate::data::block::AIR
         };
         self.set_block(pos, after, Some(old));
+        if self.gamemode == GameMode::Survival {
+            self.guild_block_broken(pos, old).await?;
+        }
         // 문·침대는 나머지 반쪽도 함께
         if let Some((other, other_state)) = placement::partner(pos, old)
             && world.get(self.dimension, other.0, other.1, other.2) == other_state
@@ -123,6 +131,16 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
     pub(crate) async fn use_item_on(&mut self, u: UseItemOn) -> Result<(), FrameError> {
         if self.vitals.dead {
+            return Ok(());
+        }
+        // 길드 땅: 누른 블록과 놓일 자리 둘 다 허락돼야 (상자·문·놓기)
+        if !self.may_build_at(u.pos) || !self.may_build_at(add(u.pos, u.face.offset())) {
+            self.deny_build().await?;
+            self.send(
+                pw::BLOCK_CHANGED_ACK_ID,
+                &pw::encode_block_changed_ack(u.sequence),
+            )
+            .await?;
             return Ok(());
         }
         // 작업대·상자를 누르면 엽니다 (웅크리고 있으면 그냥 놓기).

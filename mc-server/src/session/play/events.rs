@@ -113,6 +113,18 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
             Event::System(message) => self.message(&message).await?,
             Event::ChannelChat(m) => self.deliver_channel_chat(&m).await?,
+            Event::Notice { to, message } if to.contains(&me) => {
+                self.message(&text::colored(&message, "gold")).await?
+            }
+            Event::GuildStorageChanged { guild, page } => {
+                if matches!(
+                    self.window.as_ref().map(|w| &w.kind),
+                    Some(crate::session::windows::WindowKind::GuildStorage { guild: g, page: p })
+                        if *g == guild && *p == page
+                ) {
+                    self.send_window().await?;
+                }
+            }
             Event::SignedChat {
                 sender,
                 sender_name,

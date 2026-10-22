@@ -63,7 +63,10 @@ pub fn random_tick(server: &Server, dim: Dimension, pos: BlockPos, state: u32) {
             } else {
                 6
             };
-            if r.is_multiple_of(chance)
+            // 길드 땅이면 업그레이드만큼 더 자주 ([`crate::plugins::guild::Guild::growth_multiplier`])
+            let boost =
+                crate::plugins::guild::growth_at(&server.name, dim, (pos.0 >> 4, pos.2 >> 4));
+            if ((r % 10_000) as f64) < 10_000.0 * boost / chance as f64
                 && let Some((a, max)) = age(state)
                 && a < max
             {

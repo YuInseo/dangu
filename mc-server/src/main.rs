@@ -20,6 +20,12 @@ async fn main() -> std::io::Result<()> {
     // ItemsAdder식 콘텐츠 (MC_CONTENTS, 기본 ./contents): 아이템·블록·이모지 + 리소스 팩
     // HUD 그림·셰이더를 팩에 넣을지 (콘텐츠를 읽기 전에 정해야 함)
     mc_server::plugins::hud::set_enabled(env_flag("MC_HUD", true));
+    // 길드: 모든 인스턴스(담비 자식 프로세스 포함)가 같은 파일
+    mc_server::plugins::guild::store::open_global(
+        std::env::var_os("MC_GUILDS")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| "world/guilds.json".into()),
+    );
     let loaded = mc_server::plugins::contents::reload();
     if !loaded.items.is_empty() || !loaded.errors.is_empty() {
         for l in mc_server::plugins::contents::summary(&loaded) {

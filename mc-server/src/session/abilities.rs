@@ -227,5 +227,6 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             .and_then(custom_items::get)
             .and_then(|c| c.damage)
             .unwrap_or_else(|| items::attack_damage(item))
+            + self.guild.bonus.damage
     }
 }

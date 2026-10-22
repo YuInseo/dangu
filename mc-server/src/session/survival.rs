@@ -121,6 +121,11 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             return Ok(());
         }
         let new = self.position;
+        if (old.0.floor() as i32 >> 4, old.2.floor() as i32 >> 4)
+            != (new.0.floor() as i32 >> 4, new.2.floor() as i32 >> 4)
+        {
+            self.guild_moved().await?;
+        }
         let horizontal = ((new.0 - old.0).powi(2) + (new.2 - old.2).powi(2)).sqrt();
         if horizontal < 10.0 && self.gamemode.takes_damage() {
             if self.vitals.sprinting {
@@ -258,6 +263,18 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if self.vitals.dead || !self.gamemode.takes_damage() || amount <= 0.0 {
             return Ok(());
         }
+        // 길드 신호기: 화염 저항·수중 호흡은 막고, 저항은 줄임 (공허·명령어는 그대로)
+        let b = self.guild.bonus;
+        if (b.fire_immune && matches!(cause, "lava" | "in_fire" | "on_fire"))
+            || (b.water_breathing && cause == "drown")
+        {
+            return Ok(());
+        }
+        let amount = if matches!(cause, "out_of_world" | "generic") {
+            amount
+        } else {
+            amount * (1.0 - b.resist)
+        };
         let now = Instant::now();
         if now < self.vitals.invulnerable_until {
             return Ok(());
@@ -398,7 +415,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             && mob.dimension == self.dimension
             && crate::game::entities::dist2(mob.pos, self.position) <= reach * reach
         {
-            mobs::damage(
+            let killed = mobs::damage(
                 self.server,
                 target,
                 amount,
@@ -406,6 +423,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 Some(self.entity_id),
             );
             self.vitals.exhaust(0.1);
+            if killed {
+                self.guild_mob_killed().await?;
+            }
         }
         Ok(())
     }

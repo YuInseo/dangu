@@ -248,6 +248,8 @@ pub(crate) struct Session<'a, W> {
     pub(crate) hud: crate::plugins::hud::HudState,
     /// RPG 마나 (능력 아이템이 씀).
     pub(crate) mana: crate::plugins::rpg::Mana,
+    /// 길드: 신호기 효과, 서 있는 땅.
+    pub(crate) guild: crate::plugins::guild::GuildState,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
@@ -304,6 +306,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             portal_ticks: 0,
             hud: Default::default(),
             mana: Default::default(),
+            guild: Default::default(),
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,

@@ -23,7 +23,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     fn guild_name(&self) -> Option<String> {
-        crate::plugins::guild::name_of(self.server, self.profile.uuid)
+        crate::plugins::guild::name_of(self.profile.uuid)
     }
 
     /// 채팅 한 줄을 채널로 보냅니다 (앞 기호가 있으면 그 채널로 한 번만).

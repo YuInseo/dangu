@@ -332,6 +332,9 @@ fn handle(server: &Arc<crate::Server>, msg: Msg) {
                     .for_each(|l| println!("{l}"));
                 server.publish_all(Event::ResourcePackChanged);
             }
+            if channel == crate::plugins::guild::BUS {
+                crate::plugins::guild::session_receive(server, &payload);
+            }
             if channel == crate::plugins::chat::BUS {
                 crate::plugins::chat::receive(server, &payload);
             }
