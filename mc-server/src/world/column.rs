@@ -56,7 +56,7 @@ impl Column {
         let ry = y - self.dimension.min_y();
         (0..self.dimension.height())
             .contains(&ry)
-            .then(|| ((ry / 16) as usize, (ry % 16) as usize))
+            .then_some(((ry / 16) as usize, (ry % 16) as usize))
     }
 
     pub fn get(&self, x: usize, y: i32, z: usize) -> u32 {

@@ -73,7 +73,18 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
         }
         // 상자: 내용을 쏟고, 보던 사람의 창을 닫습니다.
-        if blocks::name(blocks::block_of(old)) == "chest" {
+        if matches!(
+            blocks::name(blocks::block_of(old)),
+            "chest"
+                | "trapped_chest"
+                | "barrel"
+                | "furnace"
+                | "blast_furnace"
+                | "smoker"
+                | "dispenser"
+                | "dropper"
+                | "hopper"
+        ) {
             for item in self.server.containers.take_all(self.dimension, pos) {
                 self.server
                     .entities
@@ -116,7 +127,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     .await?;
                     return Ok(self.open_crafting().await?);
                 }
-                "chest" | "barrel" | "trapped_chest" => {
+                "chest" | "barrel" | "trapped_chest" | "furnace" | "blast_furnace" | "smoker"
+                | "dispenser" | "dropper" | "hopper" => {
                     self.send(
                         pw::BLOCK_CHANGED_ACK_ID,
                         &pw::encode_block_changed_ack(u.sequence),
@@ -124,8 +136,64 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     .await?;
                     return Ok(self.open_chest(u.pos).await?);
                 }
-                _ => {}
+                _ => {
+                    // 레버·버튼·문·다락문·울타리 문
+                    if crate::game::mechanics::redstone::interact(
+                        self.server,
+                        self.dimension,
+                        u.pos,
+                        clicked,
+                    ) {
+                        self.send(
+                            pw::BLOCK_CHANGED_ACK_ID,
+                            &pw::encode_block_changed_ack(u.sequence),
+                        )
+                        .await?;
+                        self.server.publish(Event::Swing {
+                            uuid: self.profile.uuid,
+                            entity_id: self.entity_id,
+                            off_hand: u.off_hand,
+                        });
+                        return Ok(());
+                    }
+                }
             }
+        }
+        // 부싯돌로 TNT에 불 붙이기
+        let held = if u.off_hand {
+            self.off_hand()
+        } else {
+            self.main_hand()
+        };
+        if held.is_some_and(|i| items::name(i.id) == "flint_and_steel")
+            && blocks::name(blocks::block_of(clicked)) == "tnt"
+            && self.can_reach(u.pos)
+            && self.gamemode != GameMode::Spectator
+        {
+            crate::game::mechanics::explosion::prime(self.server, self.dimension, u.pos);
+            self.send(
+                pw::BLOCK_CHANGED_ACK_ID,
+                &pw::encode_block_changed_ack(u.sequence),
+            )
+            .await?;
+            return Ok(());
+        }
+        // 부싯돌로 흑요석 틀에 불 붙이기 → 네더 차원문
+        if held.is_some_and(|i| items::name(i.id) == "flint_and_steel")
+            && self.can_reach(u.pos)
+            && self.gamemode != GameMode::Spectator
+            && crate::game::mechanics::portal::try_light(
+                self.server,
+                self.dimension,
+                add(u.pos, u.face.offset()),
+            )
+        {
+            self.send(
+                pw::BLOCK_CHANGED_ACK_ID,
+                &pw::encode_block_changed_ack(u.sequence),
+            )
+            .await?;
+            return Ok(());
         }
         let placed = self.try_place(&u);
         // 서바이벌에서는 놓은 만큼 줄어듭니다.
@@ -228,6 +296,13 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             state,
             broken,
         });
+        // 물이 흘러들고, 모래가 떨어지고, 레드스톤이 다시 계산되도록
+        crate::game::mechanics::neighbor_changed(self.server, self.dimension, pos);
+        if broken.is_some_and(|b| {
+            crate::game::mechanics::furnace::kind_of(blocks::name(blocks::block_of(b))).is_some()
+        }) {
+            self.server.furnaces.forget(self.dimension, pos);
+        }
     }
 
     fn can_reach(&self, pos: BlockPos) -> bool {

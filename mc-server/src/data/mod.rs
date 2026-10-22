@@ -8,9 +8,37 @@ pub mod blocks;
 pub mod items;
 
 pub use generated::{
-    BLOCK_ENTITY_TYPES, BLOCK_STATE_COUNT, ENTITY_NAMES, SYNCED_REGISTRIES, TAGS, argument_type,
-    block, component, entity_type, menu, particle, sound,
+    BLOCK_ENTITY_TYPES, BLOCK_STATE_COUNT, COOKING, ENTITY_NAMES, PARTICLE_NAMES, SOUND_NAMES,
+    STONECUTTING, SYNCED_REGISTRIES, TAGS, argument_type, block, component, entity_type, menu,
+    particle, sound,
 };
+
+fn index_of(table: &'static [&'static str], name: &str) -> Option<i32> {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    type Cache = HashMap<(usize, String), Option<i32>>;
+    static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
+    let key = (table.as_ptr() as usize, name.to_owned());
+    let mut c = CACHE.lock().unwrap();
+    let map = c.get_or_insert_with(HashMap::new);
+    *map.entry(key)
+        .or_insert_with(|| table.iter().position(|n| *n == name).map(|i| i as i32))
+}
+
+/// 소리 이름(`entity.generic.explode`) → 네트워크 ID.
+pub fn sound_id(name: &str) -> Option<i32> {
+    index_of(SOUND_NAMES, name)
+}
+
+/// 입자 이름(`explosion`) → 네트워크 ID.
+pub fn particle_id(name: &str) -> Option<i32> {
+    index_of(PARTICLE_NAMES, name)
+}
+
+/// 엔티티 이름(`tnt`) → 네트워크 ID.
+pub fn entity_id(name: &str) -> Option<i32> {
+    index_of(ENTITY_NAMES, name)
+}
 
 /// 동기화 레지스트리 안에서 `entry`의 네트워크 ID. 생성 데이터에 없는 이름이면 패닉 —
 /// 코드에 박힌 이름이 틀린 것이므로 시작하자마자 드러나는 편이 낫습니다.

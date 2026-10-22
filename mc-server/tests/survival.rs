@@ -211,9 +211,18 @@ async fn survival_loop() {
 
     // 다이아몬드 검(7)으로 세 번 → 좀비(20)는 쓰러짐
     send_string(&mut s, 0x07, "give diamond_sword").await;
-    recv_where(&mut s, |p| p.id == SET_PLAYER_INVENTORY).await;
+    let sword = by_name("diamond_sword").unwrap();
+    let given = recv_where(&mut s, |p| {
+        p.id == SET_PLAYER_INVENTORY
+            && inventory_update(&p.body)
+                .1
+                .is_some_and(|(id, _)| id == sword)
+    })
+    .await;
+    // 들어간 핫바 칸을 고름 (눈 덮인 스폰이면 눈덩이가 먼저 칸을 차지할 수 있음)
+    let slot = inventory_update(&given.body).0 as i16;
     let mut held = Vec::new();
-    held.extend_from_slice(&1i16.to_be_bytes()); // 칸 1에 들어갔으면 고르기
+    held.extend_from_slice(&slot.to_be_bytes());
     send(&mut s, 0x36, &held).await;
     let mut died = false;
     for _ in 0..8 {

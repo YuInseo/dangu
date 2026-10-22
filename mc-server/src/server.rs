@@ -229,6 +229,18 @@ pub enum Event {
         slot: usize,
         item: Option<Item>,
     },
+    /// 화로의 불·굽기 진행 (창의 화살표·불꽃).
+    ContainerData {
+        dimension: Dimension,
+        pos: BlockPos,
+        values: [i16; 4],
+    },
+    /// 폭발 (화면 흔들림·소리·입자, 가까운 플레이어 밀어냄).
+    Explosion {
+        dimension: Dimension,
+        center: (f64, f64, f64),
+        power: f32,
+    },
     /// 손에 든 것이 바뀜.
     HandsChanged {
         uuid: u128,
@@ -368,6 +380,10 @@ pub struct Server {
     pub world: Arc<WorldStore>,
     /// 떨어진 아이템과 몹.
     pub entities: crate::game::entities::Entities,
+    /// 예약 틱 (물·레드스톤·모래 …).
+    pub ticks: crate::game::mechanics::Ticks,
+    pub furnaces: crate::game::mechanics::furnace::Furnaces,
+    pub redstone: crate::game::mechanics::redstone::State,
     difficulty: std::sync::atomic::AtomicU8,
     /// 난이도 잠금 (설정 화면의 자물쇠). 잠그면 다시 풀 수 없습니다.
     difficulty_locked: std::sync::atomic::AtomicBool,
@@ -509,6 +525,9 @@ impl Server {
         Self {
             name: "main".into(),
             entities: Default::default(),
+            ticks: Default::default(),
+            furnaces: Default::default(),
+            redstone: Default::default(),
             perms: Arc::new(
                 crate::perms::Permissions::open(None, true).expect("memory permissions"),
             ),
@@ -583,6 +602,54 @@ impl Server {
             }
         }
         self.publish(Event::SavePlayers);
+    }
+
+    /// 블록을 바꾸고 모두에게 알린 뒤, 반응하는 이웃(물·레드스톤·모래 …)에 틱을 예약합니다.
+    pub fn set_block(&self, dim: Dimension, pos: BlockPos, state: u32) {
+        self.set_block_quiet(dim, pos, state);
+        crate::game::mechanics::neighbor_changed(self, dim, pos);
+    }
+
+    /// 부서진 블록 (다른 사람에게 부서지는 소리·조각이 보임).
+    pub fn set_block_broken(&self, dim: Dimension, pos: BlockPos, state: u32, broken: u32) {
+        self.world.set(dim, pos.0, pos.1, pos.2, state);
+        self.publish(Event::BlockChanged {
+            by: 0,
+            dimension: dim,
+            pos,
+            state,
+            broken: Some(broken),
+        });
+        crate::game::mechanics::neighbor_changed(self, dim, pos);
+    }
+
+    /// 바꾸고 알리기만 (이웃 반응 없이 — 레드스톤 가루끼리처럼 이미 함께 계산한 것).
+    pub fn set_block_quiet(&self, dim: Dimension, pos: BlockPos, state: u32) {
+        if self.world.get(dim, pos.0, pos.1, pos.2) == state {
+            return;
+        }
+        self.world.set(dim, pos.0, pos.1, pos.2, state);
+        self.publish(Event::BlockChanged {
+            by: 0,
+            dimension: dim,
+            pos,
+            state,
+            broken: None,
+        });
+    }
+
+    /// 그 자리에서 소리 (블록 분류).
+    pub fn play_sound(&self, dim: Dimension, pos: BlockPos, name: &str) {
+        if let Some(sound) = crate::data::sound_id(name) {
+            self.publish(Event::Sound {
+                dimension: dim,
+                pos: (pos.0 as f64 + 0.5, pos.1 as f64 + 0.5, pos.2 as f64 + 0.5),
+                sound,
+                source: 4,
+                volume: 1.0,
+                pitch: 1.0,
+            });
+        }
     }
 
     /// 구조물 상자를 처음 열 때 바닐라 전리품 표로 채웁니다 (시드와 위치로 정해짐).

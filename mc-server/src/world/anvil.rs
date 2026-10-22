@@ -430,10 +430,13 @@ fn heightmaps(col: &Column) -> Vec<(String, Tag)> {
     ]
 }
 
+/// 상자 하나: (위치, (칸, 아이템)들).
+pub type ChestItems = ((i32, i32, i32), Vec<(usize, Item)>);
+
 /// 읽어 낸 청크와, 그 안 상자들의 내용.
 pub struct Loaded {
     pub column: Column,
-    pub items: Vec<((i32, i32, i32), Vec<(usize, Item)>)>,
+    pub items: Vec<ChestItems>,
     /// 이름을 몰라 공기로 바꾼 블록 수 (다른 판의 월드).
     pub unknown_blocks: usize,
 }

@@ -28,6 +28,10 @@ pub enum Kind {
         claimed: Option<(u128, u32)>,
     },
     Mob(Mob),
+    /// 불붙은 TNT: 남은 틱.
+    Tnt {
+        fuse: u32,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +74,10 @@ impl Entity {
         let (type_id, item) = match &self.kind {
             Kind::Item { item, .. } => (entity_type::ITEM, Some(*item)),
             Kind::Mob(m) => (m.kind.type_id(), None),
+            Kind::Tnt { .. } => (
+                crate::data::entity_id("tnt").unwrap_or(entity_type::ITEM),
+                None,
+            ),
         };
         Snapshot {
             id: self.id,
@@ -235,6 +243,7 @@ impl Entities {
         let players = server.players();
         let mut events = Vec::new();
         let mut removed: Vec<(Dimension, i32)> = Vec::new();
+        let mut explosions: Vec<(Dimension, Vec3)> = Vec::new();
         {
             let mut map = self.map.lock().unwrap();
             for e in map.values_mut() {
@@ -281,6 +290,15 @@ impl Entities {
                             }
                         }
                     }
+                    Kind::Tnt { fuse } => {
+                        *fuse = fuse.saturating_sub(1);
+                        if *fuse == 0 {
+                            explosions.push((e.dimension, e.pos));
+                            removed.push((e.dimension, e.id));
+                            continue;
+                        }
+                        physics(server, e, 0.04, 0.98);
+                    }
                     Kind::Mob(_) => {
                         mobs::tick(server, e, &players, now, &mut events);
                         if let Kind::Mob(m) = &e.kind
@@ -315,6 +333,16 @@ impl Entities {
         for e in events {
             server.publish(e);
         }
+        for (dim, at) in explosions {
+            super::mechanics::explosion::explode(
+                server,
+                dim,
+                (at.0, at.1 + 0.06, at.2),
+                super::mechanics::explosion::TNT_POWER,
+                true,
+            );
+        }
+        super::mechanics::tick(server, now as u64, &players);
         mobs::natural_spawning(server, &players, now);
     }
 }

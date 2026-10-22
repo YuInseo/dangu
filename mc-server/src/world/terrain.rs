@@ -430,6 +430,10 @@ fn decorate_caves(col: &mut Column, seed: u64, cx: i32, cz: i32) {
                             z,
                             b(if roll < 12 { "potent_sulfur" } else { "sulfur" }),
                         );
+                        if (34..46).contains(&roll) {
+                            // 26.3 진사(cinnabar)도 유황 동굴 바닥에 섞여 있음
+                            col.set(x, y - 1, z, b("cinnabar"));
+                        }
                         if (20..34).contains(&roll) {
                             col.set(x, y, z, bp("sulfur_spike", &[("vertical_direction", "up")]));
                         }

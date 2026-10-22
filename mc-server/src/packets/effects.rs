@@ -6,6 +6,7 @@ use crate::protocol::types::{
 use crate::protocol::varint::write_varint;
 
 pub const COOLDOWN_ID: i32 = 0x16;
+pub const EXPLODE_ID: i32 = 0x24;
 pub const LEVEL_PARTICLES_ID: i32 = 0x30;
 pub const SOUND_ID: i32 = 0x77;
 
@@ -57,6 +58,40 @@ pub fn encode_particles(
     }
     write_varint(&mut out, count);
     write_varint(&mut out, 0); // 기본 흩뿌림
+    out
+}
+
+/// `Explode`: 가운데, 반지름, 부서진 블록 수(표시용), 이 플레이어를 미는 속도, 입자, 소리,
+/// 블록 조각 입자 목록(없음), 26.3의 "소리 내기".
+pub fn encode_explosion(
+    center: (f64, f64, f64),
+    radius: f32,
+    knockback: Option<(f64, f64, f64)>,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_f64(&mut out, center.0);
+    write_f64(&mut out, center.1);
+    write_f64(&mut out, center.2);
+    write_f32(&mut out, radius);
+    write_i32(&mut out, 0);
+    write_bool(&mut out, knockback.is_some());
+    if let Some(k) = knockback {
+        write_f64(&mut out, k.0);
+        write_f64(&mut out, k.1);
+        write_f64(&mut out, k.2);
+    }
+    let particle = if radius >= 2.0 {
+        "explosion_emitter"
+    } else {
+        "explosion"
+    };
+    write_varint(&mut out, crate::data::particle_id(particle).unwrap_or(0));
+    write_varint(
+        &mut out,
+        crate::data::sound_id("entity.generic.explode").map_or(0, |s| s + 1),
+    );
+    write_varint(&mut out, 0);
+    write_bool(&mut out, true);
     out
 }
 

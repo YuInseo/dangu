@@ -203,6 +203,16 @@ impl WorldStore {
         anvil::write_chunk(dir, dim, cx, cz, &tag)
     }
 
+    /// 이미 메모리에 있는 청크만 (없으면 읽거나 만들지 않음 — 무작위 틱처럼 자주 묻는 곳).
+    pub fn chunk_if_loaded(&self, dim: Dimension, cx: i32, cz: i32) -> Option<Arc<Column>> {
+        self.cache
+            .lock()
+            .unwrap()
+            .map
+            .get(&(dim, cx, cz))
+            .map(|e| e.col.clone())
+    }
+
     /// 한 블록의 지금 상태.
     pub fn get(&self, dim: Dimension, x: i32, y: i32, z: i32) -> u32 {
         let ((cx, cz), (lx, lz)) = split(x, z);
@@ -333,7 +343,9 @@ impl WorldStore {
 }
 
 /// 예전 `blocks.dat`: "DGW1" | u32 개수 | 개수 × (u8 차원, i32 x, y, z, u32 상태).
-fn parse_legacy(bytes: &[u8]) -> io::Result<Vec<(Dimension, i32, i32, i32, u32)>> {
+type LegacyChange = (Dimension, i32, i32, i32, u32);
+
+fn parse_legacy(bytes: &[u8]) -> io::Result<Vec<LegacyChange>> {
     let bad = || io::Error::new(io::ErrorKind::InvalidData, "blocks.dat가 손상되었습니다");
     if bytes.get(..4) != Some(LEGACY_MAGIC) {
         return Err(bad());

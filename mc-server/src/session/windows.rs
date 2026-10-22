@@ -22,7 +22,12 @@ use crate::world::Dimension;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WindowKind {
     Crafting,
-    Chest { dimension: Dimension, pos: BlockPos },
+    /// 상자·통·화로·발사기 등: 칸 수와 함께.
+    Chest {
+        dimension: Dimension,
+        pos: BlockPos,
+        size: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +171,18 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     pub(super) async fn open_chest(&mut self, pos: BlockPos) -> std::io::Result<()> {
         self.close_window(false).await?;
         self.server.fill_structure_loot(self.dimension, pos);
+        let state = self.server.world.get(self.dimension, pos.0, pos.1, pos.2);
+        let name = crate::world::blockset::name_of(state);
+        let (size, menu_id, title) = match name {
+            "furnace" => (3, menu::FURNACE, "화로"),
+            "blast_furnace" => (3, menu::BLAST_FURNACE, "용광로"),
+            "smoker" => (3, menu::SMOKER, "훈연기"),
+            "dispenser" => (9, menu::GENERIC_3X3, "발사기"),
+            "dropper" => (9, menu::GENERIC_3X3, "공급기"),
+            "hopper" => (5, menu::HOPPER, "깔때기"),
+            "barrel" => (CHEST_SLOTS, menu::GENERIC_9X3, "통"),
+            _ => (CHEST_SLOTS, menu::GENERIC_9X3, "상자"),
+        };
         self.next_window = self.next_window % 100 + 1;
         let id = self.next_window;
         self.window = Some(Window {
@@ -173,16 +190,52 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             kind: WindowKind::Chest {
                 dimension: self.dimension,
                 pos,
+                size,
             },
             grid: [None; 9],
         });
-        let title = text::plain("상자");
         self.send(
             pc::OPEN_SCREEN_ID,
-            &pc::encode_open_screen(id, menu::GENERIC_9X3, &title),
+            &pc::encode_open_screen(id, menu_id, &text::plain(title)),
         )
         .await?;
-        self.send_window().await
+        self.send_window().await?;
+        if crate::game::mechanics::furnace::kind_of(name).is_some() {
+            self.server.furnaces.wake(self.dimension, pos);
+            let values = self.server.furnaces.data(self.dimension, pos);
+            self.container_data(self.dimension, pos, values).await?;
+        }
+        Ok(())
+    }
+
+    /// 화로의 진행 값을 창에 보냅니다.
+    pub(super) async fn container_data(
+        &mut self,
+        dimension: Dimension,
+        pos: BlockPos,
+        values: [i16; 4],
+    ) -> std::io::Result<()> {
+        let Some(w) = &self.window else { return Ok(()) };
+        let WindowKind::Chest {
+            dimension: d,
+            pos: p,
+            ..
+        } = w.kind
+        else {
+            return Ok(());
+        };
+        if (d, p) != (dimension, pos) {
+            return Ok(());
+        }
+        let id = w.id;
+        for (i, v) in values.iter().enumerate() {
+            let mut body = Vec::new();
+            crate::protocol::varint::write_varint(&mut body, id);
+            body.extend_from_slice(&(i as i16).to_be_bytes());
+            body.extend_from_slice(&v.to_be_bytes());
+            self.send(pc::CONTAINER_SET_DATA_ID, &body).await?;
+        }
+        Ok(())
     }
 
     /// 열린 창의 모든 칸 (창 번호 기준).
@@ -198,7 +251,15 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 v.extend_from_slice(&w.grid);
                 v
             }
-            WindowKind::Chest { dimension, pos } => self.server.containers.get(*dimension, *pos),
+            WindowKind::Chest {
+                dimension,
+                pos,
+                size,
+            } => {
+                let mut v = self.server.containers.get(*dimension, *pos);
+                v.truncate(*size);
+                v
+            }
         };
         slots.extend_from_slice(&self.inventory[9..45]);
         slots
@@ -250,7 +311,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             Some(w) => {
                 let own = match w.kind {
                     WindowKind::Crafting => 10,
-                    WindowKind::Chest { .. } => CHEST_SLOTS,
+                    WindowKind::Chest { size, .. } => size,
                 };
                 if slot < own {
                     match &w.kind {
@@ -261,7 +322,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                                 Some(SlotRef::Inventory(&mut w.grid[slot - 1]))
                             }
                         }
-                        WindowKind::Chest { dimension, pos } => {
+                        WindowKind::Chest { dimension, pos, .. } => {
                             Some(SlotRef::Chest(*dimension, *pos, slot))
                         }
                     }
@@ -343,6 +404,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
         for (d, p, i, item) in chest_changes {
             self.server.containers.set_slot(d, p, i, item);
+            self.server.furnaces.wake(d, p);
             self.server.publish(Event::ContainerChanged {
                 dimension: d,
                 pos: p,
@@ -388,7 +450,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         item: Option<Item>,
     ) -> std::io::Result<()> {
         let Some(w) = &self.window else { return Ok(()) };
-        if w.kind != (WindowKind::Chest { dimension, pos }) {
+        if !matches!(w.kind, WindowKind::Chest { dimension: d, pos: p, .. } if (d, p) == (dimension, pos))
+        {
             return Ok(());
         }
         let id = w.id;
@@ -406,7 +469,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if self
             .window
             .as_ref()
-            .is_some_and(|w| w.kind == (WindowKind::Chest { dimension, pos }))
+            .is_some_and(|w| matches!(w.kind, WindowKind::Chest { dimension: d, pos: p, .. } if (d, p) == (dimension, pos)))
         {
             self.close_window(false).await?;
         }

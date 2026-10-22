@@ -3,6 +3,7 @@
 pub mod containers;
 pub mod custom_items;
 pub mod entities;
+pub mod mechanics;
 pub mod mobs;
 pub mod playerdata;
 

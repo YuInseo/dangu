@@ -67,6 +67,29 @@ impl Rng {
     }
 }
 
+/// 나무처럼 생성 중에도, 다 만든 월드에서도(묘목이 자랄 때) 그릴 수 있는 바탕.
+pub trait Canvas {
+    /// 이 자리의 블록. 모르면(그릴 수 없는 곳) None.
+    fn get(&self, x: i32, y: i32, z: i32) -> Option<u32>;
+    fn set(&mut self, x: i32, y: i32, z: i32, state: u32);
+    /// 비켜 줄 수 있는 블록일 때만.
+    fn set_soft(&mut self, x: i32, y: i32, z: i32, state: u32) {
+        if self.get(x, y, z).is_some_and(soft) {
+            self.set(x, y, z, state);
+        }
+    }
+}
+
+impl Canvas for Placer<'_> {
+    fn get(&self, x: i32, y: i32, z: i32) -> Option<u32> {
+        Placer::get(self, x, y, z)
+    }
+
+    fn set(&mut self, x: i32, y: i32, z: i32, state: u32) {
+        Placer::set(self, x, y, z, state);
+    }
+}
+
 /// 한 청크에만 쓰는 붓. 월드 좌표로 받고, 청크 밖은 조용히 버립니다.
 pub struct Placer<'a> {
     pub col: &'a mut Column,
@@ -165,7 +188,7 @@ fn wood(log: &str, leaves: &str) -> Wood {
     }
 }
 
-fn blob(p: &mut Placer, c: (i32, i32, i32), r: f64, leaves: u32, rng: &mut Rng) {
+fn blob(p: &mut impl Canvas, c: (i32, i32, i32), r: f64, leaves: u32, rng: &mut Rng) {
     let ri = r.ceil() as i32;
     for dx in -ri..=ri {
         for dy in -ri..=ri {
@@ -180,7 +203,15 @@ fn blob(p: &mut Placer, c: (i32, i32, i32), r: f64, leaves: u32, rng: &mut Rng) 
 }
 
 /// 층마다 반지름이 다른 잎 (위에서부터 `radii`).
-fn layered(p: &mut Placer, x: i32, top: i32, z: i32, radii: &[i32], leaves: u32, rng: &mut Rng) {
+fn layered(
+    p: &mut impl Canvas,
+    x: i32,
+    top: i32,
+    z: i32,
+    radii: &[i32],
+    leaves: u32,
+    rng: &mut Rng,
+) {
     for (i, &r) in radii.iter().enumerate() {
         let y = top - i as i32;
         for dx in -r..=r {
@@ -195,20 +226,20 @@ fn layered(p: &mut Placer, x: i32, top: i32, z: i32, radii: &[i32], leaves: u32,
     }
 }
 
-fn trunk(p: &mut Placer, x: i32, y: i32, z: i32, h: i32, log: u32) {
+fn trunk(p: &mut impl Canvas, x: i32, y: i32, z: i32, h: i32, log: u32) {
     for dy in 0..h {
         p.set(x, y + dy, z, log);
     }
 }
 
-fn trunk2(p: &mut Placer, x: i32, y: i32, z: i32, h: i32, log: u32) {
+fn trunk2(p: &mut impl Canvas, x: i32, y: i32, z: i32, h: i32, log: u32) {
     for (dx, dz) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
         trunk(p, x + dx, y, z + dz, h, log);
     }
 }
 
 /// 나무 하나. (x, y, z)는 줄기 밑동 (땅 바로 위).
-pub fn tree(p: &mut Placer, kind: Tree, x: i32, y: i32, z: i32, rng: &mut Rng) {
+pub fn tree(p: &mut impl Canvas, kind: Tree, x: i32, y: i32, z: i32, rng: &mut Rng) {
     match kind {
         Tree::Oak | Tree::Birch | Tree::TallBirch => {
             let w = match kind {
@@ -482,7 +513,7 @@ pub fn tree(p: &mut Placer, kind: Tree, x: i32, y: i32, z: i32, rng: &mut Rng) {
     }
 }
 
-fn vines(p: &mut Placer, x: i32, y: i32, z: i32, h: i32, rng: &mut Rng) {
+fn vines(p: &mut impl Canvas, x: i32, y: i32, z: i32, h: i32, rng: &mut Rng) {
     for (dx, dz, face) in [
         (1, 0, "west"),
         (-1, 0, "east"),

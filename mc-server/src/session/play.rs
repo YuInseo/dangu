@@ -233,6 +233,8 @@ pub(super) struct Session<'a, W> {
     pub(super) previous_gamemode: Option<GameMode>,
     /// 옮겨 갈 인스턴스 (`Start Configuration`을 보낸 뒤).
     pub(super) transfer: Option<Arc<Server>>,
+    /// 차원문 안에 서 있은 틱.
+    pub(super) portal_ticks: u32,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
@@ -283,6 +285,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             camera: None,
             previous_gamemode: None,
             transfer: None,
+            portal_ticks: 0,
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,
@@ -526,13 +529,22 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         &mut self,
         dimension: Dimension,
     ) -> Result<(), FrameError> {
+        self.change_dimension_to(dimension, None).await
+    }
+
+    /// 차원을 바꾸고 `at`(없으면 스폰)에 세웁니다.
+    pub(super) async fn change_dimension_to(
+        &mut self,
+        dimension: Dimension,
+        at: Option<(f64, f64, f64)>,
+    ) -> Result<(), FrameError> {
         let from = self.dimension;
         self.dimension = dimension;
         self.server
             .update_player(self.profile.uuid, |s| s.dimension = dimension);
         self.send(p::RESPAWN_ID, &p::encode_respawn(&self.spawn_info()))
             .await?;
-        self.enter_world(None).await?;
+        self.enter_world(at).await?;
         self.send_health().await?;
         self.server.publish(Event::ChangedDimension {
             from,
@@ -1074,6 +1086,34 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             }
             Event::Title { uuid, title } if uuid == me => self.show_title(&title).await?,
             Event::SavePlayers => self.save(),
+            Event::ContainerData {
+                dimension,
+                pos,
+                values,
+            } => {
+                self.container_data(dimension, pos, values).await?;
+            }
+            Event::Explosion {
+                dimension,
+                center,
+                power,
+            } if dimension == self.dimension => {
+                let reach = 2.0 * power as f64;
+                let (dx, dy, dz) = (
+                    self.position.0 - center.0,
+                    self.position.1 + 1.62 - center.1,
+                    self.position.2 - center.2,
+                );
+                let d = (dx * dx + dy * dy + dz * dz).sqrt();
+                let knockback =
+                    (d < reach && d > 0.01 && self.gamemode.takes_damage()).then(|| {
+                        let k = 1.0 - d / reach;
+                        (dx / d * k, dy / d * k, dz / d * k)
+                    });
+                let body = crate::packets::effects::encode_explosion(center, power, knockback);
+                self.send(crate::packets::effects::EXPLODE_ID, &body)
+                    .await?;
+            }
             Event::ContainerChanged {
                 dimension,
                 pos,

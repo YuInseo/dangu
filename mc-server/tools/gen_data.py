@@ -153,7 +153,13 @@ PARTICLES = [
 ]
 
 # 열 수 있는 창 종류 (`menu` 레지스트리).
-MENUS = [("GENERIC_9X3", "generic_9x3"), ("CRAFTING", "crafting")]
+MENUS = [
+    ("GENERIC_9X3", "generic_9x3"), ("GENERIC_3X3", "generic_3x3"), ("CRAFTING", "crafting"),
+    ("FURNACE", "furnace"), ("BLAST_FURNACE", "blast_furnace"), ("SMOKER", "smoker"),
+    ("ENCHANTMENT", "enchantment"), ("ANVIL", "anvil"), ("STONECUTTER", "stonecutter"),
+    ("SMITHING", "smithing"), ("GRINDSTONE", "grindstone"), ("MERCHANT", "merchant"),
+    ("HOPPER", "hopper"), ("BREWING_STAND", "brewing_stand"),
+]
 
 
 def tool_conditioned(entry):
@@ -450,6 +456,38 @@ def main():
             cells = [ingredient(x) for x in r["ingredients"]]
             if all(cells):
                 out_recipes.append((False, len(cells), 1, cells, item_ids[rname], res.get("count", 1)))
+    # ---- 굽기 (화로·용광로·훈연기·모닥불) ----
+    cook_kinds = {"smelting": 0, "blasting": 1, "smoking": 2, "campfire_cooking": 3}
+    w("/// 굽기 조리법: (종류 0 화로·1 용광로·2 훈연기·3 모닥불, 재료들, 결과, 개수, 틱, 경험치).")
+    w("pub const COOKING: &[(u8, &[u16], u16, u8, u16, f32)] = &[")
+    for rid in sorted(recipes):
+        r = recipes[rid]
+        kind = strip_ns(r["type"])
+        if kind not in cook_kinds:
+            continue
+        res = r.get("result", {})
+        rname = strip_ns(res.get("id", ""))
+        ing = ingredient(r["ingredient"])
+        if rname not in item_ids or not ing:
+            continue
+        w(f"    ({cook_kinds[kind]}, &[{', '.join(map(str, ing))}], {item_ids[rname]}, {res.get('count', 1)}, "
+          f"{r.get('cookingtime', 200)}, {float(r.get('experience', 0.0))}),")
+    w("];")
+    w("")
+    # ---- 석재 절단기 ----
+    w("/// 석재 절단기: (재료들, 결과, 개수).")
+    w("pub const STONECUTTING: &[(&[u16], u16, u8)] = &[")
+    for rid in sorted(recipes):
+        r = recipes[rid]
+        if strip_ns(r["type"]) != "stonecutting":
+            continue
+        res = r.get("result", {})
+        rname = strip_ns(res.get("id", ""))
+        ing = ingredient(r["ingredient"])
+        if rname in item_ids and ing:
+            w(f"    (&[{', '.join(map(str, ing))}], {item_ids[rname]}, {res.get('count', 1)}),")
+    w("];")
+    w("")
     w("/// 조합법: (모양 있음, 너비, 높이, 칸별 재료(없으면 빈 칸), 결과 아이템, 개수).")
     w("/// 모양 없는 조합법은 너비 = 재료 수, 높이 1.")
     w("pub const RECIPES: &[(bool, u8, u8, &[Option<&[u16]>], u16, u8)] = &[")
@@ -486,6 +524,12 @@ def main():
     w("")
     w("/// 블록 엔티티 종류 이름. 순서 = 네트워크 ID (청크 패킷의 블록 엔티티 목록).")
     w("pub const BLOCK_ENTITY_TYPES: &[&str] = &[" + ", ".join(rust_str(n) for n in mapping["blockentities"]) + "];")
+    w("")
+    w("/// 소리 이름. 순서 = 네트워크 ID.")
+    w("pub const SOUND_NAMES: &[&str] = &[" + ", ".join(rust_str(n) for n in mapping["sounds"]) + "];")
+    w("")
+    w("/// 입자 이름. 순서 = 네트워크 ID.")
+    w("pub const PARTICLE_NAMES: &[&str] = &[" + ", ".join(rust_str(n) for n in mapping["particles"]) + "];")
     w("")
     w("/// 엔티티 종류 이름. 순서 = 네트워크 ID.")
     w("pub const ENTITY_NAMES: &[&str] = &[" + ", ".join(rust_str(n) for n in mapping["entities"]) + "];")

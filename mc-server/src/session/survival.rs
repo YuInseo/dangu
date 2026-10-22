@@ -146,6 +146,13 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
         }
         self.vitals.was_on_ground = on_ground;
+        // 압력판을 밟음
+        let feet = (
+            new.0.floor() as i32,
+            new.1.floor() as i32,
+            new.2.floor() as i32,
+        );
+        crate::game::mechanics::redstone::stepped_on(self.server, self.dimension, feet);
         Ok(())
     }
 
@@ -176,6 +183,24 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         {
             self.vitals.eating = None;
             self.finish_eating(off_hand, item).await?;
+        }
+
+        // 차원문 안에 서 있으면 (크리에이티브는 바로, 아니면 4초 뒤) 건너감
+        let feet = self.block_at(self.position, 0.0);
+        if crate::world::blockset::name_of(feet) == "nether_portal" {
+            self.portal_ticks += 5;
+            if self.portal_ticks >= 80 || self.gamemode == GameMode::Creative {
+                self.portal_ticks = 0;
+                let (to, at) = crate::game::mechanics::portal::destination(
+                    self.server,
+                    self.dimension,
+                    self.position,
+                );
+                self.change_dimension_to(to, Some(at)).await?;
+                return Ok(());
+            }
+        } else {
+            self.portal_ticks = 0;
         }
 
         let void_y = (self.dimension.min_y() - 64) as f64;

@@ -9,6 +9,8 @@ use crate::text::to_nbt;
 
 // Clientbound
 pub const CONTAINER_SET_CONTENT_ID: i32 = 0x12;
+/// `Container Set Data`: 창 번호, 속성(i16), 값(i16). 화로의 불·진행 화살표.
+pub const CONTAINER_SET_DATA_ID: i32 = 0x13;
 pub const CONTAINER_SET_SLOT_ID: i32 = 0x14;
 pub const OPEN_SCREEN_ID: i32 = 0x3C;
 
