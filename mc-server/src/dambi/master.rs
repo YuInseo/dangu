@@ -434,6 +434,13 @@ impl Master {
                 Err(reason) => Some(Msg::Deny { uuid, reason }),
             },
             Msg::Publish { channel, payload } => {
+                if channel == crate::contents::PACK_RELOAD {
+                    // 마스터가 내려 주는 팩부터 새로
+                    let l = crate::contents::reload_and_rebuild();
+                    crate::contents::summary(&l)
+                        .iter()
+                        .for_each(|l| println!("[마스터] {l}"));
+                }
                 self.broadcast(Msg::Event { channel, payload });
                 None
             }

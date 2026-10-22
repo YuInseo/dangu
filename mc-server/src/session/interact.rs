@@ -64,7 +64,20 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 return Ok(());
             }
             self.exhaust(0.005);
-            if items::can_harvest(blocks::block_of(old), self.main_hand())
+            if let Some((custom, drops)) = crate::contents::block_item(old) {
+                // 사용자 정의 블록은 그 아이템을 떨어뜨림
+                if drops && let Some(def) = crate::game::custom_items::get(custom) {
+                    let item = Item {
+                        id: def.base,
+                        count: 1,
+                        custom: Some(custom),
+                        serial: 0,
+                    };
+                    self.server
+                        .entities
+                        .drop_at_block(self.server, self.dimension, pos, item);
+                }
+            } else if items::can_harvest(blocks::block_of(old), self.main_hand())
                 && let Some(drop) = items::block_drop(old, rand_u32() % 1000, rand_u32())
             {
                 self.server
@@ -241,8 +254,25 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         } else {
             self.main_hand()
         };
-        let Some(block) = item.and_then(|i| blocks::block_for_item(i.id)) else {
-            return false;
+        // ItemsAdder식 사용자 정의 블록이면 그 상태로 (소리 블록 상태를 빌림)
+        let custom_state = item
+            .and_then(|i| i.custom)
+            .and_then(crate::contents::block_state);
+        let block = match custom_state {
+            Some(s) => blocks::block_of(s),
+            None => {
+                let Some(b) = item
+                    .filter(|i| {
+                        i.custom.is_none()
+                            || crate::game::custom_items::get(i.custom.unwrap())
+                                .is_some_and(|c| c.model.is_none())
+                    })
+                    .and_then(|i| blocks::block_for_item(i.id))
+                else {
+                    return false;
+                };
+                b
+            }
         };
 
         // 풀·물처럼 덮어써지는 블록을 눌렀으면 그 자리에, 아니면 누른 면 바로 앞에.
@@ -268,7 +298,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             pitch: self.pitch,
             replacing,
         };
-        let state = placement::state_for(block, &ctx);
+        let state = custom_state.unwrap_or_else(|| placement::state_for(block, &ctx));
 
         // 두 칸짜리는 나머지 자리도 비어 있어야 합니다.
         let partner = placement::partner(target, state);

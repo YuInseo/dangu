@@ -482,6 +482,9 @@ pub fn encode_set_time(game_time: i64, day_time: i64) -> Vec<u8> {
     out
 }
 
+/// Clientbound `Add Resource Pack` (Play): 형식은 Configuration의 것과 같습니다.
+pub const RESOURCE_PACK_PUSH_ID: i32 = 0x52;
+
 /// Clientbound `Transfer`: 클라이언트가 이 주소로 새로 접속합니다 (핸드셰이크 의도 3).
 pub const TRANSFER_ID: i32 = 0x84;
 

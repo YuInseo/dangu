@@ -36,6 +36,7 @@ const HELP: &[&str] = &[
     "players                   접속자와 있는 곳                                  (접속자)",
     "move <플레이어> <인스턴스>                                                  (이동)",
     "money <플레이어> [give|take|set <양> [money|cash|afk]]                      (재화 … 지급|회수|설정)",
+    "iazip                     contents를 다시 읽어 리소스 팩을 새로 만들고 모두에게 (팩)",
     "stop                      모든 인스턴스를 저장하고 끝냄                      (종료)",
 ];
 
@@ -187,6 +188,14 @@ pub fn execute(master: &Arc<Master>, line: &str) -> Vec<String> {
             }
         }
         ["money", player, rest @ ..] => money(master, player, rest),
+        ["iazip"] | ["iareload"] | ["팩"] => {
+            let l = crate::contents::reload_and_rebuild();
+            master.broadcast(Msg::Event {
+                channel: crate::contents::PACK_RELOAD.into(),
+                payload: String::new(),
+            });
+            crate::contents::summary(&l)
+        }
         ["stop"] => {
             master.shutdown.notify_one();
             vec!["모든 인스턴스를 저장하고 끕니다…".into()]

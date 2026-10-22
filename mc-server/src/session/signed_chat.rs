@@ -84,6 +84,16 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             self.chat.next_index += 1;
         }
         let last_seen = self.chat.last_seen.apply_update(m.offset, m.acknowledged);
+        // :이모지:가 있으면 그림 글자로 바꿔 서명 없는 채팅으로 (서명은 원문에만 맞음)
+        let shown = crate::contents::emojify(&clean);
+        if shown != clean {
+            self.server.publish(Event::Chat {
+                kind: ChatKind::Chat,
+                sender: self.profile.name.clone(),
+                content: shown,
+            });
+            return Ok(());
+        }
 
         let verified = match (&self.chat.session, m.signature, &last_seen) {
             (Some((session, key)), Some(sig), Ok(seen)) if clean == m.message => {

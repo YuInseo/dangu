@@ -1,6 +1,7 @@
 //! 핸드셰이크 이후의 접속 흐름: Login → Configuration → Play.
 
 mod abilities;
+mod catalog;
 mod commands;
 mod configuration;
 mod hud;

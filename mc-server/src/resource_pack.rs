@@ -8,7 +8,7 @@
 //! 팩 내용은 코드에서 정해지므로 어느 프로세스에서 만들어도 같은 바이트·같은 해시입니다
 //! (담비 마스터가 내려 주고, 자식 인스턴스는 주소만 알려 줘도 됨).
 
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock, RwLock};
 
 use crate::protocol::zlib;
 
@@ -156,50 +156,73 @@ pub struct Pack {
     pub uuid: u128,
 }
 
-/// 팩을 만듭니다 (한 번만).
-pub fn pack() -> &'static Pack {
-    static PACK: OnceLock<Pack> = OnceLock::new();
-    PACK.get_or_init(|| {
-        let mut files = vec![(
-            "pack.mcmeta".to_owned(),
+/// 팩의 UUID는 고정입니다: 다시 만들어도 같은 UUID로 보내면 클라이언트가 바꿔 끼웁니다.
+pub const PACK_UUID: u128 = 0x6461_6e67_7550_4000_8000_7061_636b_0001;
+
+static PACK: RwLock<Option<Arc<Pack>>> = RwLock::new(None);
+
+/// 지금 팩 (처음이면 만듦).
+pub fn pack() -> Arc<Pack> {
+    if let Some(p) = PACK.read().unwrap().as_ref() {
+        return Arc::clone(p);
+    }
+    rebuild()
+}
+
+/// 콘텐츠([`crate::contents`])를 다시 읽은 뒤 등 — 팩을 새로 만듭니다.
+pub fn rebuild() -> Arc<Pack> {
+    let p = Arc::new(build());
+    *PACK.write().unwrap() = Some(Arc::clone(&p));
+    p
+}
+
+fn build() -> Pack {
+    let mut files = vec![(
+        "pack.mcmeta".to_owned(),
+        format!(
+            r#"{{"pack":{{"description":"담비 서버 아이템","pack_format":{0},"min_format":[{0},0],"max_format":[{0},{1}]}}}}"#,
+            PACK_FORMAT.0, PACK_FORMAT.1
+        )
+        .into_bytes(),
+    )];
+    for s in SPRITES {
+        files.push((
+            format!("assets/dangu/items/{}.json", s.name),
             format!(
-                r#"{{"pack":{{"description":"담비 서버 아이템","pack_format":{0},"min_format":[{0},0],"max_format":[{0},{1}]}}}}"#,
-                PACK_FORMAT.0, PACK_FORMAT.1
+                r#"{{"model":{{"type":"minecraft:model","model":"dangu:item/{}"}}}}"#,
+                s.name
             )
             .into_bytes(),
-        )];
-        for s in SPRITES {
-            files.push((
-                format!("assets/dangu/items/{}.json", s.name),
-                format!(
-                    r#"{{"model":{{"type":"minecraft:model","model":"dangu:item/{}"}}}}"#,
-                    s.name
-                )
-                .into_bytes(),
-            ));
-            files.push((
-                format!("assets/dangu/models/item/{}.json", s.name),
-                format!(
-                    r#"{{"parent":"minecraft:item/generated","textures":{{"layer0":"dangu:item/{}"}}}}"#,
-                    s.name
-                )
-                .into_bytes(),
-            ));
-            files.push((
-                format!("assets/dangu/textures/item/{}.png", s.name),
-                png(16, 16, &s.rgba()),
-            ));
+        ));
+        files.push((
+            format!("assets/dangu/models/item/{}.json", s.name),
+            format!(
+                r#"{{"parent":"minecraft:item/generated","textures":{{"layer0":"dangu:item/{}"}}}}"#,
+                s.name
+            )
+            .into_bytes(),
+        ));
+        files.push((
+            format!("assets/dangu/textures/item/{}.png", s.name),
+            png(16, 16, &s.rgba()),
+        ));
+    }
+    // ItemsAdder식 콘텐츠의 그림·모델·폰트·블록 상태 (같은 이름이면 콘텐츠가 이김)
+    for (name, bytes) in crate::contents::current().files.iter() {
+        if name == "pack.mcmeta" {
+            continue;
         }
-        let bytes = zip(&files);
-        let hash = crate::crypto::sha1::sha1(&bytes);
-        let sha1_hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
-        let uuid = u128::from_be_bytes(hash[..16].try_into().unwrap()) & !(0xF << 76) | (5 << 76);
-        Pack {
-            bytes,
-            sha1_hex,
-            uuid,
-        }
-    })
+        files.retain(|(n, _)| n != name);
+        files.push((name.clone(), bytes.clone()));
+    }
+    let bytes = zip(&files);
+    let hash = crate::crypto::sha1::sha1(&bytes);
+    let sha1_hex: String = hash.iter().map(|b| format!("{b:02x}")).collect();
+    Pack {
+        bytes,
+        sha1_hex,
+        uuid: PACK_UUID,
+    }
 }
 
 struct Settings {
@@ -260,8 +283,9 @@ pub async fn serve(listener: tokio::net::TcpListener) -> std::io::Result<()> {
             let req = String::from_utf8_lossy(&buf[..len]);
             let path = req.split_whitespace().nth(1).unwrap_or("");
             let ok = req.starts_with("GET ") && path.ends_with(".zip");
+            let current = pack();
             let (status, body, kind): (&str, &[u8], &str) = if ok {
-                ("200 OK", &pack().bytes, "application/zip")
+                ("200 OK", &current.bytes, "application/zip")
             } else {
                 ("404 Not Found", b"not found", "text/plain")
             };

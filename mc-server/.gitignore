@@ -1,2 +1,6 @@
 target/
 /world/
+
+# 콘텐츠 배정 기억 (서버가 씀)
+contents/
+**/.cache/

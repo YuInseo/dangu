@@ -4,6 +4,7 @@ pub mod admin;
 pub mod auth;
 pub mod chat;
 pub mod connection;
+pub mod contents;
 pub mod crypto;
 pub mod dambi;
 pub mod data;
@@ -19,6 +20,7 @@ pub mod session;
 pub mod text;
 pub mod uuid;
 pub mod world;
+pub mod yaml;
 
 use std::sync::Arc;
 

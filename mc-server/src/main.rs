@@ -17,6 +17,13 @@ async fn main() -> std::io::Result<()> {
     // `mc-server child`: 마스터가 띄우는 인스턴스 (DAMBI_IPC로 마스터에 붙음).
     // 인자 없음: 혼자 도는 서버 (한 프로세스 안의 인스턴스들).
     let master = std::env::args().nth(1).as_deref() == Some("master");
+    // ItemsAdder식 콘텐츠 (MC_CONTENTS, 기본 ./contents): 아이템·블록·이모지 + 리소스 팩
+    let loaded = mc_server::contents::reload();
+    if !loaded.items.is_empty() || !loaded.errors.is_empty() {
+        for l in mc_server::contents::summary(&loaded) {
+            println!("{l}");
+        }
+    }
     // 우리 아이템 그림(리소스 팩): MC_PACK_PORT(기본 25566, 0이면 끔)에서 내려 줍니다. 자식
     // 인스턴스는 마스터가 내려 주는 팩을 알려 주기만 합니다.
     let pack_port: u16 = std::env::var("MC_PACK_PORT")

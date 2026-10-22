@@ -64,7 +64,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         0x8000_0000 | ((self.entity_id as u32 & 0x7_FFFF) << 6) | slot as u32
     }
 
-    fn icon(
+    pub(super) fn icon(
         &self,
         slot: usize,
         item: &str,
@@ -90,7 +90,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         })
     }
 
-    fn pane(&self, slot: usize) -> Option<Item> {
+    pub(super) fn pane(&self, slot: usize) -> Option<Item> {
         self.icon(
             slot,
             "gray_stained_glass_pane",

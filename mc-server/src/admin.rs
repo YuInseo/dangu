@@ -215,6 +215,30 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/재화 [보내기 <플레이어> <양>] — 돈·캐시·잠수포인트, 생활 직업",
     },
     Spec {
+        name: "ia",
+        aliases: &["itemsadder"],
+        level: 2,
+        usage: "/ia — 사용자 정의 아이템 목록 (눌러서 받기)",
+    },
+    Spec {
+        name: "iaget",
+        aliases: &[],
+        level: 2,
+        usage: "/iaget <이름공간:아이디> [개수] — 사용자 정의 아이템 받기",
+    },
+    Spec {
+        name: "iareload",
+        aliases: &["iazip"],
+        level: 4,
+        usage: "/iareload — contents 폴더를 다시 읽고 리소스 팩을 새로 만들어 보냄",
+    },
+    Spec {
+        name: "iaimage",
+        aliases: &["이모지"],
+        level: 0,
+        usage: "/iaimage — 채팅에 쓸 수 있는 :이모지: 목록",
+    },
+    Spec {
         name: "npc",
         aliases: &["엔피시"],
         level: 2,
@@ -305,7 +329,8 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
             | "save-all"
             | "title"
     ) || (spec.name == "gamemode" && args.len() >= 2)
-        || (spec.name == "복권" && !args.is_empty());
+        || (spec.name == "복권" && !args.is_empty())
+        || spec.name == "iareload";
     if !handled {
         return None;
     }
@@ -317,6 +342,7 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
     let changed = |uuid: u128| server.publish_all(Event::PermissionsChanged { uuid: Some(uuid) });
 
     Some(match (spec.name, args) {
+        ("iareload", _) => crate::contents::apply(server),
         ("복권", [sub, ..]) => {
             use crate::game::lottery::{self, format_short, numbers_text, won};
             let l = &server.lottery;
@@ -818,6 +844,13 @@ pub fn suggest(server: &Server, actor: &Actor, line: &str) -> (usize, Vec<String
     };
     let mut out: Vec<String> = match (spec.name, &words[1..]) {
         ("server", []) => instance_names(),
+        ("iaget", []) => crate::contents::current().items.clone(),
+        ("npc", []) => [
+            "create", "select", "list", "info", "rename", "type", "skin", "desc", "tphere", "look",
+            "msg", "cmd", "action", "remove",
+        ]
+        .map(String::from)
+        .to_vec(),
         ("locate", []) => ["structure", "biome"].map(String::from).to_vec(),
         ("locate", ["structure"]) => crate::world::structure::names()
             .into_iter()

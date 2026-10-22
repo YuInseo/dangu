@@ -325,6 +325,13 @@ fn handle(server: &Arc<crate::Server>, msg: Msg) {
             }
         }
         Msg::Event { channel, payload } => {
+            if channel == crate::contents::PACK_RELOAD {
+                let l = crate::contents::reload_and_rebuild();
+                crate::contents::summary(&l)
+                    .iter()
+                    .for_each(|l| println!("{l}"));
+                server.publish_all(Event::ResourcePackChanged);
+            }
             if channel == "broadcast" {
                 server.publish(Event::System(text::colored(
                     &format!("[공지] {payload}"),

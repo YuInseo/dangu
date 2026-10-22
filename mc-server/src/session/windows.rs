@@ -35,6 +35,8 @@ pub enum WindowKind {
     },
     /// 서버가 그리는 메뉴 (복권): 클릭은 버튼으로만 쓰고 아이템은 움직이지 않음.
     Lottery(super::lottery::Page),
+    /// `/ia` 아이템 목록 (메뉴).
+    Catalog(super::catalog::Catalog),
 }
 
 #[derive(Debug, Clone)]
@@ -268,6 +270,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 v
             }
             WindowKind::Lottery(page) => self.lottery_slots(page),
+            WindowKind::Catalog(page) => self.catalog_slots(page),
             WindowKind::Merchant { villager, selected } => {
                 let result = self
                     .merchant_result(*villager, *selected, w.grid[0], w.grid[1])
@@ -296,7 +299,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 if let WindowKind::Merchant { villager, .. } = w.kind {
                     self.merchant_closed(villager);
                 }
-                if matches!(w.kind, WindowKind::Lottery(_)) {
+                if matches!(w.kind, WindowKind::Lottery(_) | WindowKind::Catalog(_)) {
                     self.lottery_closed();
                 }
                 if !by_client {
@@ -334,6 +337,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     WindowKind::Chest { size, .. } => size,
                     WindowKind::Merchant { .. } => 3,
                     WindowKind::Lottery(ref page) => page.size(),
+                    WindowKind::Catalog(_) => 54,
                 };
                 if slot < own {
                     match &w.kind {
@@ -347,7 +351,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         WindowKind::Chest { dimension, pos, .. } => {
                             Some(SlotRef::Chest(*dimension, *pos, slot))
                         }
-                        WindowKind::Lottery(_) => None,
+                        WindowKind::Lottery(_) | WindowKind::Catalog(_) => None,
                         WindowKind::Merchant { .. } => {
                             if slot == 2 {
                                 Some(SlotRef::Result)
@@ -370,9 +374,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if c.window != window_id {
             return Ok(()); // 이미 닫힌 창에 대한 클릭
         }
-        if let Some(WindowKind::Lottery(page)) = self.window.as_ref().map(|w| w.kind.clone()) {
+        let menu = self.window.as_ref().map(|w| w.kind.clone());
+        if let Some(WindowKind::Lottery(_) | WindowKind::Catalog(_)) = menu {
             // 메뉴: 무엇을 집든 되돌리고, 누른 칸만 버튼으로
-            self.lottery_click(page, c.slot).await?;
+            match menu {
+                Some(WindowKind::Lottery(page)) => self.lottery_click(page, c.slot).await?,
+                Some(WindowKind::Catalog(page)) => self.catalog_click(page, c.slot, c.mode).await?,
+                _ => {}
+            }
             if self.window.as_ref().is_some_and(|w| w.id == window_id) {
                 self.send_window().await?;
             }

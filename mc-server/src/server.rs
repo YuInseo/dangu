@@ -166,6 +166,8 @@ pub enum Event {
         uuid: u128,
         to: String,
     },
+    /// 서버 리소스 팩을 새로 만듦: 접속한 사람에게 다시 보냄.
+    ResourcePackChanged,
     /// 몹 모습이 바뀜 (불붙음, 크리퍼 부풂, 털 깎임, 주민 직업·레벨).
     EntityData {
         dimension: Dimension,

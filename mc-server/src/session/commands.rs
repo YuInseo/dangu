@@ -148,6 +148,14 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "instance", STRING, WORD, true);
         }
+        "ia" | "iaimage" | "iareload" => {
+            t.literal(ROOT, name, true);
+        }
+        "iaget" => {
+            let c = t.literal(ROOT, name, false);
+            let id = t.argument_ask_server(c, "item", STRING, WORD, true);
+            t.argument_with(id, "count", INTEGER, &[0], true);
+        }
         "npc" => {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "args", STRING, GREEDY, true);
@@ -210,6 +218,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             "이동" => self.move_command(args.first().copied()).await,
             "복권" => Ok(self.open_lottery(super::lottery::Page::Hub).await?),
             "npc" => self.npc_command(&args).await,
+            "ia" | "iaget" | "iaimage" => self.ia_command(spec.name, &args).await,
             "재화" => self.money_command(&args).await,
             "locate" => self.locate(&args).await,
             "help" => {

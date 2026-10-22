@@ -123,6 +123,34 @@ Citizens처럼 채널마다 NPC를 세웁니다 (`npcs.json`에 저장, 켤 때 
   `tphere`, `remove` (한국어: 생성·선택·목록·정보·이름·타입·스킨·설명·여기로·삭제…). OP 2.
 - 복권 판매소도 이 NPC입니다 (처음 켤 때 스폰 옆에 세움, 옮기거나 꾸밀 수 있음).
 
+## 콘텐츠 (ItemsAdder식 리소스 팩 플러그인)
+
+설정 파일과 그림만 넣으면 우리만의 아이템·블록·이모지가 생기고, 리소스 팩이 자동으로 만들어져
+내려갑니다. 설정 모양은 ItemsAdder와 같습니다 (`info.namespace`, `items.<id>.display_name /
+lore / resource{material, generate, textures | model_path} / graphics{texture | model, parent} /
+enchant_glint / rarity / max_stack_size / attribute_modifiers.mainhand.attackDamage /
+specific_properties.block.placed_model{type: REAL_NOTE}`, `font_images`, `categories`).
+
+```
+contents/                       MC_CONTENTS (기본 ./contents, 모든 인스턴스가 같이 씀)
+  <팩>/configs/*.yml
+  <팩>/resourcepack/assets/<ns>/textures/...   (모델·소리·폰트 등 무엇이든 그대로 팩에)
+  .cache/ids.json               블록 상태·이모지 글자 배정 기억
+```
+
+- 아이템: `generate: true`면 모델(`item/generated`, 도구는 `item/handheld`)과 `items/<id>.json`을
+  만들어 `item_model`로 연결. `model_path`면 직접 만든 모델.
+- 블록(REAL_NOTE): 켜진 소리 블록 상태를 하나씩 빌려(바닐라 소리 블록은 그대로 보임) 진짜 블록으로
+  놓이고, 부수면 그 아이템이 떨어집니다. `blockstates/note_block.json`을 만들어 줍니다.
+- 이모지: `font_images` → 사용자 영역 글자(U+E000~)와 비트맵 폰트. 채팅의 `:heart:`가 그림으로,
+  아이템 이름·설명의 `:heart:`도.
+- `/ia` 분류별 목록 창(누르면 1개, Shift+클릭 한 묶음), `/iaget <ns:id> [개수]`, `/iaimage`,
+  `/iareload`(=`/iazip`, OP 4): 다시 읽고 팩을 새로 만들어 접속한 사람들에게 바로 보냄. 담비
+  마스터에선 CLI `iazip`(=`팩`) — 마스터가 내려 주는 팩과 모든 인스턴스가 함께 새로.
+- 예시: `MC_CONTENTS=examples/contents cargo run --release` — 루비·루비 검·루비 블록·하트 이모지
+  (그림도 직접 그린 도트).
+- ItemsAdder의 가구·HUD·몹 모델·이벤트/행동(behaviours)·조합법·전리품·내구도는 아직 없습니다.
+
 ## 서버 리소스 팩
 
 서버가 팩을 코드로 만들어(PNG·ZIP 직접 인코딩) `MC_PACK_PORT`(기본 25566)의 내장 HTTP로

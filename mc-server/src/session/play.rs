@@ -1021,6 +1021,22 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                         .await?;
                 }
             }
+            Event::ResourcePackChanged => {
+                if let Some((uuid, url, hash, forced)) = crate::resource_pack::offer(&self.origin.0)
+                {
+                    let prompt = text::colored("서버 아이템 그림이 바뀌었습니다", "gold");
+                    let body = crate::packets::configuration::encode_add_resource_pack(
+                        uuid,
+                        &url,
+                        &hash,
+                        forced,
+                        Some(&prompt),
+                    );
+                    self.send(p::RESOURCE_PACK_PUSH_ID, &body).await?;
+                    // 새 그림을 반영하도록 인벤토리도 다시
+                    self.send_window().await?;
+                }
+            }
             Event::TransferOut { uuid, to } if uuid == me => {
                 self.message(&text::colored(&format!("{to}(으)로 이동합니다…"), "aqua"))
                     .await?;
