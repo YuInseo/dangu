@@ -9,8 +9,10 @@ use tokio::sync::broadcast;
 
 use crate::packets::play::{ChatKind, GameMode};
 use crate::packets::status::ServerInfo;
+use crate::packets::world::{BlockPos, Item};
 use crate::protocol::nbt::Tag;
 use crate::world::Dimension;
+use crate::world::store::WorldStore;
 
 /// 다른 접속자들이 알아야 하는 한 사람의 현재 모습.
 #[derive(Debug, Clone)]
@@ -23,6 +25,9 @@ pub struct PlayerState {
     pub yaw: f32,
     pub pitch: f32,
     pub gamemode: GameMode,
+    /// 손에 든 것 (다른 사람에게 보이는 것).
+    pub main_hand: Option<Item>,
+    pub off_hand: Option<Item>,
 }
 
 /// 접속자 사이를 오가는 소식. 모든 세션이 받고, 각자 자기와 관련 있는 것만 처리합니다.
@@ -69,6 +74,27 @@ pub enum Event {
     System(Tag),
     /// 누가 시간을 바꿈.
     TimeChanged,
+    /// 블록이 바뀜. `broken`은 부서진 블록 (소리·조각을 보여 줄 때).
+    BlockChanged {
+        by: u128,
+        dimension: Dimension,
+        pos: BlockPos,
+        state: u32,
+        broken: Option<u32>,
+    },
+    /// 손에 든 것이 바뀜.
+    HandsChanged {
+        uuid: u128,
+        entity_id: i32,
+        main: Option<Item>,
+        off: Option<Item>,
+    },
+    /// 팔을 휘두름.
+    Swing {
+        uuid: u128,
+        entity_id: i32,
+        off_hand: bool,
+    },
 }
 
 /// 같은 사람이 이미 접속해 있음.
@@ -79,6 +105,8 @@ pub struct Server {
     pub info: ServerInfo,
     /// 월드 시드. 세 차원 모두 이 값에서 지형을 만듭니다.
     pub seed: u64,
+    /// 플레이어가 바꾼 블록들.
+    pub world: WorldStore,
     players: Mutex<HashMap<u128, PlayerState>>,
     next_entity_id: AtomicI32,
     events: broadcast::Sender<Event>,
@@ -95,10 +123,29 @@ struct Clock {
 pub const TICKS_PER_DAY: i64 = 24000;
 
 impl Server {
+    /// 메모리에만 두는 서버 (테스트용). 꺼지면 바꾼 블록이 사라집니다.
     pub fn new(info: ServerInfo, seed: u64) -> Self {
+        Self::with_world(
+            info,
+            seed,
+            WorldStore::open(seed, None).expect("memory store"),
+        )
+    }
+
+    /// `dir`에 월드를 저장하는 서버. 있던 저장을 읽어 들입니다.
+    pub fn open(info: ServerInfo, seed: u64, dir: std::path::PathBuf) -> std::io::Result<Self> {
+        Ok(Self::with_world(
+            info,
+            seed,
+            WorldStore::open(seed, Some(dir))?,
+        ))
+    }
+
+    fn with_world(info: ServerInfo, seed: u64, world: WorldStore) -> Self {
         Self {
             info,
             seed,
+            world,
             players: Mutex::new(HashMap::new()),
             // 26.2부터 클라이언트가 엔티티 ID 0을 거부합니다.
             next_entity_id: AtomicI32::new(1),

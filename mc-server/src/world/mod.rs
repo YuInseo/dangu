@@ -5,6 +5,8 @@
 
 pub mod chunk;
 mod noise;
+pub mod placement;
+pub mod store;
 pub mod terrain;
 
 use crate::data::registry_id;
@@ -101,6 +103,21 @@ impl Dimension {
             Dimension::Nether => "네더",
             Dimension::End => "엔드",
         }
+    }
+}
+
+impl Dimension {
+    /// 저장 파일에 쓰는 번호.
+    pub fn index(self) -> u8 {
+        match self {
+            Dimension::Overworld => 0,
+            Dimension::Nether => 1,
+            Dimension::End => 2,
+        }
+    }
+
+    pub fn from_index(i: u8) -> Option<Dimension> {
+        Dimension::ALL.get(i as usize).copied()
     }
 }
 

@@ -13,10 +13,12 @@ use tokio::sync::{broadcast, mpsc};
 use super::commands;
 use super::{ClientSettings, Profile};
 use crate::packets::play::{self as p, ChatKind, GameMode, ListedPlayer, Login, SpawnInfo};
+use crate::packets::world::{self as pw, Item};
 use crate::protocol::frame::{FrameError, RawPacket, read_packet, write_packet};
 use crate::protocol::nbt::Tag;
 use crate::server::{AlreadyOnline, Event, PlayerState, Server};
 use crate::text;
+use crate::world::store::WorldStore;
 use crate::world::{Dimension, chunk, terrain};
 
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
@@ -112,13 +114,17 @@ pub(super) struct Session<'a, W> {
     w: W,
     pub(super) server: &'a Server,
     pub(super) profile: Profile,
-    entity_id: i32,
+    pub(super) entity_id: i32,
     view_distance: i32,
     pub(super) dimension: Dimension,
     pub(super) gamemode: GameMode,
-    position: (f64, f64, f64),
-    yaw: f32,
-    pitch: f32,
+    pub(super) position: (f64, f64, f64),
+    pub(super) yaw: f32,
+    pub(super) pitch: f32,
+    /// 인벤토리 메뉴 번호 그대로: 9..36 가방, 36..45 핫바, 45 보조 손.
+    pub(super) inventory: [Option<Item>; 46],
+    /// 고른 핫바 칸 (0..9).
+    pub(super) held: usize,
     /// 클라이언트에 보낸(그리고 아직 잊으라고 하지 않은) 청크.
     loaded: HashSet<(i32, i32)>,
     center: (i32, i32),
@@ -145,6 +151,8 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             position: terrain::spawn_point(dimension, server.seed),
             yaw: 0.0,
             pitch: 0.0,
+            inventory: [None; 46],
+            held: 0,
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,
@@ -164,7 +172,17 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             yaw: self.yaw,
             pitch: self.pitch,
             gamemode: self.gamemode,
+            main_hand: self.main_hand(),
+            off_hand: self.off_hand(),
         }
+    }
+
+    pub(super) fn main_hand(&self) -> Option<Item> {
+        self.inventory[36 + self.held]
+    }
+
+    pub(super) fn off_hand(&self) -> Option<Item> {
+        self.inventory[45]
     }
 
     fn spawn_info(&self) -> SpawnInfo {
@@ -359,12 +377,21 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         wanted.sort_by_key(|&(x, z)| (x - center.0).pow(2) + (z - center.1).pow(2));
 
         // 생성은 CPU 일이므로 비동기 런타임 밖에서.
+        // 바뀐 블록은 여기서 복사해 넘깁니다 (잠금을 다른 스레드로 가져가지 않도록).
         let (dimension, seed) = (self.dimension, self.server.seed);
-        let coords = wanted.clone();
+        let jobs: Vec<_> = wanted
+            .iter()
+            .map(|&(x, z)| (x, z, self.server.world.changes_in(dimension, x, z)))
+            .collect();
         let bodies = tokio::task::spawn_blocking(move || {
-            coords
-                .iter()
-                .map(|&(x, z)| chunk::encode(&terrain::generate(dimension, seed, x, z), x, z))
+            jobs.iter()
+                .map(|(x, z, changes)| {
+                    chunk::encode(
+                        &WorldStore::column(seed, dimension, *x, *z, changes),
+                        *x,
+                        *z,
+                    )
+                })
                 .collect::<Vec<_>>()
         })
         .await
@@ -420,6 +447,34 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                     });
                 }
             }
+            pw::SB_PLAYER_ACTION_ID => {
+                self.player_action(pw::decode_player_action(&packet.body)?)
+                    .await?;
+            }
+            pw::SB_USE_ITEM_ON_ID => {
+                self.use_item_on(pw::decode_use_item_on(&packet.body)?)
+                    .await?;
+            }
+            pw::SB_SET_CREATIVE_MODE_SLOT_ID => {
+                let (slot, item) = pw::decode_creative_slot(&packet.body)?;
+                self.set_creative_slot(slot, item);
+            }
+            pw::SB_SET_CARRIED_ITEM_ID => {
+                let slot = pw::decode_carried_item(&packet.body)?;
+                if (0..9).contains(&slot) {
+                    self.held = slot as usize;
+                    self.hands_changed();
+                }
+            }
+            pw::SB_PICK_ITEM_FROM_BLOCK_ID => {
+                self.pick_block(pw::decode_pick_item_from_block(&packet.body)?)
+                    .await?;
+            }
+            pw::SB_PUNCH_ID => self.server.publish(Event::Swing {
+                uuid: self.profile.uuid,
+                entity_id: self.entity_id,
+                off_hand: false,
+            }),
             // 그 밖의 패킷(클라이언트 틱, 입력, 설정 등)은 아직 쓰지 않습니다.
             _ => {}
         }
@@ -515,6 +570,45 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             }
             Event::System(message) => self.message(&message).await?,
             Event::TimeChanged => self.send_time().await?,
+            Event::BlockChanged {
+                by,
+                dimension,
+                pos,
+                state,
+                broken,
+            } if dimension == self.dimension => {
+                self.send(pw::BLOCK_UPDATE_ID, &pw::encode_block_update(pos, state))
+                    .await?;
+                // 부순 사람은 자기 클라이언트가 이미 소리와 조각을 냈습니다.
+                if let (Some(broken), true) = (broken, by != me) {
+                    let body =
+                        pw::encode_level_event(pw::LEVEL_EVENT_BLOCK_DESTROYED, pos, broken as i32);
+                    self.send(pw::LEVEL_EVENT_ID, &body).await?;
+                }
+            }
+            Event::HandsChanged {
+                uuid,
+                entity_id,
+                main,
+                off,
+            } if self.visible.contains_key(&uuid) => {
+                self.send(
+                    pw::SET_EQUIPMENT_ID,
+                    &pw::encode_hands(entity_id, main, off),
+                )
+                .await?;
+            }
+            Event::Swing {
+                uuid,
+                entity_id,
+                off_hand,
+            } if self.visible.contains_key(&uuid) => {
+                self.send(
+                    pw::SWING_ANIMATION_ID,
+                    &pw::encode_swing(entity_id, off_hand),
+                )
+                .await?;
+            }
             _ => {}
         }
         Ok(())
@@ -533,6 +627,10 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             other.pitch,
         );
         self.send(p::ADD_ENTITY_ID, &body).await?;
+        if other.main_hand.is_some() || other.off_hand.is_some() {
+            let body = pw::encode_hands(other.entity_id, other.main_hand, other.off_hand);
+            self.send(pw::SET_EQUIPMENT_ID, &body).await?;
+        }
         self.visible.insert(other.uuid, other.entity_id);
         Ok(())
     }

@@ -13,15 +13,24 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::time::{Duration, timeout};
 
-pub async fn start_server() -> SocketAddr {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let info = ServerInfo {
+pub const SEED: u64 = 99;
+
+pub fn test_info() -> ServerInfo {
+    ServerInfo {
         name: "t".into(),
         description: "t".into(),
         max_players: 10,
-    };
-    tokio::spawn(mc_server::serve(listener, Arc::new(Server::new(info, 99))));
+    }
+}
+
+pub async fn start_server() -> SocketAddr {
+    start_server_with(Arc::new(Server::new(test_info(), SEED))).await
+}
+
+pub async fn start_server_with(server: Arc<Server>) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(mc_server::serve(listener, server));
     addr
 }
 

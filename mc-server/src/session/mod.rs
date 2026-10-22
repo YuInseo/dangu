@@ -2,6 +2,7 @@
 
 mod commands;
 mod configuration;
+mod interact;
 mod login;
 mod play;
 

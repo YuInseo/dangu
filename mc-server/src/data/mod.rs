@@ -4,6 +4,8 @@
 #[allow(clippy::type_complexity)]
 mod generated;
 
+pub mod blocks;
+
 pub use generated::{
     BLOCK_STATE_COUNT, SYNCED_REGISTRIES, TAGS, argument_type, block, entity_type,
 };

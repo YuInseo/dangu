@@ -36,7 +36,7 @@ impl Column {
         self.index(x, y, z).map_or(block::AIR, |i| self.blocks[i])
     }
 
-    fn set(&mut self, x: usize, y: i32, z: usize, state: u32) {
+    pub fn set(&mut self, x: usize, y: i32, z: usize, state: u32) {
         if let Some(i) = self.index(x, y, z) {
             self.blocks[i] = state;
         }

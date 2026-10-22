@@ -219,15 +219,10 @@ pub fn encode_batch_finished(count: i32) -> Vec<u8> {
     out
 }
 
-/// 블록 좌표를 long 하나로: x 26비트 | z 26비트 | y 12비트.
-pub fn pack_position(x: i32, y: i32, z: i32) -> i64 {
-    ((x as i64 & 0x3FF_FFFF) << 38) | ((z as i64 & 0x3FF_FFFF) << 12) | (y as i64 & 0xFFF)
-}
-
 pub fn encode_spawn_position(dimension: Dimension, pos: (i32, i32, i32)) -> Vec<u8> {
     let mut out = Vec::new();
     write_string(&mut out, dimension.level_name());
-    write_i64(&mut out, pack_position(pos.0, pos.1, pos.2));
+    write_i64(&mut out, super::world::pack_position(pos));
     write_f32(&mut out, 0.0); // yaw
     write_f32(&mut out, 0.0); // pitch
     out
@@ -468,15 +463,6 @@ pub fn encode_set_time(game_time: i64, day_time: i64) -> Vec<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn position_packing() {
-        // 위키 예시: (18357644, 831, -20882616)
-        assert_eq!(
-            pack_position(18357644, 831, -20882616) as u64,
-            0b0100_0110_0000_0111_0110_0011_0010_1100_0001_0101_1011_0100_1000_0011_0011_1111
-        );
-    }
 
     #[test]
     fn spawn_info_layout() {

@@ -84,6 +84,26 @@ BLOCK_STATES = [
     ("OBSIDIAN", "obsidian"),
 ]
 
+# 아이템 이름과 놓이는 블록 이름이 다른 것들. 나머지는 이름이 같으면 그 블록을 놓습니다.
+ITEM_BLOCK_EXCEPTIONS = {
+    "redstone": "redstone_wire",
+    "string": "tripwire",
+    "wheat_seeds": "wheat",
+    "beetroot_seeds": "beetroots",
+    "carrot": "carrots",
+    "potato": "potatoes",
+    "melon_seeds": "melon_stem",
+    "pumpkin_seeds": "pumpkin_stem",
+    "sweet_berries": "sweet_berry_bush",
+    "glow_berries": "cave_vines",
+    "cocoa_beans": "cocoa",
+    "torchflower_seeds": "torchflower_crop",
+    "pitcher_pod": "pitcher_crop",
+    "water_bucket": "water",
+    "lava_bucket": "lava",
+    "powder_snow_bucket": "powder_snow",
+}
+
 # 쓰는 엔티티 종류.
 ENTITY_TYPES = [("PLAYER", "player")]
 
@@ -182,6 +202,37 @@ def main():
     states = mapping["blockstates"]
     state_ids = {s: i for i, s in enumerate(states)}
 
+    # 블록마다 (첫 상태 ID, 기본 상태 ID, 속성들). 상태 ID는 속성(이름순)의 데카르트 곱으로,
+    # 마지막 속성이 가장 빨리 바뀌고 값은 선언 순서입니다. 그 공식이 실제 목록과 맞는지
+    # 블록 상태 전부를 다시 만들어 확인합니다. (ViaVersion 문자열의 속성 순서는 상자·피스톤
+    # 머리 등에서 이름순이 아니므로, 비교는 순서와 무관하게 합니다.)
+    block_props = load(os.path.join(args.mcmeta_summary, "blocks", "data.json"))
+    blocks = []
+    next_state = 0
+    for name in mapping["blocks"]:
+        props, default = block_props[name]
+        keys = sorted(props)
+        combos = [[]]
+        for k in keys:
+            combos = [c + [(k, v)] for c in combos for v in props[k]]
+        for i, combo in enumerate(combos):
+            actual = states[next_state + i]
+            actual_name, _, rest = actual.partition("[")
+            actual_props = sorted(rest.rstrip("]").split(",")) if rest else []
+            if actual_name != name or actual_props != sorted(f"{k}={v}" for k, v in combo):
+                sys.exit(f"상태 순서 불일치: {actual} != {name}{combo}")
+        default_index = combos.index([(k, default[k]) for k in keys])
+        blocks.append((name, next_state, next_state + default_index, [(k, props[k]) for k in keys]))
+        next_state += len(combos)
+    if next_state != len(states):
+        sys.exit("블록 상태 개수 불일치")
+
+    block_ids = {name: i for i, name in enumerate(mapping["blocks"])}
+    item_block = []
+    for item in mapping["items"]:
+        target = ITEM_BLOCK_EXCEPTIONS.get(item, item)
+        item_block.append(block_ids.get(target, -1) if item != "air" else -1)
+
     # 태그: 내장 레지스트리 + 동기화 레지스트리 중 summary에 태그가 있는 것.
     tag_root = os.path.join(args.mcmeta_summary, "data", "tag")
     tags = {}
@@ -209,6 +260,22 @@ def main():
         w(f"    /// `{state}`")
         w(f"    pub const {name}: u32 = {state_ids[state]};")
     w("}")
+    w("")
+    w("/// 블록 하나: 이름, 첫 상태 ID, 기본 상태 ID, 속성(이름순)과 값(선언순).")
+    w("/// 상태 ID = 첫 상태 + Σ 값 번호 × (뒤 속성들의 값 개수 곱).")
+    w("pub const BLOCKS: &[(&str, u32, u32, &[(&str, &[&str])])] = &[")
+    for name, first, default, props in blocks:
+        ps = ", ".join(
+            f"({rust_str(k)}, &[{', '.join(rust_str(v) for v in vs)}])" for k, vs in props
+        )
+        w(f"    ({rust_str(name)}, {first}, {default}, &[{ps}]),")
+    w("];")
+    w("")
+    w("/// 아이템 ID → 놓았을 때의 블록 ID (-1 = 블록이 아님).")
+    w("pub const ITEM_BLOCK: &[i16] = &[")
+    for i in range(0, len(item_block), 32):
+        w("    " + ", ".join(str(b) for b in item_block[i:i + 32]) + ",")
+    w("];")
     w("")
     w("/// 엔티티 종류의 네트워크 ID.")
     w("pub mod entity_type {")
