@@ -81,6 +81,8 @@ pub struct CustomItem {
     pub cooldown: f32,
     /// 능력을 쓸 때 드는 마나 ([`crate::plugins::rpg`]). 0이면 공짜.
     pub mana_cost: f32,
+    /// 먹으면 (배고픔, 포화) — ItemsAdder `consumable`.
+    pub food: Option<(i32, f32)>,
     /// 사용자 정의 모델 번호 (`custom_model_data`의 첫 실수). 바닐라 모양 정의가 이 번호로
     /// 우리 모델을 고릅니다 (ItemsAdder의 `model_id`).
     pub custom_model_data: Option<f32>,
@@ -201,6 +203,8 @@ pub fn components_with(index: u16, serial: u32) -> Vec<(i32, Vec<u8>)> {
         }
     }
     let mut out = Vec::new();
+    // 설정에서 직접 만든 컴포넌트(이름·설명 등)가 있으면 기본값 대신 그것
+    let own: Vec<i32> = c.extra.iter().map(|(k, _)| *k).collect();
     let nbt = |t: Tag| {
         let mut b = Vec::new();
         t.write_root(&mut b);
@@ -211,8 +215,10 @@ pub fn components_with(index: u16, serial: u32) -> Vec<(i32, Vec<u8>)> {
         data.push((SERIAL_KEY.into(), Tag::Int(serial as i32)));
     }
     out.push((component::CUSTOM_DATA, nbt(Tag::Compound(data))));
-    out.push((component::ITEM_NAME, nbt(text(&c.name, &c.color))));
-    if !c.lore.is_empty() {
+    if !own.contains(&component::ITEM_NAME) || serial != 0 {
+        out.push((component::ITEM_NAME, nbt(text(&c.name, &c.color))));
+    }
+    if !c.lore.is_empty() && (!own.contains(&component::LORE) || serial != 0) {
         let mut b = Vec::new();
         write_varint(&mut b, c.lore.len() as i32);
         for line in &c.lore {
@@ -225,7 +231,7 @@ pub fn components_with(index: u16, serial: u32) -> Vec<(i32, Vec<u8>)> {
         write_string(&mut b, model);
         out.push((component::ITEM_MODEL, b));
     }
-    if c.glint {
+    if c.glint && !own.contains(&component::ENCHANTMENT_GLINT_OVERRIDE) {
         let mut b = Vec::new();
         write_bool(&mut b, true);
         out.push((component::ENCHANTMENT_GLINT_OVERRIDE, b));
@@ -241,11 +247,22 @@ pub fn components_with(index: u16, serial: u32) -> Vec<(i32, Vec<u8>)> {
         b.extend_from_slice(&[0, 0, 0]);
         out.push((kind, b));
     }
-    out.extend(c.extra.iter().cloned());
-    let mut b = Vec::new();
-    write_varint(&mut b, c.rarity as i32);
-    out.push((component::RARITY, b));
-    if let Some(n) = c.max_stack {
+    let looked = serial != 0;
+    out.extend(
+        c.extra
+            .iter()
+            .filter(|(k, _)| !(looked && (*k == component::ITEM_NAME || *k == component::LORE)))
+            .cloned(),
+    );
+    if !own.contains(&component::RARITY) {
+        let mut b = Vec::new();
+        write_varint(&mut b, c.rarity as i32);
+        out.push((component::RARITY, b));
+    }
+    if let Some(n) = c
+        .max_stack
+        .filter(|_| !own.contains(&component::MAX_STACK_SIZE))
+    {
         let mut b = Vec::new();
         write_varint(&mut b, n.clamp(1, 99));
         out.push((component::MAX_STACK_SIZE, b));
@@ -260,6 +277,14 @@ fn _food_component(nutrition: i32, saturation: f32) -> Vec<u8> {
     write_f32(&mut b, saturation);
     write_bool(&mut b, false);
     b
+}
+
+/// 먹을 수 있으면 (배고픔, 포화): 사용자 정의 아이템의 `consumable`, 아니면 바닐라.
+pub fn food_of(item: &crate::packets::world::Item) -> Option<(i32, f32)> {
+    match item.custom.and_then(get) {
+        Some(c) if c.food.is_some() => c.food,
+        _ => items::food(item.id),
+    }
 }
 
 pub fn max_stack(item: &crate::packets::world::Item) -> i32 {
@@ -287,6 +312,7 @@ pub fn defaults() -> Vec<CustomItem> {
             ability: Some(Ability::Lightning),
             cooldown: 2.0,
             mana_cost: 20.0,
+            food: None,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -304,6 +330,7 @@ pub fn defaults() -> Vec<CustomItem> {
             ability: Some(Ability::Blink),
             cooldown: 1.0,
             mana_cost: 10.0,
+            food: None,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -321,6 +348,7 @@ pub fn defaults() -> Vec<CustomItem> {
             ability: Some(Ability::Leap),
             cooldown: 1.5,
             mana_cost: 15.0,
+            food: None,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -338,6 +366,7 @@ pub fn defaults() -> Vec<CustomItem> {
             ability: Some(Ability::Heal),
             cooldown: 10.0,
             mana_cost: 30.0,
+            food: None,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -355,6 +384,7 @@ pub fn defaults() -> Vec<CustomItem> {
             ability: None,
             cooldown: 0.0,
             mana_cost: 0.0,
+            food: None,
             custom_model_data: None,
             extra: Vec::new(),
         },
@@ -446,6 +476,7 @@ fn parse_def(v: &Json) -> Result<CustomItem, String> {
         ability,
         cooldown: num("cooldown").unwrap_or(0.0) as f32,
         mana_cost: num("mana_cost").or_else(|| num("mana")).unwrap_or(0.0) as f32,
+        food: None,
         custom_model_data: num("custom_model_data").map(|n| n as f32),
         extra: Vec::new(),
         id,

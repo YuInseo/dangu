@@ -1,0 +1,64 @@
+# 새 방식(ItemsAdder 4.0.13+) 예시: graphics, 틀·변형, 마법 부여, 내구도, 먹기, 상태별 그림, 별표 분류.
+info:
+  namespace: example
+
+items:
+  # 틀: 게임에는 안 나오고 성질만 물려줌
+  gem_template:
+    template: true
+    name: ""
+    material: paper
+    graphics:
+      texture: item/ruby
+      color: RED
+      hand_animation_on_swap: false
+    lore:
+      - "<gray>틀에서 물려받은 설명"
+
+  blue_gem:
+    variant_of: gem_template
+    name: "<gradient:#3fa9f5:#a35cff>파란 보석</gradient>"
+    graphics:
+      color: "#326da8"
+
+  green_gem:
+    variant_of: gem_template
+    name: "&x&3&C&B&3&7&1초록 보석"
+    graphics:
+      color: 60,179,113
+
+  ruby_bow:
+    name: "<red>루비 활"
+    material: bow
+    graphics:
+      textures:
+        normal: item/ruby_bow
+        pulling_0: item/ruby_bow_0
+        pulling_1: item/ruby_bow_1
+        pulling_2: item/ruby_bow_2
+    enchants:
+      - ARROW_DAMAGE:3
+      - ARROW_FIRE:1
+    durability:
+      max_durability: 500
+    item_flags:
+      - HIDE_ENCHANTS
+
+  ruby_apple:
+    name: "%#FF5555%루비 사과"
+    graphics:
+      texture: item/ruby
+    consumable:
+      nutrition: 6
+      saturation: 3.5
+    lore:
+      - "<gold>먹으면 배가 부름"
+
+categories:
+  modern:
+    name: "<aqua>새 방식"
+    icon: example:ruby_bow
+    items:
+      - "example:*_gem"
+      - "example:ruby_bow"
+      - 'example\:ruby_(.*)apple'

@@ -57,14 +57,47 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         })
     }
 
+    /// 볼 수 있는 분류들 (원래 번호). 권한이 붙은 분류는 그 권한이 있어야 (기본 OP 2).
+    fn visible_categories(&self, loaded: &contents::Loaded) -> Vec<usize> {
+        (0..loaded.categories.len())
+            .filter(|&i| {
+                loaded.categories[i]
+                    .permission
+                    .as_ref()
+                    .is_none_or(|p| self.server.perms.has(self.profile.uuid, p, 2))
+            })
+            .collect()
+    }
+
+    /// 분류 안에서 볼 수 있는 아이템 (`permission`이 붙은 아이템은 `ia.user.ia.seeitem.<이름>`).
+    fn visible_items(&self, loaded: &contents::Loaded, category: usize) -> Vec<String> {
+        loaded
+            .categories
+            .get(category)
+            .map(|c| {
+                c.items
+                    .iter()
+                    .filter(|id| {
+                        loaded
+                            .item_permissions
+                            .get(*id)
+                            .is_none_or(|p| self.server.perms.has(self.profile.uuid, p, 2))
+                    })
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
     pub(crate) fn catalog_slots(&self, page: &Catalog) -> Vec<Option<Item>> {
         let loaded = contents::current();
+        let visible = self.visible_categories(&loaded);
         let (entries, page_no, back): (Vec<Option<Item>>, usize, bool) = match page {
             Catalog::Categories { page } => (
-                loaded
-                    .categories
+                visible
                     .iter()
                     .enumerate()
+                    .map(|(i, &ci)| (i, &loaded.categories[ci]))
                     .map(|(i, c)| {
                         let icon = Self::catalog_item(&c.icon).unwrap_or(Item::new(1, 1));
                         // 분류 아이콘은 이름·설명을 바꿔 보여 줌
@@ -89,11 +122,10 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 false,
             ),
             Catalog::Items { category, page } => (
-                loaded
-                    .categories
-                    .get(*category)
-                    .map(|c| c.items.iter().map(|id| Self::catalog_item(id)).collect())
-                    .unwrap_or_default(),
+                self.visible_items(&loaded, *category)
+                    .iter()
+                    .map(|id| Self::catalog_item(id))
+                    .collect(),
                 *page,
                 true,
             ),
@@ -148,8 +180,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 PREV if page > 0 => set(self, Catalog::Categories { page: page - 1 }),
                 NEXT => set(self, Catalog::Categories { page: page + 1 }),
                 s if s < PER_PAGE => {
-                    let i = page * PER_PAGE + s;
-                    if i < loaded.categories.len() {
+                    if let Some(&i) = self.visible_categories(&loaded).get(page * PER_PAGE + s) {
                         set(
                             self,
                             Catalog::Items {
@@ -178,10 +209,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     },
                 ),
                 s if s < PER_PAGE => {
-                    let id = loaded
-                        .categories
-                        .get(category)
-                        .and_then(|c| c.items.get(page * PER_PAGE + s))
+                    let id = self
+                        .visible_items(&loaded, category)
+                        .get(page * PER_PAGE + s)
                         .cloned();
                     if let Some(id) = id {
                         let stack = mode == 1; // Shift+클릭

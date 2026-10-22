@@ -63,7 +63,15 @@ async fn itemsadder_style_contents() {
         .iter()
         .filter(|i| i.starts_with("example:"))
         .collect();
-    assert_eq!(example.len(), 3, "{:?}", loaded.items);
+    // items.yml 3개 + modern.yml 4개 (틀은 빠짐)
+    assert_eq!(example.len(), 7, "{:?}", loaded.items);
+    assert!(!loaded.items.iter().any(|i| i.ends_with("gem_template")));
+    let modern = loaded
+        .categories
+        .iter()
+        .find(|c| c.name == "새 방식")
+        .unwrap();
+    assert_eq!(modern.items.len(), 4, "{:?}", modern.items);
     assert!(loaded.items.iter().any(|i| i == "dangu:lottery_ticket"));
     // 리소스 팩에 그림·모델·블록 상태·폰트
     let pack = mc_server::resource_pack::rebuild();

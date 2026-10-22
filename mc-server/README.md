@@ -190,33 +190,44 @@ Citizens처럼 채널마다 NPC를 세웁니다 (`npcs.json`에 저장, 켤 때 
   `tphere`, `remove` (한국어: 생성·선택·목록·정보·이름·타입·스킨·설명·여기로·삭제…). OP 2.
 - 복권 판매소도 이 NPC입니다 (처음 켤 때 스폰 옆에 세움, 옮기거나 꾸밀 수 있음).
 
-## 콘텐츠 (ItemsAdder식 리소스 팩 플러그인)
+## 콘텐츠 (ItemsAdder 호환 리소스 팩 플러그인)
 
-설정 파일과 그림만 넣으면 우리만의 아이템·블록·이모지가 생기고, 리소스 팩이 자동으로 만들어져
-내려갑니다. 설정 모양은 ItemsAdder와 같습니다 (`info.namespace`, `items.<id>.display_name /
-lore / resource{material, generate, textures | model_path} / graphics{texture | model, parent} /
-enchant_glint / rarity / max_stack_size / attribute_modifiers.mainhand.attackDamage /
-specific_properties.block.placed_model{type: REAL_NOTE}`, `font_images`, `categories`).
+ItemsAdder의 `contents/` 폴더를 그대로 넣으면 아이템·블록·이모지가 생기고 리소스 팩이 자동으로
+만들어져 내려갑니다. 폴더 구조 다섯 가지와 IA3의 `items_packs/`+`resource_pack/` 모두 읽습니다.
 
 ```
 contents/                       MC_CONTENTS (기본 ./contents, 모든 인스턴스가 같이 씀)
   <팩>/configs/*.yml
-  <팩>/resourcepack/assets/<ns>/textures/...   (모델·소리·폰트 등 무엇이든 그대로 팩에)
+  <팩>/resourcepack/assets/<ns>/...   (또는 <팩>/textures, assets/<ns> 등 — 그대로 팩에)
   .cache/ids.json               블록 상태·이모지 글자 배정 기억
 ```
 
-- 아이템: `generate: true`면 모델(`item/generated`, 도구는 `item/handheld`)과 `items/<id>.json`을
-  만들어 `item_model`로 연결. `model_path`면 직접 만든 모델.
-- 블록(REAL_NOTE): 켜진 소리 블록 상태를 하나씩 빌려(바닐라 소리 블록은 그대로 보임) 진짜 블록으로
-  놓이고, 부수면 그 아이템이 떨어집니다. `blockstates/note_block.json`을 만들어 줍니다.
-- 이모지: `font_images` → 사용자 영역 글자(U+E000~)와 비트맵 폰트. 채팅의 `:heart:`가 그림으로,
-  아이템 이름·설명의 `:heart:`도.
+ItemsAdder 위키 기준으로 무엇이 되는지 (켤 때 안 되는 키는 "알림:"으로 알려 줌):
+
+| 설정 | 상태 |
+|---|---|
+| `info.namespace`, 폴더 이름 = 이름공간 | 됨 |
+| `name` / `display_name`, `lore` — `&` 코드, `&x&R..`·`&#RRGGBB`·`%#RRGGBB%`, MiniMessage(색·꾸밈·`gradient`·`rainbow`·`font`·`lang`), JSON 컴포넌트, `:이모지:`, 옛 `dictionary` | 됨 |
+| `material`(새·옛), `resource.{generate, textures/texture, model_path, model_id, icon}` | 됨 (`model_id`는 바닐라 재료의 `custom_model_data` 분기) |
+| `graphics.{texture, textures, model, models, parent, icon, color, hand_animation_on_swap, oversized_in_gui}`, `item_model` | 됨 — 활·쇠뇌·낚싯대·방패·삼지창·꾸러미·창의 상태는 바닐라 모양 정의를 따라 끼움 |
+| `template` / `variant_of` (깊이 합치기), `enabled` | 됨 |
+| `enchants`(목록·맵, 옛 Bukkit 이름), `glint`, `attribute_modifiers.<칸>.<속성>`, `durability.{max_durability, durability, unbreakable}`(옛 이름도), `max_stack_size`, `item_flags`, `tooltip_style`(그림 자리 옮김), `consumable`(서버도 먹게 함), `rarity` | 됨 |
+| `equipments` + `equipment.{id, slot, slot_attribute_modifiers, glider, …}` | 됨 (`assets/<ns>/equipment`, 갑옷 그림 자리) |
+| `components_nbt_file` | 됨 — 이름·설명·내구도·속성·마법 부여·색·모델 등 아는 컴포넌트만, 나머지는 알림 |
+| `behaviours.block` / `specific_properties.block` | REAL_NOTE(소리 블록 상태)로 놓임. 다른 종류도 같은 방식으로 대신함 |
+| `font_images.{path, scale_ratio, y_position, symbol}`, `:이름:`·`%img_이름%` | 됨 |
+| `sounds.<id>.{path, settings}`, 직접 넣은 `sounds.json` | 됨 |
+| `minecraft_lang_overwrite` | 됨 (`ALL` = 주요 17개 언어) |
+| `categories.{name, icon, items(정확·`ns:*`·`*:id`·정규식), permission, enabled}`, 이름 같은 분류 합치기, `show_in_ia_gui`, `permission`(`ia.user.ia.seeitem.*`) | 됨 |
+| `events`·actions·나머지 `behaviours`(가구·앉기·모자…)·`elytra`·`jukebox_disc`·`drop.glow`·`blocked_enchants`·`nbt` 문자열·HUD·조합법·전리품·월드 생성 | 아직 (읽으면 알림) |
+
 - `/ia` 분류별 목록 창(누르면 1개, Shift+클릭 한 묶음), `/iaget <ns:id> [개수]`, `/iaimage`,
   `/iareload`(=`/iazip`, OP 4): 다시 읽고 팩을 새로 만들어 접속한 사람들에게 바로 보냄. 담비
-  마스터에선 CLI `iazip`(=`팩`) — 마스터가 내려 주는 팩과 모든 인스턴스가 함께 새로.
-- 예시: `MC_CONTENTS=examples/contents cargo run --release` — 루비·루비 검·루비 블록·하트 이모지
-  (그림도 직접 그린 도트).
-- ItemsAdder의 가구·HUD·몹 모델·이벤트/행동(behaviours)·조합법·전리품·내구도는 아직 없습니다.
+  마스터에선 CLI `iazip`(=`팩`).
+- 예시: `MC_CONTENTS=examples/contents cargo run --release` — 옛 방식(`items.yml`: 루비·루비 검·
+  루비 블록·하트 이모지)과 새 방식(`modern.yml`: 틀·변형 보석, 상태별 루비 활, 루비 사과, 별표 분류).
+- 컴포넌트 형식은 minecraft-data `pc/26.1`과 ViaVersion 26.1→26.3 변환기로 맞췄고, 실제
+  클라이언트로는 아직 확인하지 못했습니다.
 
 ## 서버 리소스 팩
 

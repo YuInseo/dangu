@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 use tokio::io::AsyncWrite;
 
 use super::play::Session;
-use crate::data::items;
 use crate::data::{block, registry_id};
 use crate::game::entities::THROWN_PICKUP_DELAY;
 use crate::game::mobs;
@@ -450,7 +449,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             self.main_hand()
         };
         if let Some(item) = item
-            && items::food(item.id).is_some()
+            && crate::game::custom_items::food_of(&item).is_some()
             && (self.vitals.food < 20 || self.gamemode == GameMode::Creative)
         {
             self.vitals.eating = Some((off_hand, item.id, Instant::now()));
@@ -467,7 +466,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         let Some(item) = self.inventory[slot].filter(|i| i.id == item_id) else {
             return Ok(());
         };
-        let Some((nutrition, saturation)) = items::food(item_id) else {
+        let Some((nutrition, saturation)) = crate::game::custom_items::food_of(&item) else {
             return Ok(());
         };
         let v = &mut self.vitals;

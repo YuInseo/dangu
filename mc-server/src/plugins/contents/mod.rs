@@ -46,9 +46,12 @@ use std::path::{Path, PathBuf};
 mod builtin;
 mod cache;
 pub(crate) mod catalog;
+mod components;
+mod graphics;
 mod item_config;
 mod load;
 pub mod source;
+pub mod text_format;
 
 pub use load::load;
 
@@ -77,6 +80,8 @@ pub struct Category {
     /// 아이콘 아이템 (`ns:id` 또는 바닐라 이름).
     pub icon: String,
     pub items: Vec<String>,
+    /// 보려면 필요한 권한 (`ia.menu.seecategory.<id>` 등).
+    pub permission: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -88,6 +93,12 @@ pub struct Loaded {
     /// 리소스 팩에 넣을 파일 (팩 안 경로, 내용).
     pub files: Vec<(String, Vec<u8>)>,
     pub errors: Vec<String>,
+    /// 읽었지만 아직 동작하지 않는 키 등 (켤 때 알림).
+    pub warnings: Vec<String>,
+    /// `/ia` 목록에서 숨긴 아이템.
+    pub hidden: Vec<String>,
+    /// 아이템 → `/ia`에서 보려면 필요한 권한.
+    pub item_permissions: HashMap<String, String>,
     /// 사용자 정의 아이템 번호 → 놓으면 생기는 블록 상태, 그 반대.
     block_of_item: HashMap<u16, u32>,
     item_of_block: HashMap<u32, (u16, bool)>,
@@ -152,6 +163,7 @@ pub fn summary(l: &Loaded) -> Vec<String> {
         l.files.len()
     )];
     v.extend(l.errors.iter().map(|e| format!("오류: {e}")));
+    v.extend(l.warnings.iter().map(|w| format!("알림: {w}")));
     v
 }
 
@@ -287,7 +299,14 @@ categories:
         let ruby = custom_items::get(custom_items::index_of("myitems:ruby").unwrap()).unwrap();
         assert_eq!(ruby.model.as_deref(), Some("myitems:ruby"));
         assert_eq!(ruby.damage, Some(7.0));
-        assert!(ruby.name.starts_with("§c루비 "));
+        // 이름은 꾸밈 없는 글(목록용)과, 색이 든 진짜 이름 컴포넌트
+        assert!(ruby.name.starts_with("루비 "), "{}", ruby.name);
+        let (_, name) = ruby
+            .extra
+            .iter()
+            .find(|(k, _)| *k == crate::data::component::ITEM_NAME)
+            .unwrap();
+        assert!(String::from_utf8_lossy(name).contains("red"));
         assert!(
             ruby.name.ends_with('\u{E000}'),
             "emoji in name: {}",
