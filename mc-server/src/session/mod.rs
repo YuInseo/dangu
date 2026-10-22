@@ -5,6 +5,7 @@ mod configuration;
 mod interact;
 mod login;
 mod play;
+mod signed_chat;
 mod survival;
 mod windows;
 

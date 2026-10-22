@@ -11,10 +11,12 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, mpsc};
 
 use super::commands;
+use super::signed_chat::ChatState;
 use super::survival::Vitals;
 use super::windows::Window;
 use super::{ClientSettings, Profile};
 use crate::game::playerdata::{self, PlayerData};
+use crate::packets::chat as pch;
 use crate::packets::container as pc;
 use crate::packets::entity as pe;
 use crate::packets::play::{self as p, ChatKind, GameMode, ListedPlayer, Login, SpawnInfo};
@@ -157,6 +159,7 @@ pub(super) struct Session<'a, W> {
     pub(super) carried: Option<Item>,
     /// 저장해 둔 위치로 처음 들어갈 때.
     resume_at: Option<(f64, f64, f64)>,
+    pub(super) chat: ChatState,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
@@ -198,6 +201,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             state_id: 0,
             carried: None,
             resume_at: saved.map(|d| d.position),
+            chat: ChatState::default(),
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,
@@ -221,6 +225,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             off_hand: self.off_hand(),
             properties: self.profile.properties.clone(),
             dead: self.vitals.dead,
+            chat_session: self.chat_session(),
         }
     }
 
@@ -303,6 +308,11 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         self.send(p::PLAYER_INFO_UPDATE_ID, &body).await?;
         self.listed
             .extend(std::iter::once(me.uuid).chain(others.iter().map(|s| s.uuid)));
+        for o in others {
+            if let Some(session) = &o.chat_session {
+                self.announce_chat_session(o.uuid, session).await?;
+            }
+        }
 
         self.send_time().await?;
         let resume = self.resume_at.take();
@@ -555,15 +565,16 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                 let command = p::decode_leading_string(&packet.body)?;
                 self.command(command.trim()).await?;
             }
-            p::SB_CHAT_ID => {
-                let message = sanitize(&p::decode_leading_string(&packet.body)?);
-                if !message.is_empty() {
-                    self.server.publish(Event::Chat {
-                        kind: ChatKind::Chat,
-                        sender: self.profile.name.clone(),
-                        content: message,
-                    });
-                }
+            p::SB_CHAT_ID => self.chat_message(pch::decode_chat(&packet.body)?).await?,
+            pch::SB_CHAT_ACK_ID => self.chat_ack(pch::decode_chat_ack(&packet.body)?),
+            pch::SB_CHAT_SESSION_UPDATE_ID => {
+                self.chat_session_update(pch::decode_session_update(&packet.body)?)
+                    .await?
+            }
+            pch::SB_CHAT_COMMAND_SIGNED_ID => {
+                // 인자 서명(/msg 등)은 확인하지 않고 명령어로만 처리합니다.
+                let command = p::decode_leading_string(&packet.body)?;
+                self.command(command.trim()).await?;
             }
             pw::SB_PLAYER_ACTION_ID => {
                 self.player_action(pw::decode_player_action(&packet.body)?)
@@ -716,6 +727,31 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                 self.send(p::DISGUISED_CHAT_ID, &body).await?;
             }
             Event::System(message) => self.message(&message).await?,
+            Event::SignedChat {
+                sender,
+                sender_name,
+                index,
+                signature,
+                content,
+                timestamp,
+                salt,
+                last_seen,
+            } => {
+                self.deliver_signed_chat(
+                    sender,
+                    &sender_name,
+                    index,
+                    &signature,
+                    &content,
+                    timestamp,
+                    salt,
+                    &last_seen,
+                )
+                .await?;
+            }
+            Event::ChatSessionOpened { uuid, session } if self.listed.contains(&uuid) => {
+                self.announce_chat_session(uuid, &session).await?;
+            }
             Event::TimeChanged => self.send_time().await?,
             Event::BlockChanged {
                 by,

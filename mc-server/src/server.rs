@@ -34,6 +34,8 @@ pub struct PlayerState {
     pub properties: std::sync::Arc<Vec<Property>>,
     /// 죽어서 부활을 기다리는 중.
     pub dead: bool,
+    /// Mojang 서명을 확인한 채팅 세션 (서명된 채팅용).
+    pub chat_session: Option<std::sync::Arc<crate::chat::ChatSession>>,
 }
 
 /// 접속자 사이를 오가는 소식. 모든 세션이 받고, 각자 자기와 관련 있는 것만 처리합니다.
@@ -83,6 +85,22 @@ pub enum Event {
     },
     /// 모두에게 가는 서버 알림.
     System(Tag),
+    /// 서명을 확인한 채팅. 받는 세션마다 서명째 전합니다.
+    SignedChat {
+        sender: u128,
+        sender_name: String,
+        index: i32,
+        signature: Box<crate::chat::Signature>,
+        content: String,
+        timestamp: i64,
+        salt: i64,
+        last_seen: Vec<crate::chat::Signature>,
+    },
+    /// 누가 채팅 세션을 열었음 (탭 목록에 키를 붙임).
+    ChatSessionOpened {
+        uuid: u128,
+        session: std::sync::Arc<crate::chat::ChatSession>,
+    },
     /// 누가 시간을 바꿈.
     TimeChanged,
     /// 블록이 바뀜. `broken`은 부서진 블록 (소리·조각을 보여 줄 때).
@@ -210,6 +228,9 @@ pub struct Server {
     pub sessions: Box<dyn SessionService>,
     /// 정품 인증용 RSA 키. 처음 필요할 때 만듭니다 (1024비트, 바닐라와 같음).
     key: OnceLock<PrivateKey>,
+    /// 플레이어 채팅 키에 서명하는 Mojang 공개 키들 (`/publickeys`). 비어 있으면 서명된
+    /// 채팅을 확인할 수 없어 모두 서명 없는 채팅으로 전합니다.
+    pub chat_keys: Mutex<Vec<crate::crypto::rsa::PublicKey>>,
     /// 월드 시드. 세 차원 모두 이 값에서 지형을 만듭니다.
     pub seed: u64,
     /// 플레이어가 바꾼 블록들.
@@ -267,6 +288,7 @@ impl Server {
             config: Config::default(),
             sessions: Box::new(MojangSessionService),
             key: OnceLock::new(),
+            chat_keys: Mutex::new(Vec::new()),
             seed,
             world,
             players: Mutex::new(HashMap::new()),

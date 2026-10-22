@@ -124,6 +124,26 @@ impl PrivateKey {
         m2.add(&h.mul(&self.q))
     }
 
+    /// PKCS#1 v1.5 서명 (SHA-256). 서버는 쓰지 않고, 채팅 서명을 흉내 내는 테스트가 씁니다.
+    pub fn sign_sha256(&self, message: &[u8]) -> Vec<u8> {
+        self.sign(&SHA256_INFO, &super::sha256::sha256(message))
+    }
+
+    pub fn sign_sha1(&self, message: &[u8]) -> Vec<u8> {
+        self.sign(&SHA1_INFO, &super::sha1::sha1(message))
+    }
+
+    fn sign(&self, digest_info: &[u8], hash: &[u8]) -> Vec<u8> {
+        let k = self.public.len();
+        let mut em = vec![0u8, 1];
+        em.resize(k - digest_info.len() - hash.len() - 1, 0xFF);
+        em.push(0);
+        em.extend_from_slice(digest_info);
+        em.extend_from_slice(hash);
+        self.raw_decrypt(&BigUint::from_be_bytes(&em))
+            .to_be_bytes(k)
+    }
+
     /// PKCS#1 v1.5 (블록 형식 2) 복호화. 형식이 틀리면 None.
     pub fn decrypt(&self, ciphertext: &[u8]) -> Option<Vec<u8>> {
         let k = self.public.n.bits().div_ceil(8);
@@ -232,6 +252,15 @@ impl PublicKey {
     }
 }
 
+/// 해시 알고리즘의 DER `DigestInfo` 머리말 (RFC 8017 9.2).
+const SHA256_INFO: [u8; 19] = [
+    0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05,
+    0x00, 0x04, 0x20,
+];
+const SHA1_INFO: [u8; 15] = [
+    0x30, 0x21, 0x30, 0x09, 0x06, 0x05, 0x2b, 0x0e, 0x03, 0x02, 0x1a, 0x05, 0x00, 0x04, 0x14,
+];
+
 /// OID 1.2.840.113549.1.1.1 (rsaEncryption), 태그·길이 포함.
 const RSA_OID: [u8; 11] = [
     0x06, 0x09, 0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01,
@@ -323,23 +352,13 @@ mod tests {
     }
 
     #[test]
-    fn verifies_a_known_sha256_signature() {
-        // 작은 고정 키로 서명을 만들고 (s = m^d), 검증과 변조 거부를 확인합니다.
+    fn sign_and_verify() {
         let key = PrivateKey::generate(1024);
-        let msg = b"chat body";
-        let hash = super::super::sha256::sha256(msg);
-        let k = 128;
-        let mut em = vec![0u8, 1];
-        let info = [
-            0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02,
-            0x01, 0x05, 0x00, 0x04, 0x20,
-        ];
-        em.resize(k - info.len() - hash.len() - 1, 0xFF);
-        em.push(0);
-        em.extend_from_slice(&info);
-        em.extend_from_slice(&hash);
-        let sig = key.raw_decrypt(&BigUint::from_be_bytes(&em)).to_be_bytes(k);
-        assert!(key.public.verify_sha256(msg, &sig));
+        let sig = key.sign_sha256(b"chat body");
+        assert!(key.public.verify_sha256(b"chat body", &sig));
         assert!(!key.public.verify_sha256(b"chat bodY", &sig));
+        let sig1 = key.sign_sha1(b"payload");
+        assert!(key.public.verify_sha1(b"payload", &sig1));
+        assert!(!key.public.verify_sha256(b"payload", &sig1));
     }
 }

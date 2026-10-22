@@ -87,6 +87,29 @@ impl SessionService for MojangSessionService {
     }
 }
 
+/// 플레이어 채팅 키에 서명하는 Mojang 공개 키들 (`playerCertificateKeys`).
+pub async fn fetch_chat_keys() -> Result<Vec<crate::crypto::rsa::PublicKey>, String> {
+    let (status, body) = https_get("api.minecraftservices.com", "/publickeys".into()).await?;
+    if status != 200 {
+        return Err(format!("publickeys 응답 {status}"));
+    }
+    parse_chat_keys(&body)
+}
+
+pub fn parse_chat_keys(body: &str) -> Result<Vec<crate::crypto::rsa::PublicKey>, String> {
+    let v = json::parse(body)?;
+    let keys = v
+        .get("playerCertificateKeys")
+        .and_then(Json::as_array)
+        .ok_or("playerCertificateKeys 없음")?;
+    Ok(keys
+        .iter()
+        .filter_map(|k| k.get("publicKey")?.as_str())
+        .filter_map(crate::crypto::base64::decode)
+        .filter_map(|der| crate::crypto::rsa::PublicKey::from_der(&der))
+        .collect())
+}
+
 pub fn parse_profile(body: &str) -> Result<GameProfile, String> {
     let v = json::parse(body)?;
     let id = v.get("id").and_then(Json::as_str).ok_or("id 없음")?;
@@ -219,6 +242,16 @@ mod tests {
         );
         let empty = b"HTTP/1.1 204 No Content\r\n\r\n";
         assert_eq!(parse_http_response(empty).unwrap().0, 204);
+    }
+
+    #[test]
+    fn parses_publickeys_response() {
+        let key = crate::crypto::rsa::PrivateKey::generate(512);
+        let b64 = crate::crypto::base64::encode(&key.public.to_der());
+        let body = format!(
+            r#"{{"profilePropertyKeys":[],"playerCertificateKeys":[{{"publicKey":"{b64}"}},{{"publicKey":"!!"}}]}}"#
+        );
+        assert_eq!(parse_chat_keys(&body).unwrap(), vec![key.public]);
     }
 
     #[test]

@@ -5,6 +5,7 @@
 //! (Mojang 세션 서버와의 HTTPS만은 직접 짠 TLS가 위험하므로 rustls를 씁니다 — `auth` 참고.)
 
 pub mod aes;
+pub mod base64;
 pub mod bigint;
 pub mod random;
 pub mod rsa;

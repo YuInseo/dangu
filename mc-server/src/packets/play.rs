@@ -419,7 +419,7 @@ pub enum ChatKind {
 }
 
 impl ChatKind {
-    fn registry_key(self) -> &'static str {
+    pub fn registry_key(self) -> &'static str {
         match self {
             ChatKind::Chat => "chat",
             ChatKind::Emote => "emote_command",

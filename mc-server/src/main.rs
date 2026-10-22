@@ -52,6 +52,19 @@ async fn main() -> std::io::Result<()> {
     let server = Arc::new(Server::open(info, seed, world_dir.clone())?.with_config(config.clone()));
     if config.online_mode {
         server.key(); // 첫 접속이 키 만드는 시간을 기다리지 않도록 미리
+        // 서명된 채팅을 확인할 Mojang 키
+        match mc_server::auth::fetch_chat_keys().await {
+            Ok(keys) => {
+                println!(
+                    "Mojang 채팅 키 {}개를 받았습니다 (서명된 채팅 확인)",
+                    keys.len()
+                );
+                *server.chat_keys.lock().unwrap() = keys;
+            }
+            Err(e) => {
+                eprintln!("Mojang 채팅 키를 받지 못했습니다 — 채팅은 서명 없이 전합니다: {e}")
+            }
+        }
     }
     if config.ops.is_none() {
         println!("MC_OPS가 없어 모든 접속자가 관리자 명령어를 쓸 수 있습니다.");
