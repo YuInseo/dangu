@@ -102,8 +102,8 @@ async fn buy_draw_and_claim() {
     assert_eq!(d.prizes[0], 1_002_000);
 
     // 스폰의 NPC를 우클릭 → 판매소 → 당첨 복권 내기 (칸 15)
-    mc_server::game::lottery::ensure_npc(&server);
-    let npc = server.lottery.npc.lock().unwrap().unwrap();
+    let id = mc_server::game::lottery::ensure_npc(&server);
+    let npc = server.npcs.entity_of(id).unwrap();
     let mut interact = Vec::new();
     write_varint(&mut interact, npc);
     write_varint(&mut interact, 0);

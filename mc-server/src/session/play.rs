@@ -225,6 +225,8 @@ pub(super) struct Session<'a, W> {
     pub(super) ip: String,
     pub(super) origin: (String, u16),
     pub(super) pack_loaded: bool,
+    /// `/npc`로 고른 NPC.
+    pub(super) selected_npc: Option<u32>,
     pub(super) skin_parts: u8,
     pub(super) main_arm: i32,
     /// 크리에이티브·관전에서 날고 있는가.
@@ -283,6 +285,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             ip: settings.ip.clone(),
             origin: settings.origin.clone(),
             pack_loaded: settings.pack_loaded,
+            selected_npc: None,
             skin_parts: settings.skin_parts,
             main_arm: settings.main_hand.clamp(0, 1),
             flying: false,

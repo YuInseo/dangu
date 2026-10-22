@@ -125,8 +125,6 @@ pub enum Claim {
 pub struct Lottery {
     state: Mutex<State>,
     path: Option<PathBuf>,
-    /// 스폰의 NPC 엔티티 (켤 때마다 새로 세움).
-    pub npc: Mutex<Option<i32>>,
 }
 
 // ---- 시각 ----
@@ -298,7 +296,6 @@ impl Lottery {
         let l = Self {
             state: Mutex::new(state),
             path,
-            npc: Mutex::new(None),
         };
         let st = l.state.lock().unwrap().clone();
         for t in &st.tickets {
@@ -735,44 +732,36 @@ pub fn announce(server: &crate::Server, d: &Draw) {
     }
 }
 
-/// 스폰의 복권 NPC가 없으면 세웁니다.
-pub fn ensure_npc(server: &crate::Server) {
-    use crate::game::entities::Kind;
-    use crate::game::mobs::{self, Mob, MobKind};
+/// 스폰의 복권 판매소 NPC가 없으면 세웁니다 (한 번 세우면 `/npc`로 옮기거나 꾸밀 수 있음).
+/// 그 NPC 번호.
+pub fn ensure_npc(server: &crate::Server) -> u32 {
+    use crate::game::npcs::Npc;
     use crate::world::{Dimension, terrain};
-    let current = *server.lottery.npc.lock().unwrap();
-    if current.is_some_and(|id| {
-        server
-            .entities
-            .get(id)
-            .is_some_and(|e| matches!(&e.kind, Kind::Mob(m) if !m.dead()))
-    }) {
-        return;
-    }
-    let d = Dimension::Overworld;
-    let (sx, sy, sz) = terrain::spawn_point(d, server.seed);
-    let (x, z) = (sx.floor() as i32 + 3, sz.floor() as i32);
-    let base = sy as i32;
-    let y = (base - 4..base + 12)
-        .rev()
-        .find(|&y| {
-            server.world.is_solid(d, x, y - 1, z)
-                && !server.world.is_solid(d, x, y, z)
-                && !server.world.is_solid(d, x, y + 1, z)
-        })
-        .unwrap_or(base);
-    let mut m = Mob::new(MobKind::Villager);
-    m.villager = Some(crate::game::villagers::Villager::new("librarian", "plains"));
-    if let Some(v) = &mut m.villager {
-        v.level = 5;
-        v.offers.clear();
-    }
-    m.npc = Some("lottery");
-    m.custom_name = Some("복권 판매소".into());
-    let id = mobs::spawn_mob(server, m, d, (x as f64 + 0.5, y as f64, z as f64 + 0.5));
-    // 스폰 쪽을 봄
-    server.entities.update(id, |e| e.yaw = 90.0);
-    *server.lottery.npc.lock().unwrap() = Some(id);
+    server.npcs.ensure_action(server, "lottery", || {
+        let d = Dimension::Overworld;
+        let (sx, sy, sz) = terrain::spawn_point(d, server.seed);
+        let (x, z) = (sx.floor() as i32 + 3, sz.floor() as i32);
+        let base = sy as i32;
+        let y = (base - 4..base + 12)
+            .rev()
+            .find(|&y| {
+                server.world.is_solid(d, x, y - 1, z)
+                    && !server.world.is_solid(d, x, y, z)
+                    && !server.world.is_solid(d, x, y + 1, z)
+            })
+            .unwrap_or(base);
+        let mut n = Npc::new(
+            0,
+            "&6&l복권 판매소",
+            "villager",
+            d,
+            (x as f64 + 0.5, y as f64, z as f64 + 0.5),
+            90.0,
+        );
+        n.messages
+            .push("&e어서 오세요! 이번 주 복권도 행운을 빌어요.".into());
+        n
+    })
 }
 
 #[cfg(test)]

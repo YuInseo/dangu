@@ -21,3 +21,29 @@ pub fn to_nbt(tag: &Tag) -> Vec<u8> {
     tag.write_root(&mut out);
     out
 }
+
+/// `&a`, `&l` 같은 색·꾸밈 코드를 `§`로 바꿉니다 (클라이언트가 글자 안의 `§` 코드를 그립니다).
+/// `&&`는 `&` 그대로.
+pub fn legacy_colors(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '&'
+            && let Some(&n) = chars.peek()
+        {
+            if n == '&' {
+                chars.next();
+                out.push('&');
+                continue;
+            }
+            if "0123456789abcdefklmnor".contains(n.to_ascii_lowercase()) {
+                chars.next();
+                out.push('§');
+                out.push(n.to_ascii_lowercase());
+                continue;
+            }
+        }
+        out.push(c);
+    }
+    out
+}

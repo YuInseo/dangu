@@ -109,6 +109,23 @@ impl Dimension {
         }
     }
 
+    /// 저장 파일에 쓰는 이름.
+    pub fn name(self) -> &'static str {
+        match self {
+            Dimension::Overworld => "overworld",
+            Dimension::Nether => "nether",
+            Dimension::End => "end",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Dimension> {
+        Self::from_command(name.strip_prefix("minecraft:").unwrap_or(name)).or(match name {
+            "the_nether" | "minecraft:the_nether" => Some(Dimension::Nether),
+            "the_end" | "minecraft:the_end" => Some(Dimension::End),
+            _ => None,
+        })
+    }
+
     pub fn display_name(self) -> &'static str {
         match self {
             Dimension::Overworld => "오버월드",

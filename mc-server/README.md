@@ -110,6 +110,19 @@ DAMBI_HOME=dambi MC_BIND=0.0.0.0:25565 cargo run --release -- master
 - 설정·기록: 인스턴스 폴더의 `lottery.json` (가격, 하루 제한, 등수별 기본 당첨금, 추첨 요일·시각).
   `/복권 정보`, `/복권 추첨`(OP 4, 지금 추첨).
 
+## 사용자 정의 NPC (`/npc`, `/엔피시`)
+
+Citizens처럼 채널마다 NPC를 세웁니다 (`npcs.json`에 저장, 켤 때 다시 세움).
+
+- 모양: `player`(마네킹 — 플레이어 모습, 탭 목록에 안 뜸, `/npc skin <이름>`으로 스킨) 또는
+  몹(`villager`, `zombie` …). 머리 위 이름(`&a` 색 코드), 마네킹은 이름 아래 설명 한 줄.
+- 움직이지 않고 맞지 않으며, 가까운 사람을 쳐다봅니다 (`/npc look`으로 끄기).
+- 우클릭: 메시지(`/npc msg add`), 동작(`/npc action lottery` 복권 판매소, `server:<인스턴스>`
+  다른 채널로), 명령어(`/npc cmd add [console] <명령어>`, `{player}` = 누른 사람).
+- `/npc create <이름>`, `select [번호]`, `list`, `info`, `rename`, `type`, `skin`, `desc`,
+  `tphere`, `remove` (한국어: 생성·선택·목록·정보·이름·타입·스킨·설명·여기로·삭제…). OP 2.
+- 복권 판매소도 이 NPC입니다 (처음 켤 때 스폰 옆에 세움, 옮기거나 꾸밀 수 있음).
+
 ## 서버 리소스 팩
 
 서버가 팩을 코드로 만들어(PNG·ZIP 직접 인코딩) `MC_PACK_PORT`(기본 25566)의 내장 HTTP로

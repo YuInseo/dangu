@@ -10,6 +10,7 @@ mod login;
 mod lottery;
 mod merchant;
 mod modes;
+mod npc;
 mod play;
 mod signed_chat;
 mod survival;

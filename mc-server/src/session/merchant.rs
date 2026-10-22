@@ -240,16 +240,16 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         {
             return Ok(());
         }
+        if let Kind::Npc { npc, .. } = e.kind {
+            if hand == 0 {
+                self.npc_clicked(npc).await?;
+            }
+            return Ok(());
+        }
         let Kind::Mob(m) = &e.kind else {
             return Ok(());
         };
         if m.dead() {
-            return Ok(());
-        }
-        if m.npc == Some("lottery") {
-            if hand == 0 {
-                self.open_lottery(super::lottery::Page::Hub).await?;
-            }
             return Ok(());
         }
         let slot = if hand == 0 { 36 + self.held } else { 45 };

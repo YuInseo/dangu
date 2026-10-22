@@ -148,8 +148,14 @@ pub fn encode_player_data(
 /// 15 `Mob` 플래그, 그다음 종류별).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Meta {
-    /// 이름표 (선택적 텍스트 컴포넌트, 2번 칸).
+    /// 이름표 (선택적 텍스트 컴포넌트, 2번 칸). `&a` 같은 색 코드를 씁니다.
     Name(u8, String),
+    /// 선택적 텍스트 (없으면 감춤). 마네킹의 이름 아래 설명 등.
+    OptText(u8, Option<String>),
+    /// 마네킹 프로필: UUID, 이름, 속성(스킨).
+    Profile(u8, u128, String, Vec<crate::auth::Property>),
+    /// 주 손 (0 왼손, 1 오른손).
+    Arm(u8, i32),
     Byte(u8, u8),
     Int(u8, i32),
     Bool(u8, bool),
@@ -159,6 +165,7 @@ pub enum Meta {
 
 const DATA_INT: i32 = 1;
 const DATA_OPTIONAL_COMPONENT: i32 = 6;
+const DATA_RESOLVABLE_PROFILE: i32 = 41;
 const DATA_BOOL: i32 = 8;
 const DATA_VILLAGER: i32 = 18;
 
@@ -171,7 +178,47 @@ pub fn encode_entity_data(id: i32, meta: &[Meta]) -> Vec<u8> {
                 out.push(i);
                 write_varint(&mut out, DATA_OPTIONAL_COMPONENT);
                 out.push(1);
-                out.extend_from_slice(&crate::text::to_nbt(&crate::text::colored(&name, "gold")));
+                out.extend_from_slice(&crate::text::to_nbt(&crate::text::plain(
+                    &crate::text::legacy_colors(&name),
+                )));
+            }
+            Meta::OptText(i, text) => {
+                out.push(i);
+                write_varint(&mut out, DATA_OPTIONAL_COMPONENT);
+                match text {
+                    Some(t) => {
+                        out.push(1);
+                        out.extend_from_slice(&crate::text::to_nbt(&crate::text::plain(
+                            &crate::text::legacy_colors(&t),
+                        )));
+                    }
+                    None => out.push(0),
+                }
+            }
+            Meta::Profile(i, uuid, name, properties) => {
+                out.push(i);
+                write_varint(&mut out, DATA_RESOLVABLE_PROFILE);
+                out.push(1); // 완전한 프로필
+                write_uuid(&mut out, uuid);
+                crate::protocol::types::write_string(&mut out, &name);
+                write_varint(&mut out, properties.len() as i32);
+                for p in &properties {
+                    crate::protocol::types::write_string(&mut out, &p.name);
+                    crate::protocol::types::write_string(&mut out, &p.value);
+                    match &p.signature {
+                        Some(sig) => {
+                            out.push(1);
+                            crate::protocol::types::write_string(&mut out, sig);
+                        }
+                        None => out.push(0),
+                    }
+                }
+                out.extend_from_slice(&[0, 0, 0, 0]); // 몸·망토·겉날개 텍스처, 모델: 없음
+            }
+            Meta::Arm(i, arm) => {
+                out.push(i);
+                write_varint(&mut out, DATA_HUMANOID_ARM);
+                write_varint(&mut out, arm);
             }
             Meta::Byte(i, v) => {
                 out.push(i);

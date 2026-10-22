@@ -148,6 +148,10 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "instance", STRING, WORD, true);
         }
+        "npc" => {
+            let c = t.literal(ROOT, name, true);
+            t.argument_ask_server(c, "args", STRING, GREEDY, true);
+        }
         "복권" => {
             let c = t.literal(ROOT, name, true);
             for sub in ["정보", "추첨"] {
@@ -205,6 +209,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             "server" => self.server_command(args.first().copied()).await,
             "이동" => self.move_command(args.first().copied()).await,
             "복권" => Ok(self.open_lottery(super::lottery::Page::Hub).await?),
+            "npc" => self.npc_command(&args).await,
             "재화" => self.money_command(&args).await,
             "locate" => self.locate(&args).await,
             "help" => {
@@ -427,7 +432,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
     /// `/server`: 목록 또는 이동.
     /// `/이동`: 마스터 뒤라면 다른 프로세스로 (Transfer), 혼자라면 이 프로세스 안의 인스턴스로.
-    async fn move_command(&mut self, name: Option<&str>) -> Result<(), FrameError> {
+    pub(super) async fn move_command(&mut self, name: Option<&str>) -> Result<(), FrameError> {
         use crate::dambi::child;
         if !child::active() {
             return self.server_command(name).await;

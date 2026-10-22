@@ -6,6 +6,7 @@ pub mod entities;
 pub mod lottery;
 pub mod mechanics;
 pub mod mobs;
+pub mod npcs;
 pub mod path;
 pub mod playerdata;
 pub mod projectiles;

@@ -215,6 +215,12 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/재화 [보내기 <플레이어> <양>] — 돈·캐시·잠수포인트, 생활 직업",
     },
     Spec {
+        name: "npc",
+        aliases: &["엔피시"],
+        level: 2,
+        usage: "/npc create|select|list|info|rename|type|skin|desc|tphere|look|msg|cmd|action|remove — NPC 만들기 (/npc help)",
+    },
+    Spec {
         name: "복권",
         aliases: &["lottery", "로또"],
         level: 0,
