@@ -26,6 +26,42 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         crate::plugins::guild::name_of(self.profile.uuid)
     }
 
+    /// 채팅 머리말과 이름 위 설명: 대표 직업·레벨, 직업들, 길드, 전투력, 있는 곳, 놀이 시간.
+    async fn chat_card(&self) -> super::Card {
+        let uuid = self.profile.uuid;
+        let data = crate::dambi::child::shared(uuid).await.unwrap_or_default();
+        let mut jobs = data.jobs.clone();
+        jobs.sort_by(|a, b| b.level.cmp(&a.level).then(a.name.cmp(&b.name)));
+        let mut details = Vec::new();
+        if !jobs.is_empty() {
+            let list: Vec<String> = jobs
+                .iter()
+                .take(4)
+                .map(|j| format!("{} Lv.{}", j.name, j.level))
+                .collect();
+            details.push(format!("직업\t{}", list.join(" · ")));
+        }
+        let guild = crate::plugins::guild::guilds().read(|d| {
+            d.of(uuid)
+                .map(|g| (g.name.clone(), g.role_of(uuid).map_or("", |r| r.name())))
+        });
+        if let Some((g, role)) = guild {
+            details.push(format!("길드\t{g} · {role}"));
+        }
+        let power = self
+            .rpg_stats(jobs.iter().map(|j| j.level).collect())
+            .combat_power();
+        details.push(format!("전투력\t{}", crate::plugins::hud::number(power)));
+        details.push(format!("있는 곳\t{}", self.server.name));
+        let mins = data.playtime_secs / 60;
+        details.push(format!("놀이 시간\t{}시간 {}분", mins / 60, mins % 60));
+        super::Card {
+            job: jobs.first().map(|j| j.name.clone()),
+            level: jobs.first().map_or(1, |j| j.level),
+            details,
+        }
+    }
+
     /// 채팅 한 줄을 채널로 보냅니다 (앞 기호가 있으면 그 채널로 한 번만).
     pub(crate) async fn channel_chat(&mut self, line: &str) -> Result<(), FrameError> {
         let prefs = super::prefs(self.profile.uuid);
@@ -58,6 +94,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             position: self.position,
             guild,
             content: crate::plugins::contents::emojify(content),
+            card: self.chat_card().await,
         };
         println!("[{}] <{}> {}", channel.name(), m.sender_name, m.content);
         super::send(self.server, m);

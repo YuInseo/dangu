@@ -65,17 +65,22 @@ pub fn join(parts: Vec<Tag>) -> Tag {
 
 /// 조각(색 입힌 것)에 마우스를 올리면 보일 글과, 누르면 채팅 창에 넣을 글을 붙입니다.
 pub fn interactive(tag: Tag, hover: Option<&str>, suggest: Option<&str>) -> Tag {
+    with_hover(tag, hover.map(|h| Tag::String(h.to_owned())), suggest)
+}
+
+/// [`interactive`]와 같되 마우스를 올리면 보일 것이 색 입힌 글(텍스트 컴포넌트).
+pub fn with_hover(tag: Tag, hover: Option<Tag>, suggest: Option<&str>) -> Tag {
     let mut fields = match tag {
         Tag::Compound(f) => f,
         Tag::String(s) => vec![("text".into(), Tag::String(s))],
         other => return other,
     };
-    if let Some(h) = hover {
+    if let Some(hover) = hover {
         fields.push((
             "hover_event".into(),
             Tag::Compound(vec![
                 ("action".into(), Tag::String("show_text".into())),
-                ("value".into(), Tag::String(h.to_owned())),
+                ("value".into(), hover),
             ]),
         ));
     }
@@ -89,4 +94,25 @@ pub fn interactive(tag: Tag, hover: Option<&str>, suggest: Option<&str>) -> Tag 
         ));
     }
     Tag::Compound(fields)
+}
+
+/// 텍스트 컴포넌트의 글만 이어 붙입니다 (설명·꾸밈 빼고; 로그·테스트용).
+pub fn plain_text(tag: &Tag) -> String {
+    match tag {
+        Tag::String(s) => s.clone(),
+        Tag::Compound(f) => {
+            let mut out = String::new();
+            for (k, v) in f {
+                match (k.as_str(), v) {
+                    ("text", Tag::String(s)) => out.push_str(s),
+                    ("extra", Tag::List(parts)) => {
+                        out.extend(parts.iter().map(plain_text));
+                    }
+                    _ => {}
+                }
+            }
+            out
+        }
+        _ => String::new(),
+    }
 }

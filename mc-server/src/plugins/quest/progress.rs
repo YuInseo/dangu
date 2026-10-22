@@ -110,6 +110,40 @@ pub fn pick(pool: &[QuestDef], n: usize, seed: i64) -> Vec<String> {
     out
 }
 
+/// 주가 바뀌었으면 주간 퀘스트를 새로 뽑습니다.
+fn refresh_player(p: &mut PlayerQuests, cfg: &QuestConfig, now: i64) {
+    let week = week_of(now);
+    if p.week != week || p.weekly.is_empty() && !cfg.weekly.is_empty() {
+        p.week = week;
+        p.weekly = pick(&cfg.weekly, cfg.weekly_count, week)
+            .into_iter()
+            .map(|id| Slot {
+                id,
+                ..Slot::default()
+            })
+            .collect();
+        p.tracked.retain(|(k, _)| *k != Kind::Weekly);
+    }
+    // 설정에서 사라진 퀘스트는 버림
+    p.accepted
+        .retain(|s| cfg.normal.iter().any(|d| d.id == s.id));
+}
+
+fn refresh_guild(g: &mut GuildQuests, cfg: &QuestConfig, now: i64) {
+    let week = week_of(now);
+    if g.week != week || g.quests.is_empty() && !cfg.guild_weekly.is_empty() {
+        g.week = week;
+        g.quests = pick(&cfg.guild_weekly, cfg.guild_weekly_count, week * 31 + 7)
+            .into_iter()
+            .map(|id| Slot {
+                id,
+                ..Slot::default()
+            })
+            .collect();
+        g.contrib.clear();
+    }
+}
+
 fn matches(def: &QuestDef, h: &Happened) -> bool {
     def.objective.kind == h.kind
         && (def.objective.filter.is_empty()
@@ -123,38 +157,13 @@ fn matches(def: &QuestDef, h: &Happened) -> bool {
 impl Progress {
     pub fn player_mut(&mut self, uuid: u128, cfg: &QuestConfig, now: i64) -> &mut PlayerQuests {
         let p = self.players.entry(uuid).or_default();
-        let week = week_of(now);
-        if p.week != week || p.weekly.is_empty() && !cfg.weekly.is_empty() {
-            p.week = week;
-            p.weekly = pick(&cfg.weekly, cfg.weekly_count, week)
-                .into_iter()
-                .map(|id| Slot {
-                    id,
-                    ..Slot::default()
-                })
-                .collect();
-            p.tracked.retain(|(k, _)| *k != Kind::Weekly);
-        }
-        // 설정에서 사라진 퀘스트는 버림
-        p.accepted
-            .retain(|s| cfg.normal.iter().any(|d| d.id == s.id));
+        refresh_player(p, cfg, now);
         p
     }
 
     pub fn guild_mut(&mut self, guild: u32, cfg: &QuestConfig, now: i64) -> &mut GuildQuests {
         let g = self.guilds.entry(guild).or_default();
-        let week = week_of(now);
-        if g.week != week || g.quests.is_empty() && !cfg.guild_weekly.is_empty() {
-            g.week = week;
-            g.quests = pick(&cfg.guild_weekly, cfg.guild_weekly_count, week * 31 + 7)
-                .into_iter()
-                .map(|id| Slot {
-                    id,
-                    ..Slot::default()
-                })
-                .collect();
-            g.contrib.clear();
-        }
+        refresh_guild(g, cfg, now);
         g
     }
 
@@ -381,22 +390,25 @@ impl Progress {
 
     /// HUD에 띄울 퀘스트 (따라다니게 한 것, 없으면 끝나지 않은 주간·길드·일반 순).
     pub fn hud(
-        &mut self,
+        &self,
         uuid: u128,
         guild: Option<u32>,
         cfg: &QuestConfig,
         now: i64,
     ) -> Vec<HudQuest> {
+        // 1초마다 불리므로 파일을 고치지 않고 (주가 바뀐 것은 사본에서만) 봅니다
         let max = cfg.max_tracked;
         let mut all: Vec<(Kind, String, u32, bool)> = Vec::new();
-        let p = self.player_mut(uuid, cfg, now).clone();
+        let mut p = self.players.get(&uuid).cloned().unwrap_or_default();
+        refresh_player(&mut p, cfg, now);
         all.extend(
             p.weekly
                 .iter()
                 .map(|s| (Kind::Weekly, s.id.clone(), s.progress, s.done)),
         );
         if let Some(gid) = guild {
-            let g = self.guild_mut(gid, cfg, now);
+            let mut g = self.guilds.get(&gid).cloned().unwrap_or_default();
+            refresh_guild(&mut g, cfg, now);
             all.extend(
                 g.quests
                     .iter()

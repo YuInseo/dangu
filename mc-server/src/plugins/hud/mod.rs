@@ -1,33 +1,39 @@
-//! 화면 HUD: 오른쪽 위 재화 세 줄, 오른쪽 아래 RPG 스탯, 핫바 위 체력바.
+//! 화면 HUD: 왼쪽 위 재화, 오른쪽 위 퀘스트, 오른쪽 아래 RPG 스탯, 핫바 위 체력·마나바.
 //!
 //! ```text
-//!                                            ┌──────────────┐
-//!                                            │ 🪙  1,234,567 │  돈
-//!                                            │ 💎        120 │  캐시
-//!                                            │ 🌙         45 │  잠수 포인트
-//!                                            └──────────────┘
+//!  ┃🪙 돈     1,234,567┃                         ┃📜 퀘스트          2개 진행 중┃
+//!  ┃💎 캐시         120┃                         ┃주간 나무 베기             12/30┃
+//!  ┃🌙 잠수          45┃                         ┃▬▬▬▬▬▬▬▬▬▬▬───────────────┃
+//!                                                ┃길드 철광석 캐기 (함께)    40/200┃
+//!                                                ┃▬▬▬▬───────────────────────┃
 //!
-//!                                            ┌──────────────┐
-//!                                            │ ★  Lv     12 │
-//!                                            │ ⚔          7 │  공격력
-//!                                            │ 🛡          8 │  방어력
-//!   ┌────────────── 18/20 ─┐                 │ ♥         20 │  최대 체력
-//!   └──────────────────────┘                 │ 👢       100% │  이동 속도
-//!   [핫바 ........................]           │ 🔥        209 │  전투력
-//!                                            └──────────────┘
+//!                                                             ┃★ 레벨      12┃
+//!                                                             ┃⚔ 공격력     7┃
+//!                                                             ┃🛡 방어력     8┃
+//!   💧 [■■■■■■■■■■ 96/155 ─────]                              ┃♥ 체력      20┃
+//!   ♥ [■■■■■■■■■■■■■ 14/20 ──]                                ┃👢 속도    100%┃
+//!   [핫바 ........................]                            ┃🔥 전투력   209┃
 //! ```
 //!
-//! 위쪽은 분홍 보스바의 제목으로, 아래쪽과 체력바는 액션바 글로 1초마다 다시 보냅니다. 그림과
-//! 폰트·셰이더는 [`art`]가 리소스 팩에 넣습니다. 리소스 팩을 받지 않은 사람에게는 보내지 않습니다.
-//! `/hud`로 재화·스탯 판을 끄고 켭니다 (체력바는 바닐라 하트를 대신하므로 남음).
+//! 위쪽은 분홍 보스바 여러 개의 제목으로 (줄마다 19px; 퀘스트 이름은 바닐라 폰트로 그 줄에),
+//! 아래쪽과 체력바는 액션바 글로 1초마다 다시 보냅니다. 그림·폰트·셰이더는 [`art`], 줄에 글자를
+//! 놓는 것은 [`canvas`]. 리소스 팩을 받지 않은 사람에게는 보내지 않습니다. `/hud`로 재화·퀘스트·
+//! 스탯 판을 끄고 켭니다 (체력·마나바는 바닐라 하트를 대신하므로 남음).
 
 pub mod art;
+pub mod canvas;
+mod glyphs;
+#[cfg(test)]
+mod preview;
 mod session;
+pub mod sprites;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use art::{BOTTOM, Bar, HP, MP, RIGHT, RowFont, STAY, TOP};
+use art::{Anchor, BOTTOM, HP, MP, Pal, RowFont, Strip, T0, T1, T2, TB, TQ, tint};
+use canvas::{Canvas, fit, label_width, small_width};
 
+use crate::plugins::quest::{HudQuest, Kind};
 use crate::plugins::rpg::Stats;
 use crate::protocol::nbt::Tag;
 
@@ -44,105 +50,12 @@ pub fn set_enabled(on: bool) {
     ENABLED.store(on, Ordering::Relaxed);
 }
 
-/// 화면 오른쪽 끝에서 띄우는 거리.
+/// 화면 끝에서 띄우는 거리.
 const MARGIN: i32 = 4;
-/// 글자 사이 (테두리가 겹치도록 한 칸 당김).
-const TRACKING: i32 = -1;
+/// 위쪽에 쓰는 보스바 줄 수 (머리 + 퀘스트 3개).
+pub const TOP_LINES: usize = 4;
 
-// ---- 그리기 ----
-
-/// 폭 0인 한 줄에 글자를 원하는 x에 놓습니다. 줄 전체 폭이 0이라 줄의 시작이 곧 화면 가운데이고,
-/// [`RIGHT`] 색 글자는 셰이더가 화면 반 폭만큼 옮기므로 그 x가 곧 오른쪽 끝 기준이 됩니다.
-#[derive(Default)]
-pub struct Canvas {
-    runs: Vec<(&'static str, &'static str, String)>,
-    cursor: i32,
-}
-
-impl Canvas {
-    fn push(&mut self, font: &'static str, color: &'static str, c: char) {
-        match self.runs.last_mut() {
-            Some((f, col, s)) if *f == font && *col == color => s.push(c),
-            _ => self.runs.push((font, color, c.to_string())),
-        }
-    }
-
-    fn move_to(&mut self, font: &'static str, color: &'static str, x: i32) {
-        let mut dx = x - self.cursor;
-        let negative = dx < 0;
-        dx = dx.abs();
-        for k in (0..=10u32).rev() {
-            while dx >= 1 << k {
-                self.push(font, color, art::space_char(k, negative));
-                dx -= 1 << k;
-            }
-        }
-        self.cursor = x;
-    }
-
-    pub fn glyph(&mut self, row: &RowFont, color: &'static str, x: i32, c: char) {
-        self.move_to(row.id, color, x);
-        self.push(row.id, color, c);
-        self.cursor += art::advance(c);
-    }
-
-    /// 글을 x부터. 끝난 x를 돌려줍니다.
-    pub fn text(&mut self, row: &RowFont, color: &'static str, x: i32, s: &str) -> i32 {
-        let mut x = x;
-        for c in s.chars() {
-            self.glyph(row, color, x, c);
-            x += art::advance(c) + TRACKING;
-        }
-        x
-    }
-
-    /// `x0..x1` 판 (반투명 검정, 둥근 모서리). 줄보다 1px씩 위아래로 큽니다.
-    pub fn panel(&mut self, row: &RowFont, color: &'static str, x0: i32, x1: i32) {
-        self.glyph(row, color, x0, art::PANEL_LEFT);
-        let mut x = x0 + 2;
-        let mut left = (x1 - 2) - x;
-        for (k, c) in art::PANEL_MID.iter().enumerate().rev() {
-            while left >= 1 << k {
-                self.glyph(row, color, x, *c);
-                x += 1 << k;
-                left -= 1 << k;
-            }
-        }
-        self.glyph(row, color, x1 - 2, art::PANEL_RIGHT);
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.runs.is_empty()
-    }
-
-    /// 줄 폭을 0으로 되돌리고 텍스트 컴포넌트로.
-    pub fn finish(mut self) -> Tag {
-        if let Some(&(font, color, _)) = self.runs.last() {
-            self.move_to(font, color, 0);
-        }
-        let parts = self
-            .runs
-            .into_iter()
-            .map(|(font, color, s)| {
-                Tag::Compound(vec![
-                    ("text".into(), Tag::String(s)),
-                    ("font".into(), Tag::String(font.into())),
-                    ("color".into(), Tag::String(color.into())),
-                ])
-            })
-            .collect();
-        Tag::Compound(vec![
-            ("text".into(), Tag::String(String::new())),
-            ("extra".into(), Tag::List(parts)),
-        ])
-    }
-}
-
-pub fn text_width(s: &str) -> i32 {
-    s.chars().map(|c| art::advance(c) + TRACKING).sum::<i32>() - TRACKING
-}
-
-/// `1,234,567`. 너무 길면 `12.3M`처럼.
+/// `1,234,567`. 너무 길면 `12.3B`처럼.
 pub fn number(n: i64) -> String {
     let (sign, n) = if n < 0 { ("-", -n) } else { ("", n) };
     let full = {
@@ -163,19 +76,52 @@ pub fn number(n: i64) -> String {
     format!("{sign}{:.1}B", n as f64 / 1e9)
 }
 
-/// 아이콘과 값이 있는 판 한 묶음 (오른쪽 끝에 붙임).
-fn column(c: &mut Canvas, rows: &[RowFont], items: &[(char, String)]) {
-    let widths: Vec<i32> = items
+/// 판 한 묶음의 한 줄: 아이콘, 라벨, 값, 왼쪽 줄무늬 색(없으면 None), 값 색.
+struct Item {
+    icon: char,
+    label: &'static str,
+    value: String,
+    accent: Option<Pal>,
+    value_pal: Pal,
+}
+
+/// 카드 여러 장을 세로로 (모두 같은 폭). `x0`이 왼쪽 끝 (기준점에서).
+fn cards(c: &mut Canvas, rows: &[RowFont], anchor: Anchor, left: bool, items: &[Item]) {
+    let label_w = items
         .iter()
-        .map(|(_, v)| art::advance(art::COIN) + 3 + text_width(v))
-        .collect();
-    let w = widths.iter().copied().max().unwrap_or(0);
-    let x1 = -MARGIN;
-    let x0 = x1 - w;
-    for (row, (icon, value)) in rows.iter().zip(items) {
-        c.panel(row, RIGHT, x0 - 3, x1 + 3);
-        c.glyph(row, RIGHT, x0, *icon);
-        c.text(row, RIGHT, x1 - text_width(value), value);
+        .map(|i| label_width(i.label))
+        .max()
+        .unwrap_or(0);
+    let value_w = items
+        .iter()
+        .map(|i| small_width(&i.value))
+        .max()
+        .unwrap_or(0);
+    let pad = if items.iter().any(|i| i.accent.is_some()) {
+        5
+    } else {
+        3
+    };
+    let w = pad + 9 + 3 + label_w + 7 + value_w + 4;
+    let (x0, x1) = if left {
+        (MARGIN, MARGIN + w)
+    } else {
+        (-MARGIN - w, -MARGIN)
+    };
+    let white = tint(anchor, Pal::White);
+    for (row, it) in rows.iter().zip(items) {
+        c.strip(row, Strip::Card11, white, x0, x1);
+        if let Some(a) = it.accent {
+            c.strip(row, Strip::Solid11, tint(anchor, a), x0, x0 + 2);
+        }
+        c.glyph(row, white, x0 + pad, it.icon);
+        c.label(row, tint(anchor, Pal::Light), x0 + pad + 12, it.label);
+        c.small(
+            row,
+            tint(anchor, it.value_pal),
+            x1 - 4 - small_width(&it.value),
+            &it.value,
+        );
     }
 }
 
@@ -185,19 +131,132 @@ pub struct Currencies {
     pub afk: i64,
 }
 
-/// 오른쪽 위: 돈 · 캐시 · 잠수 포인트.
-pub fn top(cur: &Currencies) -> Tag {
-    let mut c = Canvas::default();
-    column(
-        &mut c,
-        &TOP,
-        &[
-            (art::COIN, number(cur.money)),
-            (art::GEM, number(cur.cash)),
-            (art::MOON, number(cur.afk)),
-        ],
-    );
-    c.finish()
+fn kind_style(k: Kind) -> (&'static str, Pal) {
+    match k {
+        Kind::Normal => ("일반", Pal::Green),
+        Kind::Weekly => ("주간", Pal::Gold),
+        Kind::Guild => ("길드", Pal::Aqua),
+    }
+}
+
+/// 퀘스트 카드 폭.
+const QUEST_MIN_W: i32 = 130;
+const QUEST_MAX_W: i32 = 180;
+
+fn progress_text(q: &HudQuest) -> String {
+    if q.done {
+        "완료".into()
+    } else {
+        format!("{}/{}", q.progress.min(q.target), q.target)
+    }
+}
+
+/// 위쪽 줄들: 0번 줄은 재화(왼쪽)와 퀘스트 머리(오른쪽), 1번부터 퀘스트 하나씩.
+/// `quests`가 None이면 퀘스트 판을 그리지 않습니다.
+pub fn top(cur: Option<&Currencies>, quests: Option<&[HudQuest]>) -> Vec<Tag> {
+    let mut first = Canvas::default();
+    if let Some(cur) = cur {
+        cards(
+            &mut first,
+            &[T0, T1, T2],
+            Anchor::Left,
+            true,
+            &[
+                Item {
+                    icon: sprites::COIN,
+                    label: "돈",
+                    value: number(cur.money),
+                    accent: Some(Pal::Gold),
+                    value_pal: Pal::White,
+                },
+                Item {
+                    icon: sprites::GEM,
+                    label: "캐시",
+                    value: number(cur.cash),
+                    accent: Some(Pal::Aqua),
+                    value_pal: Pal::White,
+                },
+                Item {
+                    icon: sprites::MOON,
+                    label: "잠수",
+                    value: number(cur.afk),
+                    accent: Some(Pal::Yellow),
+                    value_pal: Pal::White,
+                },
+            ],
+        );
+    }
+    let mut lines = Vec::new();
+    if let Some(qs) = quests {
+        let qs = &qs[..qs.len().min(TOP_LINES - 1)];
+        // 폭: 가장 긴 줄에 맞추되 정해진 범위 안에서
+        let want = qs
+            .iter()
+            .map(|q| {
+                let (tag, _) = kind_style(q.kind);
+                5 + art::default_width(tag)
+                    + 4
+                    + art::default_width(&q.name)
+                    + 8
+                    + art::default_width(&progress_text(q))
+                    + 4
+            })
+            .max()
+            .unwrap_or(0);
+        let w = want.clamp(QUEST_MIN_W, QUEST_MAX_W);
+        let (x0, x1) = (-MARGIN - w, -MARGIN);
+        let r = |p| tint(Anchor::Right, p);
+
+        // 머리
+        first.strip(&T0, Strip::Card11, r(Pal::White), x0, x1);
+        first.glyph(&T0, r(Pal::White), x0 + 3, sprites::SCROLL);
+        first.text(r(Pal::Gold), x0 + 15, "퀘스트");
+        let note = if qs.is_empty() {
+            "/퀘스트 로 받기".to_owned()
+        } else {
+            format!("{}개 진행 중", qs.iter().filter(|q| !q.done).count())
+        };
+        first.text(r(Pal::Gray), x1 - 4 - art::default_width(&note), &note);
+
+        for q in qs {
+            let mut c = Canvas::default();
+            let (tag, pal) = kind_style(q.kind);
+            let prog = progress_text(q);
+            c.strip(&TQ, Strip::Card17, r(Pal::White), x0, x1);
+            c.strip(&TQ, Strip::Solid17, r(pal), x0, x0 + 2);
+            let x = c.text(r(pal), x0 + 5, tag);
+            let room = (x1 - 4 - art::default_width(&prog) - 6) - (x + 4);
+            c.text(
+                r(if q.done { Pal::Gray } else { Pal::White }),
+                x + 4,
+                &fit(&q.name, room),
+            );
+            c.text(
+                r(if q.done { Pal::Green } else { Pal::Light }),
+                x1 - 4 - art::default_width(&prog),
+                &prog,
+            );
+            // 진행 막대
+            let (b0, b1) = (x0 + 5, x1 - 4);
+            c.strip(&TB, Strip::Solid3, r(Pal::Dark), b0, b1);
+            let filled = if q.done {
+                b1 - b0
+            } else {
+                ((b1 - b0) as i64 * i64::from(q.progress.min(q.target)))
+                    .checked_div(i64::from(q.target))
+                    .unwrap_or(0) as i32
+            };
+            if filled > 0 {
+                c.strip(&TB, Strip::Solid3, r(pal), b0, b0 + filled.max(2));
+            }
+            lines.push(c.finish());
+        }
+    }
+    if first.is_empty() && lines.is_empty() {
+        return Vec::new();
+    }
+    lines.insert(0, first.finish());
+    lines
 }
 
 /// 아래쪽 한 줄에 들어가는 것들. `None`이면 그 부분을 그리지 않습니다.
@@ -212,23 +271,41 @@ pub struct Bottom<'a> {
 pub fn bottom(b: &Bottom) -> Tag {
     let mut c = Canvas::default();
     if let Some((now, max)) = b.health {
-        bar(&mut c, &HP, Bar::Health, now, max);
+        bar(&mut c, &HP, sprites::HEART, Pal::Red, now, max);
     }
     if let Some((now, max)) = b.mana {
-        bar(&mut c, &MP, Bar::Mana, now, max);
+        bar(&mut c, &MP, sprites::DROP, Pal::Blue, now, max);
     }
-    let stats = b.stats;
-    if let Some(s) = stats {
-        column(
+    if let Some(s) = b.stats {
+        let item = |icon, label, value: String, value_pal| Item {
+            icon,
+            label,
+            value,
+            accent: None,
+            value_pal,
+        };
+        cards(
             &mut c,
             &BOTTOM,
+            Anchor::Right,
+            false,
             &[
-                (art::STAR, format!("Lv{}", s.level)),
-                (art::SWORD, trim(s.attack)),
-                (art::SHIELD, trim(s.defense)),
-                (art::HEART, trim(s.max_health)),
-                (art::BOOT, format!("{:.0}%", s.speed)),
-                (art::FLAME, number(s.combat_power())),
+                item(sprites::STAR, "레벨", s.level.to_string(), Pal::Yellow),
+                item(sprites::SWORD, "공격력", trim(s.attack), Pal::White),
+                item(sprites::SHIELD, "방어력", trim(s.defense), Pal::White),
+                item(sprites::HEART, "체력", trim(s.max_health), Pal::White),
+                item(
+                    sprites::BOOT,
+                    "속도",
+                    format!("{:.0}%", s.speed),
+                    Pal::White,
+                ),
+                item(
+                    sprites::FLAME,
+                    "전투력",
+                    number(s.combat_power()),
+                    Pal::Orange,
+                ),
             ],
         );
     }
@@ -244,10 +321,13 @@ fn trim(v: f32) -> String {
     }
 }
 
-/// 핫바 왼쪽 위(가운데에서 -91..-10): 바닐라 하트 자리에 체력, 그 위 갑옷 자리에 마나.
-fn bar(c: &mut Canvas, row: &RowFont, bar: Bar, now: f32, max: f32) {
+/// 핫바 왼쪽 위(가운데에서 -91..-10): 아이콘 + 막대. 바닐라 하트 자리에 체력, 그 위 갑옷 자리에 마나.
+fn bar(c: &mut Canvas, row: &RowFont, icon: char, pal: Pal, now: f32, max: f32) {
     const X: i32 = -91;
-    c.glyph(row, STAY, X, bar.frame());
+    let stay = |p| tint(Anchor::Center, p);
+    c.glyph(row, stay(Pal::White), X, icon);
+    let bx = X + 10;
+    c.glyph(row, stay(Pal::White), bx, art::BAR_FRAME);
     let ratio = if max > 0.0 {
         (now / max).clamp(0.0, 1.0)
     } else {
@@ -255,68 +335,85 @@ fn bar(c: &mut Canvas, row: &RowFont, bar: Bar, now: f32, max: f32) {
     };
     let cells = (ratio * art::BAR_INNER as f32).round() as i32;
     // 조금이라도 남았으면 한 칸은 보이게
-    if let Some(fill) = bar.fill(cells.max(i32::from(now > 0.0))) {
-        c.glyph(row, STAY, X, fill);
+    if let Some(fill) = art::bar_fill(cells.max(i32::from(now > 0.0))) {
+        c.glyph(row, stay(pal), bx, fill);
     }
     let label = format!("{}/{}", now.ceil() as i64, max.ceil() as i64);
-    let mid = X + (art::BAR_INNER + 2) / 2;
-    c.text(row, STAY, mid - text_width(&label) / 2, &label);
+    let mid = bx + art::BAR_W / 2;
+    c.small(row, stay(Pal::White), mid - small_width(&label) / 2, &label);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use canvas::{total_advance, walk};
 
-    fn total_advance(tag: &Tag) -> i32 {
-        let Tag::Compound(f) = tag else { panic!() };
-        let Some((_, Tag::List(parts))) = f.iter().find(|(k, _)| k == "extra") else {
-            panic!()
-        };
-        let mut sum = 0;
-        for p in parts {
-            let Tag::Compound(f) = p else { panic!() };
-            let Some((_, Tag::String(s))) = f.iter().find(|(k, _)| k == "text") else {
-                panic!()
-            };
-            for ch in s.chars() {
-                let u = ch as u32;
-                sum += match u {
-                    0xE400..=0xE40A => 1 << (u - 0xE400),
-                    0xE410..=0xE41A => -(1 << (u - 0xE410)),
-                    _ => art::advance(ch),
-                };
-            }
-        }
-        sum
+    fn quests() -> Vec<HudQuest> {
+        vec![
+            HudQuest {
+                kind: Kind::Weekly,
+                name: "나무 베기".into(),
+                progress: 12,
+                target: 30,
+                done: false,
+            },
+            HudQuest {
+                kind: Kind::Guild,
+                name: "철광석 캐기 (길드원 모두 함께 아주 길게 이름을 붙임)".into(),
+                progress: 40,
+                target: 200,
+                done: false,
+            },
+            HudQuest {
+                kind: Kind::Normal,
+                name: "농부의 부탁".into(),
+                progress: 5,
+                target: 5,
+                done: true,
+            },
+        ]
     }
 
-    /// 공백을 뺀 보이는 글자들.
     fn visible(tag: &Tag) -> String {
-        let Tag::Compound(f) = tag else { panic!() };
-        let Some((_, Tag::List(parts))) = f.iter().find(|(k, _)| k == "extra") else {
-            panic!()
-        };
-        let mut out = String::new();
-        for p in parts {
-            let Tag::Compound(f) = p else { panic!() };
-            if let Some((_, Tag::String(s))) = f.iter().find(|(k, _)| k == "text") {
-                out.extend(
-                    s.chars()
-                        .filter(|&c| !(0xE400..=0xE41F).contains(&(c as u32))),
-                );
-            }
-        }
-        out
+        walk(tag)
+            .into_iter()
+            .filter(|(_, _, c)| art::space_advance(*c).is_none())
+            .map(|(_, _, c)| c)
+            .collect()
     }
 
     #[test]
     fn lines_have_zero_width_so_they_center_on_the_screen() {
-        let t = top(&Currencies {
-            money: 1_234_567,
-            cash: 120,
-            afk: 45,
-        });
-        assert_eq!(total_advance(&t), 0);
+        let qs = quests();
+        let lines = top(
+            Some(&Currencies {
+                money: 1_234_567,
+                cash: 120,
+                afk: 45,
+            }),
+            Some(&qs),
+        );
+        assert_eq!(lines.len(), 4);
+        for l in &lines {
+            assert_eq!(total_advance(l), 0);
+        }
+        assert!(visible(&lines[1]).contains("나무 베기"));
+        assert!(visible(&lines[2]).contains(".."), "긴 이름은 잘림");
+        assert!(visible(&lines[3]).contains("완료"));
+        // 재화는 왼쪽, 퀘스트는 오른쪽
+        let anchors: Vec<Anchor> = walk(&lines[0])
+            .iter()
+            .filter_map(|(_, t, c)| t.filter(|_| art::space_advance(*c).is_none()))
+            .map(|t| t.anchor)
+            .collect();
+        assert!(anchors.contains(&Anchor::Left) && anchors.contains(&Anchor::Right));
+
+        let none = top(None, None);
+        assert!(none.is_empty());
+        let empty = top(None, Some(&[]));
+        assert_eq!(empty.len(), 1);
+        assert!(visible(&empty[0]).contains("받기"));
+
         let s = crate::plugins::rpg::Stats {
             level: 12,
             attack: 7.0,
@@ -333,11 +430,9 @@ mod tests {
         assert_eq!(total_advance(&b), 0);
         let shown = visible(&b);
         assert!(
-            shown.contains("Lv12") && shown.contains("18/20") && shown.contains("42/100"),
+            shown.contains("18/20") && shown.contains("42/100"),
             "{shown}"
         );
-        let raw = format!("{b:?}");
-        assert!(raw.contains(RIGHT) && raw.contains(STAY));
     }
 
     #[test]

@@ -128,7 +128,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     pub(crate) fn quest_hud(&self) -> Vec<HudQuest> {
         let guild = self.my_guild_id();
         let uuid = self.profile.uuid;
-        config::with(|cfg| progress().write(|p| p.hud(uuid, guild, cfg, super::now())))
+        config::with(|cfg| progress().read(|p| p.hud(uuid, guild, cfg, super::now())))
     }
 
     pub(crate) async fn quest_command(&mut self, args: &[&str]) -> Result<(), FrameError> {

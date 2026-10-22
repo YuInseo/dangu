@@ -9,10 +9,11 @@ use crate::packets::hud::{self, BossColor};
 use crate::packets::play::GameMode;
 use crate::plugins::rpg;
 use crate::protocol::frame::FrameError;
+use crate::protocol::nbt::Tag;
 use crate::session::play::Session;
 use crate::text;
 
-/// HUD 보스바의 UUID (연결마다 따로이므로 모두 같아도 됨).
+/// HUD 보스바들의 UUID (연결마다 따로이므로 모두 같아도 됨): 이 값 + 줄 번호.
 const BOSS_BAR: u128 = 0x6461_6e67_7548_5544_8000_0000_0000_0001;
 /// 다른 기능이 액션바에 글을 띄우면 이만큼 HUD 아래쪽을 쉽니다.
 const ACTION_BAR_PAUSE: Duration = Duration::from_secs(3);
@@ -25,8 +26,8 @@ const HUD_SECS: f32 = 1.0;
 pub struct HudState {
     /// `/hud`로 재화·스탯 판을 껐음.
     pub hidden: bool,
-    boss_bar: bool,
-    last_top: Option<String>,
+    /// 띄운 보스바 줄마다 마지막으로 보낸 제목.
+    boss_bars: Vec<String>,
     currencies: Option<(i64, i64, i64)>,
     jobs: Vec<u32>,
     fetched: Option<Instant>,
@@ -46,7 +47,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         super::enabled() && self.pack_loaded
     }
 
-    fn rpg_stats(&self, job_levels: Vec<u32>) -> rpg::Stats {
+    pub(crate) fn rpg_stats(&self, job_levels: Vec<u32>) -> rpg::Stats {
         let armor = [5, 6, 7, 8].map(|slot| self.inventory[slot].map(|i| i.id));
         rpg::compute(&rpg::Input {
             job_levels,
@@ -86,27 +87,18 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             job_levels.clone_from(&self.hud.jobs);
         }
 
-        // 위: 재화 (바뀌었을 때만 다시)
-        if self.hud.hidden {
-            if self.hud.boss_bar {
-                self.send(hud::BOSS_EVENT_ID, &hud::encode_boss_remove(BOSS_BAR))
-                    .await?;
-                self.hud.boss_bar = false;
-                self.hud.last_top = None;
-            }
-        } else if let Some((money, cash, afk)) = self.hud.currencies {
-            let title = super::top(&Currencies { money, cash, afk });
-            let key = format!("{title:?}");
-            if !self.hud.boss_bar {
-                let body = hud::encode_boss_add(BOSS_BAR, &title, 0.0, BossColor::Pink);
-                self.send(hud::BOSS_EVENT_ID, &body).await?;
-                self.hud.boss_bar = true;
-            } else if self.hud.last_top.as_deref() != Some(&key) {
-                let body = hud::encode_boss_title(BOSS_BAR, &title);
-                self.send(hud::BOSS_EVENT_ID, &body).await?;
-            }
-            self.hud.last_top = Some(key);
-        }
+        // 위: 재화·퀘스트 (바뀌었을 때만 다시)
+        let lines = if self.hud.hidden {
+            Vec::new()
+        } else {
+            let cur = self
+                .hud
+                .currencies
+                .map(|(money, cash, afk)| Currencies { money, cash, afk });
+            let quests = self.quest_hud();
+            super::top(cur.as_ref(), Some(&quests))
+        };
+        self.update_boss_lines(&lines).await?;
 
         // 아래: 스탯 + 체력바 (액션바는 3초 뒤 사라지므로 매번)
         if self.hud.pause_until.is_some_and(|t| now < t) {
@@ -124,6 +116,36 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
+    /// 보스바 줄들을 `lines`에 맞춥니다. 줄 수가 바뀌면 순서가 섞이지 않게 모두 다시 띄웁니다.
+    async fn update_boss_lines(&mut self, lines: &[Tag]) -> Result<(), FrameError> {
+        let keys: Vec<String> = lines.iter().map(|t| format!("{t:?}")).collect();
+        if keys == self.hud.boss_bars {
+            return Ok(());
+        }
+        if keys.len() != self.hud.boss_bars.len() {
+            for i in 0..self.hud.boss_bars.len() {
+                self.send(
+                    hud::BOSS_EVENT_ID,
+                    &hud::encode_boss_remove(BOSS_BAR + i as u128),
+                )
+                .await?;
+            }
+            for (i, t) in lines.iter().enumerate() {
+                let body = hud::encode_boss_add(BOSS_BAR + i as u128, t, 0.0, BossColor::Pink);
+                self.send(hud::BOSS_EVENT_ID, &body).await?;
+            }
+        } else {
+            for (i, t) in lines.iter().enumerate() {
+                if self.hud.boss_bars[i] != keys[i] {
+                    let body = hud::encode_boss_title(BOSS_BAR + i as u128, t);
+                    self.send(hud::BOSS_EVENT_ID, &body).await?;
+                }
+            }
+        }
+        self.hud.boss_bars = keys;
+        Ok(())
+    }
+
     pub(crate) async fn hud_command(&mut self) -> Result<(), FrameError> {
         if !self.hud_active() {
             return self
@@ -132,9 +154,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
         self.hud.hidden = !self.hud.hidden;
         let msg = if self.hud.hidden {
-            "재화·스탯 판을 껐습니다. (/hud 로 다시 켜기)"
+            "재화·퀘스트·스탯 판을 껐습니다. (/hud 로 다시 켜기)"
         } else {
-            "재화·스탯 판을 켰습니다."
+            "재화·퀘스트·스탯 판을 켰습니다."
         };
         self.message(&text::colored(msg, "green")).await?;
         self.hud_tick().await

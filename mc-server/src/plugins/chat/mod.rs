@@ -153,6 +153,18 @@ pub struct Message {
     /// 길드 채널이면 길드 이름.
     pub guild: Option<String>,
     pub content: String,
+    /// 보낸 사람 소개 (머리말과 이름 위 설명).
+    pub card: Card,
+}
+
+/// 채팅 머리말 `[직업].(Lv.레벨)`과, 이름에 마우스를 올리면 보이는 줄들.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Card {
+    /// 대표 직업 (가장 높은 레벨).
+    pub job: Option<String>,
+    pub level: u32,
+    /// 설명 줄들 (`이름표\t값` 이면 이름표를 회색으로).
+    pub details: Vec<String>,
 }
 
 /// 받는 사람 쪽에서 본 자기 자신.
@@ -192,27 +204,42 @@ pub fn reaches(m: &Message, r: &Receiver) -> bool {
     }
 }
 
-/// `[전체] 이름: 내용`. 이름에 마우스를 올리면 어느 인스턴스인지, 누르면 귓속말 준비.
+/// `[전체] [광부].(Lv.12) 이름 : 내용`. 이름에 마우스를 올리면 그 사람 소개, 누르면 귓속말 준비.
 pub fn render(m: &Message) -> Tag {
     let (head, body) = m.channel.colors();
     let mut tag = format!("[{}]", m.channel.name());
     if let (Channel::Guild, Some(g)) = (m.channel, &m.guild) {
         tag = format!("[{g}]");
     }
-    let name = text::interactive(
+    let mut parts = vec![text::colored(&format!("{tag} "), head)];
+    let job = m.card.job.as_deref().unwrap_or("무직");
+    parts.push(text::colored(&format!("[{job}]"), "#c9b3ff"));
+    parts.push(text::colored(".", "dark_gray"));
+    parts.push(text::colored(
+        &format!("(Lv.{}) ", m.card.level.max(1)),
+        "#ffd866",
+    ));
+    let mut hover = vec![text::colored(&m.sender_name, "gold")];
+    for d in &m.card.details {
+        hover.push(text::plain("\n"));
+        match d.split_once('\t') {
+            Some((k, v)) => {
+                hover.push(text::colored(&format!("{k}  "), "gray"));
+                hover.push(text::colored(v, "white"));
+            }
+            None => hover.push(text::colored(d, "white")),
+        }
+    }
+    hover.push(text::colored("\n누르면 귓속말", "dark_gray"));
+    let name = text::with_hover(
         text::colored(&m.sender_name, "white"),
-        Some(&format!(
-            "{} · {} 채널\n누르면 귓속말",
-            m.sender_name, m.instance
-        )),
+        Some(text::join(hover)),
         Some(&format!("/msg {} ", m.sender_name)),
     );
-    text::join(vec![
-        text::colored(&format!("{tag} "), head),
-        name,
-        text::colored(": ", "gray"),
-        text::colored(&m.content, body),
-    ])
+    parts.push(name);
+    parts.push(text::colored(" : ", "gray"));
+    parts.push(text::colored(&m.content, body));
+    text::join(parts)
 }
 
 // ---- 사람마다의 설정 ----
@@ -297,6 +324,20 @@ fn to_json(m: &Message) -> Json {
     if let Some(g) = &m.guild {
         f.push(("guild".into(), Json::String(g.clone())));
     }
+    if let Some(j) = &m.card.job {
+        f.push(("job".into(), Json::String(j.clone())));
+    }
+    f.push(("level".into(), Json::Number(f64::from(m.card.level))));
+    f.push((
+        "details".into(),
+        Json::Array(
+            m.card
+                .details
+                .iter()
+                .map(|d| Json::String(d.clone()))
+                .collect(),
+        ),
+    ));
     Json::Object(f)
 }
 
@@ -312,6 +353,20 @@ fn from_json(j: &Json) -> Option<Message> {
         position: (0.0, 0.0, 0.0),
         guild: s("guild").map(str::to_owned),
         content: s("content")?.to_owned(),
+        card: Card {
+            job: s("job").map(str::to_owned),
+            level: j.get("level").and_then(Json::as_f64).unwrap_or(1.0) as u32,
+            details: j
+                .get("details")
+                .and_then(Json::as_array)
+                .map(|a| {
+                    a.iter()
+                        .filter_map(Json::as_str)
+                        .map(str::to_owned)
+                        .collect()
+                })
+                .unwrap_or_default(),
+        },
     })
 }
 
@@ -329,6 +384,11 @@ mod tests {
             position: (0.0, 64.0, 0.0),
             guild: Some("달빛".into()),
             content: "안녕".into(),
+            card: Card {
+                job: Some("광부".into()),
+                level: 12,
+                details: vec!["길드\t달빛 · 길드원".into()],
+            },
         }
     }
 
@@ -395,8 +455,12 @@ mod tests {
         assert_eq!(back.content, m.content);
         assert_eq!(back.guild, m.guild);
         assert_eq!(back.channel, Channel::Guild);
+        assert_eq!(back.card, m.card);
         let shown = format!("{:?}", render(&m));
         assert!(shown.contains("[달빛]") && shown.contains("Alex") && shown.contains("안녕"));
+        let flat = text::plain_text(&render(&msg(Channel::Global)));
+        assert_eq!(flat, "[전체] [광부].(Lv.12) Alex : 안녕");
+        assert!(shown.contains("길드  ") && shown.contains("show_text"));
     }
 
     #[test]

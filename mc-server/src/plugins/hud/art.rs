@@ -1,148 +1,255 @@
-//! HUD 그림: 직접 찍은 글자·아이콘·판·체력바, 줄마다의 폰트, 그리고 글자를 화면 오른쪽 끝으로
-//! 옮겨 주는 텍스트 셰이더.
+//! HUD 그림: 글자·아이콘·판·막대 그림판, 줄마다의 폰트, 그리고 글자를 화면 왼쪽·오른쪽 끝으로
+//! 옮기고 색을 입히는 텍스트 셰이더.
 //!
 //! 마인크래프트는 보스바 제목과 액션바를 화면 가운데에 그립니다. 그래서
-//! - 줄(세로 위치)은 폰트마다 `ascent`를 달리 해서 정하고 (`dangu:hud/top0`, `bot3`, …),
+//! - 줄(세로 위치)은 폰트마다 `ascent`를 달리 해서 정하고 (`dangu:hud/t0`, `b3`, …),
 //! - 가로 위치는 공백 글자(`space` 공급자)로 정하고,
-//! - 오른쪽에 붙일 글자는 표시 색 [`RIGHT`]로 칠해 두면 셰이더가 화면 폭의 절반만큼 오른쪽으로
-//!   옮깁니다 (화면 크기를 서버가 몰라도 오른쪽 끝에 붙음). [`STAY`]는 옮기지 않고 색만 지웁니다.
-//! - 두 표시 색의 그림자는 셰이더가 지웁니다.
+//! - 글자 색 `#FD gg bb`를 표시로 씁니다: `gg`가 기준점([`Anchor`]: 08 오른쪽 끝, 0C 가운데,
+//!   10 왼쪽 끝), `bb - 0xF0`이 [`PALETTE`]의 색 번호. 셰이더가 글자를 화면 반 폭만큼 옮기고
+//!   (화면 크기를 서버가 몰라도 끝에 붙음) 진짜 색을 입힙니다.
+//! - 기본 폰트 글(퀘스트 이름)의 그림자는 `shadow_color`를 `#FC gg bb`로 주면 셰이더가 같이 옮기고
+//!   어둡게 칠합니다. 그 밖의 그림자(바닐라가 색의 1/4로 만드는 것)는 지웁니다.
 //!
 //! 바닐라 하트·갑옷 아이콘은 투명 그림으로 덮어 숨기고 (대신 체력·마나바, 방어력은 스탯 판),
-//! 분홍 보스바의 막대도 투명하게 합니다
-//! (HUD의 위쪽 줄은 분홍 보스바 제목으로 띄움).
+//! 분홍 보스바의 막대도 투명하게 합니다 (HUD의 위쪽 줄들은 분홍 보스바 제목으로 띄움).
 
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use super::glyphs::{ASCII_ADVANCE, LABEL_GLYPHS};
+use super::sprites::{ICONS, LETTERS};
 use crate::plugins::contents::source::Pack;
 use crate::resource_pack::png;
 
-/// 오른쪽 끝에 붙이는 글자 색 (셰이더가 알아봄).
-pub const RIGHT: &str = "#FD02F9";
-/// 가운데 기준 그대로 두는 글자 색 (그림자만 지움).
-pub const STAY: &str = "#FD03F9";
+// ---- 기준점과 색 ----
 
-/// 한 줄의 폰트: 이름과 가운데(보스바 제목·액션바 글) 기준 아래로 내린 픽셀.
+/// 글자를 어디에 붙이나.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Anchor {
+    Left,
+    Center,
+    Right,
+}
+
+impl Anchor {
+    fn green(self) -> u32 {
+        match self {
+            Anchor::Right => 0x08,
+            Anchor::Center => 0x0C,
+            Anchor::Left => 0x10,
+        }
+    }
+
+    /// 화면 가운데에서 이 기준점까지 (미리보기용).
+    pub fn offset(self, screen_w: i32) -> i32 {
+        match self {
+            Anchor::Right => screen_w / 2,
+            Anchor::Center => 0,
+            Anchor::Left => -screen_w / 2,
+        }
+    }
+}
+
+/// [`PALETTE`]의 색 이름.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pal {
+    White,
+    Light,
+    Gray,
+    Dark,
+    Gold,
+    Yellow,
+    Green,
+    Aqua,
+    Red,
+    Purple,
+    Orange,
+    Blue,
+    Pink,
+    Mint,
+    Cream,
+    Black,
+}
+
+/// 셰이더가 입히는 16색 (그림판의 색에 곱함).
+pub const PALETTE: [u32; 16] = [
+    0xFFFFFF, 0xD2D2DC, 0x8C8C9A, 0x3A3A48, 0xFFC94A, 0xFFF07A, 0x7BE07B, 0x6FE3FF, 0xFF5A5A,
+    0xC79BFF, 0xFF9F43, 0x5AA0FF, 0xFF8FD0, 0x9CF2C8, 0xFFF2D6, 0x000000,
+];
+
+/// 기준점 + 색.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tint {
+    pub anchor: Anchor,
+    pub pal: Pal,
+}
+
+pub const fn tint(anchor: Anchor, pal: Pal) -> Tint {
+    Tint { anchor, pal }
+}
+
+impl Tint {
+    /// 글자 색 표시 `#FDggbb`.
+    pub fn color(self) -> String {
+        format!(
+            "#FD{:02X}{:02X}",
+            self.anchor.green(),
+            0xF0 + self.pal as u32
+        )
+    }
+
+    /// 기본 폰트 글의 그림자 표시 (ARGB, `#FCggbb`).
+    pub fn shadow(self) -> i32 {
+        (0xFF00_0000 | 0xFC << 16 | self.anchor.green() << 8 | (0xF0 + self.pal as u32)) as i32
+    }
+
+    /// `#FDggbb` → 표시 (미리보기용).
+    pub fn parse(color: &str) -> Option<Tint> {
+        let v = u32::from_str_radix(color.strip_prefix("#FD")?, 16).ok()?;
+        let anchor = match v >> 8 {
+            0x08 => Anchor::Right,
+            0x0C => Anchor::Center,
+            0x10 => Anchor::Left,
+            _ => return None,
+        };
+        let i = (v & 0xff).checked_sub(0xF0)? as usize;
+        let pal = [
+            Pal::White,
+            Pal::Light,
+            Pal::Gray,
+            Pal::Dark,
+            Pal::Gold,
+            Pal::Yellow,
+            Pal::Green,
+            Pal::Aqua,
+            Pal::Red,
+            Pal::Purple,
+            Pal::Orange,
+            Pal::Blue,
+            Pal::Pink,
+            Pal::Mint,
+            Pal::Cream,
+            Pal::Black,
+        ][i];
+        Some(Tint { anchor, pal })
+    }
+}
+
+// ---- 줄 ----
+
+/// 한 줄의 폰트: 이름과, 줄(보스바 제목·액션바 글)의 위쪽에서 아래로 내린 픽셀.
 pub struct RowFont {
     pub id: &'static str,
     pub down: i32,
 }
 
-/// 오른쪽 위 (보스바 제목, 화면 위에서 3px): 재화 세 줄.
-pub const TOP: [RowFont; 3] = [
-    RowFont {
-        id: "dangu:hud/top0",
-        down: 0,
-    },
-    RowFont {
-        id: "dangu:hud/top1",
-        down: 11,
-    },
-    RowFont {
-        id: "dangu:hud/top2",
-        down: 22,
-    },
-];
-/// 오른쪽 아래 (액션바 글, 화면 아래에서 72px): 스탯 여섯 줄, 마지막 줄이 화면 바닥 2px 위.
+const fn row(id: &'static str, down: i32) -> RowFont {
+    RowFont { id, down }
+}
+
+/// 보스바 제목 줄 (화면 위에서 3, 22, 41, 60px — 줄마다 같은 폰트를 씀).
+pub const T0: RowFont = row("dangu:hud/t0", 0);
+pub const T1: RowFont = row("dangu:hud/t1", 12);
+pub const T2: RowFont = row("dangu:hud/t2", 24);
+/// 퀘스트 카드 바탕 (제목 줄보다 3px 위에서 17px).
+pub const TQ: RowFont = row("dangu:hud/tq", -3);
+/// 퀘스트 진행 막대 (제목 글 아래).
+pub const TB: RowFont = row("dangu:hud/tb", 10);
+/// 액션바 글 줄 (화면 아래에서 72px): 오른쪽 아래 스탯 여섯 줄, 마지막 줄이 바닥 1px 위.
 pub const BOTTOM: [RowFont; 6] = [
-    RowFont {
-        id: "dangu:hud/bot0",
-        down: 6,
-    },
-    RowFont {
-        id: "dangu:hud/bot1",
-        down: 17,
-    },
-    RowFont {
-        id: "dangu:hud/bot2",
-        down: 28,
-    },
-    RowFont {
-        id: "dangu:hud/bot3",
-        down: 39,
-    },
-    RowFont {
-        id: "dangu:hud/bot4",
-        down: 50,
-    },
-    RowFont {
-        id: "dangu:hud/bot5",
-        down: 61,
-    },
+    row("dangu:hud/b0", 1),
+    row("dangu:hud/b1", 13),
+    row("dangu:hud/b2", 25),
+    row("dangu:hud/b3", 37),
+    row("dangu:hud/b4", 49),
+    row("dangu:hud/b5", 61),
 ];
 /// 바닐라 하트 자리 (화면 아래에서 39px, 핫바 왼쪽 위).
-pub const HP: RowFont = RowFont {
-    id: "dangu:hud/hp",
-    down: 33,
-};
-/// 그 위 바닐라 갑옷 아이콘 자리 (방어력은 스탯 판에 있으므로 아이콘은 숨김).
-pub const MP: RowFont = RowFont {
-    id: "dangu:hud/mp",
-    down: 23,
-};
+pub const HP: RowFont = row("dangu:hud/hp", 33);
+/// 그 위 바닐라 갑옷 아이콘 자리.
+pub const MP: RowFont = row("dangu:hud/mp", 23);
+
+pub fn all_rows() -> Vec<&'static RowFont> {
+    let mut v = vec![&T0, &T1, &T2, &TQ, &TB, &HP, &MP];
+    v.extend(BOTTOM.iter());
+    v
+}
 
 // ---- 글자 번호 ----
 
-pub const COIN: char = '\u{E100}';
-pub const GEM: char = '\u{E101}';
-pub const MOON: char = '\u{E102}';
-pub const STAR: char = '\u{E103}';
-pub const SWORD: char = '\u{E104}';
-pub const SHIELD: char = '\u{E105}';
-pub const HEART: char = '\u{E106}';
-pub const BOOT: char = '\u{E107}';
-pub const FLAME: char = '\u{E108}';
-
-pub const PANEL_LEFT: char = '\u{E200}';
-pub const PANEL_RIGHT: char = '\u{E201}';
-/// 판 가운데 조각: 1, 2, 4, … 64px.
-pub const PANEL_MID: [char; 7] = [
-    '\u{E202}', '\u{E203}', '\u{E204}', '\u{E205}', '\u{E206}', '\u{E207}', '\u{E208}',
-];
-
-/// 막대 안쪽 칸 수 (테두리 빼고).
-pub const BAR_INNER: i32 = 79;
-
-/// 막대 두 가지: 체력(빨강, `E300`: 틀, `E301..=E34F`: 1..=79칸 채움), 마나(파랑, `E350`부터).
+/// 판: `E500 + 16 × 종류` 부터 왼쪽 끝, 오른쪽 끝, 가운데 1·2·4·…·64px.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Bar {
-    Health,
-    Mana,
+pub enum Strip {
+    /// 반투명 검정 카드 (11px, 둥근 모서리)
+    Card11,
+    /// 퀘스트 카드 (17px)
+    Card17,
+    /// 흰색 (색을 입혀 씀): 카드 왼쪽 줄무늬
+    Solid11,
+    Solid17,
+    /// 진행 막대 (3px)
+    Solid3,
 }
 
-impl Bar {
-    fn base(self) -> u32 {
+const STRIPS: [Strip; 5] = [
+    Strip::Card11,
+    Strip::Card17,
+    Strip::Solid11,
+    Strip::Solid17,
+    Strip::Solid3,
+];
+
+impl Strip {
+    fn index(self) -> u32 {
+        STRIPS.iter().position(|s| *s == self).unwrap() as u32
+    }
+    pub fn height(self) -> usize {
         match self {
-            Bar::Health => 0xE300,
-            Bar::Mana => 0xE350,
+            Strip::Card11 | Strip::Solid11 => 11,
+            Strip::Card17 | Strip::Solid17 => 17,
+            Strip::Solid3 => 3,
         }
     }
-
-    pub fn frame(self) -> char {
-        char::from_u32(self.base()).unwrap()
-    }
-
-    pub fn fill(self, cells: i32) -> Option<char> {
-        (1..=BAR_INNER)
-            .contains(&cells)
-            .then(|| char::from_u32(self.base() + cells as u32).unwrap())
-    }
-
-    /// (테두리, 바탕, 위·가운데·아래 채움색)
-    fn colors(self) -> (u32, u32, [u32; 3]) {
+    /// 줄 위쪽보다 몇 px 위에서 시작하나.
+    fn lift(self) -> i32 {
         match self {
-            Bar::Health => (0x1a0808ff, 0x3a1414c8, [0xff6a6aff, 0xe02a2aff, 0xa01818ff]),
-            Bar::Mana => (0x080d1aff, 0x14203ac8, [0x7ac4ffff, 0x2a7ae0ff, 0x1850a0ff]),
+            Strip::Card11 | Strip::Solid11 => 1,
+            _ => 0,
         }
     }
-
-    fn file(self) -> &'static str {
-        match self {
-            Bar::Health => "dangu:font/hud/bar_hp.png",
-            Bar::Mana => "dangu:font/hud/bar_mp.png",
-        }
+    fn card(self) -> bool {
+        matches!(self, Strip::Card11 | Strip::Card17)
     }
+    /// 끝 조각 폭.
+    pub fn cap_width(self) -> i32 {
+        if self.card() { 2 } else { 1 }
+    }
+    pub fn cap(self, right: bool) -> char {
+        char::from_u32(0xE500 + self.index() * 16 + u32::from(right)).unwrap()
+    }
+    /// 가운데 조각 2^k px (k = 0..=6).
+    pub fn mid(self, k: u32) -> char {
+        char::from_u32(0xE500 + self.index() * 16 + 2 + k).unwrap()
+    }
+}
+
+/// 막대 (체력·마나 같이, 색은 셰이더가): 틀 `E300`, 채움 `E301..` 1..=[`BAR_INNER`]칸.
+pub const BAR_FRAME: char = '\u{E300}';
+pub const BAR_W: i32 = 71;
+pub const BAR_INNER: i32 = BAR_W - 2;
+
+pub fn bar_fill(cells: i32) -> Option<char> {
+    (1..=BAR_INNER)
+        .contains(&cells)
+        .then(|| char::from_u32(0xE300 + cells as u32).unwrap())
+}
+
+/// 라벨 한글 (`E600`부터, [`LABEL_GLYPHS`] 순서).
+pub fn label_char(c: char) -> Option<char> {
+    LABEL_GLYPHS
+        .iter()
+        .position(|(g, _)| *g == c)
+        .map(|i| char::from_u32(0xE600 + i as u32).unwrap())
 }
 
 /// 공백: `E400+k` = +2^k, `E410+k` = -2^k (k = 0..=10).
@@ -150,307 +257,61 @@ pub fn space_char(k: u32, negative: bool) -> char {
     char::from_u32(0xE400 + if negative { 0x10 } else { 0 } + k).unwrap()
 }
 
+/// 공백 글자의 폭 (공백이 아니면 None).
+pub fn space_advance(c: char) -> Option<i32> {
+    let u = c as u32;
+    match u {
+        0xE400..=0xE40A => Some(1 << (u - 0xE400)),
+        0xE410..=0xE41A => Some(-(1 << (u - 0xE410))),
+        _ => None,
+    }
+}
+
+/// 바닐라 기본 폰트의 글자 폭 (모르는 글자는 None: HUD에 넣지 않음).
+pub fn default_advance(c: char) -> Option<i32> {
+    let u = c as u32;
+    match u {
+        0..=127 => Some(i32::from(ASCII_ADVANCE[u as usize])).filter(|w| *w > 0),
+        // 바닐라 unifont 설정: 한글 음절 left 1 right 15 → 15/2 + 1
+        0xAC00..=0xD7A3 => Some(8),
+        // 자모·한자·가나 (left 0 right 15)
+        0x1100..=0x11FF | 0x3001..=0x30FF | 0x3130..=0x318F | 0x3200..=0x9FFF => Some(9),
+        _ => None,
+    }
+}
+
+pub fn default_width(s: &str) -> i32 {
+    s.chars().filter_map(default_advance).sum()
+}
+
 // ---- 그림 ----
-
-/// 5×7 글자 (`#` 채움). 가장자리 1px은 코드가 어둡게 둘러 줍니다.
-const LETTERS: &[(char, [&str; 7])] = &[
-    (
-        '0',
-        [
-            ".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###.",
-        ],
-    ),
-    (
-        '1',
-        [
-            "..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###.",
-        ],
-    ),
-    (
-        '2',
-        [
-            ".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####",
-        ],
-    ),
-    (
-        '3',
-        [
-            ".###.", "#...#", "....#", "..##.", "....#", "#...#", ".###.",
-        ],
-    ),
-    (
-        '4',
-        [
-            "...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#.",
-        ],
-    ),
-    (
-        '5',
-        [
-            "#####", "#....", "####.", "....#", "....#", "#...#", ".###.",
-        ],
-    ),
-    (
-        '6',
-        [
-            "..##.", ".#...", "#....", "####.", "#...#", "#...#", ".###.",
-        ],
-    ),
-    (
-        '7',
-        [
-            "#####", "....#", "...#.", "..#..", ".#...", ".#...", ".#...",
-        ],
-    ),
-    (
-        '8',
-        [
-            ".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###.",
-        ],
-    ),
-    (
-        '9',
-        [
-            ".###.", "#...#", "#...#", ".####", "....#", "...#.", ".##..",
-        ],
-    ),
-    (',', ["..", "..", "..", "..", ".#", ".#", "#."]),
-    ('.', [".", ".", ".", ".", ".", ".", "#"]),
-    (
-        '%',
-        [
-            "##..#", "##..#", "...#.", "..#..", ".#...", "#..##", "#..##",
-        ],
-    ),
-    (
-        '/',
-        [
-            "....#", "...#.", "...#.", "..#..", ".#...", ".#...", "#....",
-        ],
-    ),
-    (
-        '+',
-        [
-            ".....", "..#..", "..#..", "#####", "..#..", "..#..", ".....",
-        ],
-    ),
-    (
-        '-',
-        [
-            ".....", ".....", ".....", "#####", ".....", ".....", ".....",
-        ],
-    ),
-    (
-        'K',
-        [
-            "#...#", "#..#.", "#.#..", "##...", "#.#..", "#..#.", "#...#",
-        ],
-    ),
-    (
-        'M',
-        [
-            "#...#", "##.##", "#.#.#", "#.#.#", "#...#", "#...#", "#...#",
-        ],
-    ),
-    (
-        'B',
-        [
-            "####.", "#...#", "#...#", "####.", "#...#", "#...#", "####.",
-        ],
-    ),
-    (
-        'L',
-        [
-            "#....", "#....", "#....", "#....", "#....", "#....", "#####",
-        ],
-    ),
-    (
-        'v',
-        [
-            ".....", ".....", "#...#", "#...#", "#...#", ".#.#.", "..#..",
-        ],
-    ),
-];
-
-/// 9×9 아이콘과 팔레트.
-type Icon = (char, [&'static str; 9], &'static [(char, u32)]);
-
-const ICONS: &[Icon] = &[
-    (
-        COIN,
-        [
-            "...ddd...",
-            ".ddyyydd.",
-            ".dyYYyyd.",
-            "dyYyyyyod",
-            "dyYyyyyod",
-            "dyyyyyyod",
-            ".dyyyood.",
-            ".ddooodd.",
-            "...ddd...",
-        ],
-        &[
-            ('d', 0x7a4a00ff),
-            ('y', 0xf5c542ff),
-            ('Y', 0xfff3b0ff),
-            ('o', 0xc9901aff),
-        ],
-    ),
-    (
-        GEM,
-        [
-            ".........",
-            "..ddddd..",
-            ".dCCcbbd.",
-            "dCCccbbbd",
-            ".dcccbbd.",
-            "..dccbd..",
-            "...dcd...",
-            "....d....",
-            ".........",
-        ],
-        &[
-            ('d', 0x123a6bff),
-            ('c', 0x55e0ffff),
-            ('C', 0xc8f7ffff),
-            ('b', 0x2a8fd6ff),
-        ],
-    ),
-    (
-        MOON,
-        [
-            "...ddd...",
-            "..dmmmd..",
-            ".dmmdd...",
-            ".dmd...z.",
-            ".dmd..zzz",
-            ".dmmdd.z.",
-            "..dmmmd..",
-            "...ddd...",
-            ".........",
-        ],
-        &[('d', 0x6b5a1eff), ('m', 0xfff2a8ff), ('z', 0xbfe3ffff)],
-    ),
-    (
-        STAR,
-        [
-            "....d....",
-            "...dyd...",
-            "dddyyyddd",
-            "dyyyYyyyd",
-            ".dyyyyyd.",
-            "..dyyyd..",
-            ".dyydyyd.",
-            "dyd...dyd",
-            "dd.....dd",
-        ],
-        &[('d', 0x7a5200ff), ('y', 0xffd84aff), ('Y', 0xfff6c0ff)],
-    ),
-    (
-        SWORD,
-        [
-            "......ddd",
-            ".....dssd",
-            "....dssd.",
-            "d..dssd..",
-            ".ddssd...",
-            "..dhd....",
-            ".dhdd....",
-            "dhd.d....",
-            "dd.......",
-        ],
-        &[('d', 0x2e2e2eff), ('s', 0xe6e6e6ff), ('h', 0x8b5a2bff)],
-    ),
-    (
-        SHIELD,
-        [
-            "ddddddddd",
-            "dsssbsssd",
-            "dsssbsssd",
-            "dbbbbbbbd",
-            "dsssbsssd",
-            ".dssbssd.",
-            "..dsbsd..",
-            "...dsd...",
-            "....d....",
-        ],
-        &[('d', 0x22324aff), ('s', 0x6fa0d8ff), ('b', 0xf2d16bff)],
-    ),
-    (
-        HEART,
-        [
-            ".dd...dd.",
-            "dRrd.dRrd",
-            "dRrrdrrrd",
-            "drrrrrrrd",
-            "drrrrrrrd",
-            ".drrrrrd.",
-            "..drrrd..",
-            "...drd...",
-            "....d....",
-        ],
-        &[('d', 0x5a0a10ff), ('r', 0xe8323cff), ('R', 0xff9a9aff)],
-    ),
-    (
-        BOOT,
-        [
-            "..ddddd..",
-            "..dbbbd..",
-            "..dbbbd..",
-            "..dbbbd..",
-            "..dbbbdd.",
-            ".dbbbbbbd",
-            "dbbbbbbbd",
-            "ddddddddd",
-            ".........",
-        ],
-        &[('d', 0x3e2412ff), ('b', 0x9b6a3cff)],
-    ),
-    (
-        FLAME,
-        [
-            "....d....",
-            "...dod...",
-            "..doood..",
-            "..dooood.",
-            ".doyyood.",
-            ".doyyyod.",
-            "doyyyyyod",
-            ".doyyyod.",
-            "..ddddd..",
-        ],
-        &[('d', 0x7a1e00ff), ('o', 0xff7a1aff), ('y', 0xffe066ff)],
-    ),
-];
 
 /// 글자 테두리 색과 글자 색.
 const OUTLINE: u32 = 0x1e1e1eff;
 const FILL: u32 = 0xffffffff;
-/// 판 (반투명 검정).
-const PANEL: u32 = 0x00000078;
 
 /// RGBA 그림 한 장.
 #[derive(Clone)]
-struct Image {
-    w: usize,
-    h: usize,
+pub struct Image {
+    pub w: usize,
+    pub h: usize,
     px: Vec<u32>,
 }
 
 impl Image {
-    fn new(w: usize, h: usize) -> Self {
+    pub fn new(w: usize, h: usize) -> Self {
         Self {
             w,
             h,
             px: vec![0; w * h],
         }
     }
-    fn set(&mut self, x: usize, y: usize, c: u32) {
+    pub fn set(&mut self, x: usize, y: usize, c: u32) {
         if x < self.w && y < self.h {
             self.px[y * self.w + x] = c;
         }
     }
-    fn get(&self, x: usize, y: usize) -> u32 {
+    pub fn get(&self, x: usize, y: usize) -> u32 {
         self.px[y * self.w + x]
     }
     fn blit(&mut self, src: &Image, ox: usize, oy: usize) {
@@ -460,7 +321,7 @@ impl Image {
             }
         }
     }
-    fn rgba(&self) -> Vec<u8> {
+    pub fn rgba(&self) -> Vec<u8> {
         self.px.iter().flat_map(|p| p.to_be_bytes()).collect()
     }
     /// 바닐라 폰트가 재는 글자 폭: 오른쪽에서부터 처음 불투명한 열 + 1.
@@ -469,6 +330,21 @@ impl Image {
             .rev()
             .find(|&x| (0..self.h).any(|y| self.get(x, y) & 0xff != 0))
             .map_or(0, |x| x as i32 + 1)
+    }
+    /// 반으로 줄임 (2×2 중 하나라도 칠해졌으면 칠함; 미리보기용).
+    pub fn half(&self) -> Image {
+        let mut out = Image::new(self.w / 2, self.h / 2);
+        for y in 0..out.h {
+            for x in 0..out.w {
+                let c = [(0, 0), (1, 0), (0, 1), (1, 1)]
+                    .iter()
+                    .map(|(dx, dy)| self.get(x * 2 + dx, y * 2 + dy))
+                    .max_by_key(|p| p & 0xff)
+                    .unwrap();
+                out.set(x, y, c);
+            }
+        }
+        out
     }
 }
 
@@ -505,27 +381,53 @@ fn icon(rows: &[&str; 9], palette: &[(char, u32)]) -> Image {
     img
 }
 
-fn panel_piece(width: usize, cap: Option<bool>) -> Image {
-    let mut img = Image::new(width, 11);
-    for y in 0..11 {
-        for x in 0..width {
-            // 둥근 모서리: 바깥 열의 맨 위·아래는 비움
-            let edge = match cap {
-                Some(false) => x == 0,
-                Some(true) => x + 1 == width,
-                None => false,
-            };
-            if !(edge && (y == 0 || y == 10)) {
-                img.set(x, y, PANEL);
+/// 라벨 한글 16×16 (흰색, 가장자리 어둡게).
+fn label_image(bits: &[u16; 16]) -> Image {
+    let mut img = Image::new(16, 16);
+    let on = |x: i32, y: i32| {
+        (0..16).contains(&x) && (0..16).contains(&y) && bits[y as usize] & (0x8000 >> x) != 0
+    };
+    for y in 0..16 {
+        for x in 0..16 {
+            if on(x, y) {
+                img.set(x as usize, y as usize, FILL);
             }
         }
     }
     img
 }
 
-fn bar_frame(bar: Bar) -> Image {
-    let (edge, back, _) = bar.colors();
-    let w = BAR_INNER as usize + 2;
+/// 판 조각. `cap`: 왼쪽(false)·오른쪽(true) 끝이면 바깥 열의 모서리를 비움.
+fn strip_piece(strip: Strip, width: usize, cap: Option<bool>) -> Image {
+    let h = strip.height();
+    let mut img = Image::new(width, h);
+    for y in 0..h {
+        for x in 0..width {
+            let outer = match cap {
+                Some(false) => x == 0,
+                Some(true) => x + 1 == width,
+                None => false,
+            };
+            if outer && (y == 0 || y + 1 == h) {
+                continue;
+            }
+            let c = if strip.card() {
+                match y {
+                    0 => 0x3c3c50b4,
+                    _ if y + 1 == h => 0x05050ac0,
+                    _ => 0x12121ca8,
+                }
+            } else {
+                0xffffffff
+            };
+            img.set(x, y, c);
+        }
+    }
+    img
+}
+
+fn bar_frame() -> Image {
+    let w = BAR_W as usize;
     let mut img = Image::new(w, 9);
     for y in 0..9 {
         for x in 0..w {
@@ -534,23 +436,27 @@ fn bar_frame(bar: Bar) -> Image {
             if corner {
                 continue;
             }
-            img.set(x, y, if border { edge } else { back });
+            img.set(x, y, if border { 0x101014e6 } else { 0x26262ec8 });
         }
     }
     img
 }
 
-fn bar_fill_image(bar: Bar, cells: usize) -> Image {
-    let (_, _, [hi, mid, lo]) = bar.colors();
-    let mut img = Image::new(BAR_INNER as usize + 2, 9);
+/// 채움 (회색조: 셰이더가 빨강·파랑을 곱함). 위가 밝고 아래로 어두워짐.
+fn bar_fill_image(cells: usize) -> Image {
+    let mut img = Image::new(BAR_W as usize, 9);
     for x in 1..=cells {
         for y in 1..8 {
-            let c = match y {
-                1 | 2 => hi,
-                6 | 7 => lo,
-                _ => mid,
+            let v: u32 = match y {
+                1 => 0xff,
+                2 => 0xf0,
+                3..=5 => 0xd8,
+                6 => 0xb4,
+                _ => 0x90,
             };
-            img.set(x, y, c);
+            // 끝 열은 조금 밝게 (차오르는 끝)
+            let v = if x == cells { (v + 0x20).min(0xff) } else { v };
+            img.set(x, y, v << 24 | v << 16 | v << 8 | 0xff);
         }
     }
     img
@@ -558,14 +464,16 @@ fn bar_fill_image(bar: Bar, cells: usize) -> Image {
 
 // ---- 폰트 ----
 
-/// 글자 하나: 어느 그림판의 몇 번째 칸인가, 화면에서 차지하는 폭.
-struct Sheet {
+/// 그림판 한 장 = 폰트의 bitmap 공급자 하나.
+pub struct Sheet {
     file: &'static str,
     cell: (usize, usize),
+    /// 화면에서의 높이 (cell 높이와 다르면 그만큼 줄여 그림).
+    pub height: usize,
     per_row: usize,
-    /// 줄 위쪽보다 몇 px 위에서 그리기 시작하나 (판은 1px 위).
-    lift: i32,
-    glyphs: Vec<(char, Image)>,
+    /// 줄 위쪽보다 몇 px 위에서 그리기 시작하나.
+    pub lift: i32,
+    pub glyphs: Vec<(char, Image)>,
 }
 
 impl Sheet {
@@ -596,6 +504,19 @@ impl Sheet {
             .collect();
         format!("[{}]", rows.join(","))
     }
+    /// 이 줄 폰트에 넣을 수 있나 (바닐라: ascent ≤ height).
+    pub fn fits(&self, row: &RowFont) -> bool {
+        self.ascent(row) <= self.height as i32
+    }
+    fn ascent(&self, row: &RowFont) -> i32 {
+        // 줄의 위쪽 = 기준 + down; 바닐라 글자의 위쪽은 기준 + 7 - ascent
+        7 - row.down + self.lift
+    }
+    /// 바닐라 bitmap 공급자의 글자 폭: (잉크 폭 × 배율 + 0.5) 버림 + 1.
+    fn advance(&self, img: &Image) -> i32 {
+        let scale = self.height as f32 / self.cell.1 as f32;
+        (0.5 + img.ink_width() as f32 * scale) as i32 + 1
+    }
 }
 
 fn json_chars(s: &str) -> String {
@@ -609,95 +530,157 @@ fn json_chars(s: &str) -> String {
         .collect()
 }
 
-fn sheets() -> Vec<Sheet> {
-    let mut small: Vec<(char, Image)> = LETTERS.iter().map(|(c, r)| (*c, letter(r))).collect();
-    small.extend(ICONS.iter().map(|(c, rows, pal)| (*c, icon(rows, pal))));
-    let mut panel = vec![
-        (PANEL_LEFT, panel_piece(2, Some(false))),
-        (PANEL_RIGHT, panel_piece(2, Some(true))),
-    ];
-    for (i, c) in PANEL_MID.iter().enumerate() {
-        panel.push((*c, panel_piece(1 << i, None)));
-    }
-    let bar_sheet = |bar: Bar| {
-        let mut glyphs = vec![(bar.frame(), bar_frame(bar))];
-        for k in 1..=BAR_INNER {
-            glyphs.push((bar.fill(k).unwrap(), bar_fill_image(bar, k as usize)));
+pub fn sheets() -> &'static [Sheet] {
+    static SHEETS: OnceLock<Vec<Sheet>> = OnceLock::new();
+    SHEETS.get_or_init(|| {
+        let mut small: Vec<(char, Image)> = LETTERS.iter().map(|(c, r)| (*c, letter(r))).collect();
+        small.extend(ICONS.iter().map(|(c, rows, pal)| (*c, icon(rows, pal))));
+        let labels = LABEL_GLYPHS
+            .iter()
+            .map(|(c, bits)| (label_char(*c).unwrap(), label_image(bits)))
+            .collect();
+        let mut out = vec![
+            Sheet {
+                file: "dangu:font/hud/small.png",
+                cell: (9, 9),
+                height: 9,
+                per_row: 16,
+                lift: 0,
+                glyphs: small,
+            },
+            Sheet {
+                file: "dangu:font/hud/label.png",
+                cell: (16, 16),
+                height: 8,
+                per_row: 16,
+                lift: 0,
+                glyphs: labels,
+            },
+        ];
+        for s in STRIPS {
+            let mut glyphs = vec![
+                (
+                    s.cap(false),
+                    strip_piece(s, s.cap_width() as usize, Some(false)),
+                ),
+                (
+                    s.cap(true),
+                    strip_piece(s, s.cap_width() as usize, Some(true)),
+                ),
+            ];
+            for k in 0..=6 {
+                glyphs.push((s.mid(k), strip_piece(s, 1 << k, None)));
+            }
+            out.push(Sheet {
+                file: match s {
+                    Strip::Card11 => "dangu:font/hud/card11.png",
+                    Strip::Card17 => "dangu:font/hud/card17.png",
+                    Strip::Solid11 => "dangu:font/hud/solid11.png",
+                    Strip::Solid17 => "dangu:font/hud/solid17.png",
+                    Strip::Solid3 => "dangu:font/hud/solid3.png",
+                },
+                cell: (64, s.height()),
+                height: s.height(),
+                per_row: 9,
+                lift: s.lift(),
+                glyphs,
+            });
         }
-        Sheet {
-            file: bar.file(),
-            cell: (81, 9),
+        let mut bar = vec![(BAR_FRAME, bar_frame())];
+        for k in 1..=BAR_INNER {
+            bar.push((bar_fill(k).unwrap(), bar_fill_image(k as usize)));
+        }
+        out.push(Sheet {
+            file: "dangu:font/hud/bar.png",
+            cell: (BAR_W as usize, 9),
+            height: 9,
             per_row: 10,
             lift: 0,
-            glyphs,
-        }
-    };
-    vec![
-        Sheet {
-            file: "dangu:font/hud/small.png",
-            cell: (9, 9),
-            per_row: 16,
-            lift: 0,
-            glyphs: small,
-        },
-        Sheet {
-            file: "dangu:font/hud/panel.png",
-            cell: (64, 11),
-            per_row: 9,
-            lift: 1,
-            glyphs: panel,
-        },
-        bar_sheet(Bar::Health),
-        bar_sheet(Bar::Mana),
-    ]
+            glyphs: bar,
+        });
+        out
+    })
 }
 
-/// 글자마다 화면에서 차지하는 폭 (바닐라: 잉크 폭 + 1).
+/// 그 글자가 있는 그림판.
+pub fn sheet_of(c: char) -> Option<&'static Sheet> {
+    static INDEX: OnceLock<HashMap<char, usize>> = OnceLock::new();
+    let i = INDEX.get_or_init(|| {
+        sheets()
+            .iter()
+            .enumerate()
+            .flat_map(|(i, s)| s.glyphs.iter().map(move |(c, _)| (*c, i)))
+            .collect()
+    });
+    i.get(&c).map(|&i| &sheets()[i])
+}
+
+/// 그림판 글자가 화면에서 차지하는 폭 (공백 글자 포함; 모르는 글자는 0).
 pub fn advance(c: char) -> i32 {
     static TABLE: OnceLock<HashMap<char, i32>> = OnceLock::new();
+    if let Some(a) = space_advance(c) {
+        return a;
+    }
     let t = TABLE.get_or_init(|| {
         sheets()
-            .into_iter()
-            .flat_map(|s| s.glyphs.into_iter())
-            .map(|(c, g)| (c, g.ink_width() + 1))
+            .iter()
+            .flat_map(|s| s.glyphs.iter().map(move |(c, g)| (*c, s.advance(g))))
             .collect()
     });
     t.get(&c).copied().unwrap_or(0)
 }
 
-fn font_json(down: i32, sheets: &[Sheet]) -> String {
+fn font_json(row: &RowFont) -> String {
     let mut spaces = Vec::new();
     for k in 0..=10u32 {
-        spaces.push(format!(
-            "\"{}\":{}",
-            json_chars(&space_char(k, false).to_string()),
-            1 << k
-        ));
-        spaces.push(format!(
-            "\"{}\":-{}",
-            json_chars(&space_char(k, true).to_string()),
-            1 << k
-        ));
+        for neg in [false, true] {
+            spaces.push(format!(
+                "\"{}\":{}{}",
+                json_chars(&space_char(k, neg).to_string()),
+                if neg { "-" } else { "" },
+                1 << k
+            ));
+        }
     }
     let mut providers = vec![format!(
         "{{\"type\":\"space\",\"advances\":{{{}}}}}",
         spaces.join(",")
     )];
-    for s in sheets {
-        // 줄의 위쪽 = 기준 + down; 바닐라 글자의 위쪽은 기준 + 7 - ascent
-        let ascent = 7 - down + s.lift;
+    for s in sheets().iter().filter(|s| s.fits(row)) {
         providers.push(format!(
             "{{\"type\":\"bitmap\",\"file\":\"{}\",\"ascent\":{},\"height\":{},\"chars\":{}}}",
             s.file,
-            ascent,
-            s.cell.1,
+            s.ascent(row),
+            s.height,
             s.chars_json()
         ));
     }
     format!("{{\"providers\":[{}]}}", providers.join(","))
 }
 
+fn palette_glsl() -> String {
+    let colors: Vec<String> = PALETTE
+        .iter()
+        .map(|c| {
+            format!(
+                "vec3({:.4}, {:.4}, {:.4})",
+                (c >> 16 & 0xff) as f32 / 255.0,
+                (c >> 8 & 0xff) as f32 / 255.0,
+                (c & 0xff) as f32 / 255.0
+            )
+        })
+        .collect();
+    format!(
+        "const vec3 DANGU_PALETTE[16] = vec3[16](\n    {}\n);",
+        colors.join(",\n    ")
+    )
+}
+
 /// 바닐라 26.3 `core/text.vsh`에 표시 색 처리를 더한 것.
+fn text_vsh() -> String {
+    TEXT_VSH.replace("//PALETTE//", &palette_glsl())
+}
+
 const TEXT_VSH: &str = r#"#version 330
 #extension GL_ARB_separate_shader_objects : require
 
@@ -725,6 +708,8 @@ layout(location = 1) out float cylindricalVertexDistance;
 layout(location = 2) out vec4 vertexColor;
 layout(location = 3) out vec2 texCoord0;
 
+//PALETTE//
+
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
 
@@ -737,14 +722,20 @@ void main() {
 #endif
     texCoord0 = UV0;
 
-    // dangu HUD: #FD02F9 = 화면 오른쪽 끝 기준으로 옮김, #FD03F9 = 그대로, 둘의 그림자는 지움
+    // dangu HUD: #FD gg bb = 글자, #FC gg bb = 그 그림자.
+    // gg: 08 화면 오른쪽 끝으로, 0C 그대로, 10 왼쪽 끝으로. bb - 240: 색 번호.
     ivec3 dangu_c = ivec3(round(Color.rgb * 255.0));
-    if (dangu_c == ivec3(253, 2, 249)) {
-        gl_Position.x += gl_Position.w;
-        vertexColor = vec4(1.0, 1.0, 1.0, Color.a);
-    } else if (dangu_c == ivec3(253, 3, 249)) {
-        vertexColor = vec4(1.0, 1.0, 1.0, Color.a);
-    } else if (dangu_c == ivec3(63, 0, 62)) {
+    bool dangu_anchor = dangu_c.g == 8 || dangu_c.g == 12 || dangu_c.g == 16;
+    if ((dangu_c.r == 253 || dangu_c.r == 252) && dangu_anchor && dangu_c.b >= 240) {
+        if (dangu_c.g == 8) {
+            gl_Position.x += gl_Position.w;
+        } else if (dangu_c.g == 16) {
+            gl_Position.x -= gl_Position.w;
+        }
+        vec3 dangu_p = DANGU_PALETTE[dangu_c.b - 240];
+        vertexColor = vec4(dangu_c.r == 252 ? dangu_p * 0.25 : dangu_p, Color.a);
+    } else if (dangu_c.r == 63 && dangu_c.g >= 2 && dangu_c.g <= 4 && dangu_c.b >= 60) {
+        // 바닐라가 만든 표시 색의 그림자 (색 × 1/4)
         vertexColor = vec4(0.0);
     }
 }
@@ -800,9 +791,8 @@ const HEARTS: &[&str] = &[
 
 /// HUD 콘텐츠 팩.
 pub fn pack() -> Pack {
-    let sheets = sheets();
     let mut files = Vec::new();
-    for s in &sheets {
+    for s in sheets() {
         let img = s.image();
         let path = s.file.trim_start_matches("dangu:");
         files.push((
@@ -810,16 +800,21 @@ pub fn pack() -> Pack {
             png(img.w as u32, img.h as u32, &img.rgba()),
         ));
     }
-    for row in TOP.iter().chain(BOTTOM.iter()).chain([&HP, &MP]) {
+    for row in all_rows() {
         let name = row.id.trim_start_matches("dangu:");
         files.push((
             format!("assets/dangu/font/{name}.json"),
-            font_json(row.down, &sheets).into_bytes(),
+            font_json(row).into_bytes(),
         ));
     }
     files.push((
+        "assets/dangu/textures/font/hud/label_LICENSE.txt".into(),
+        b"label.png glyphs: GNU Unifont 17.0.01, SIL Open Font License 1.1 (https://openfontlicense.org)\n"
+            .to_vec(),
+    ));
+    files.push((
         "assets/minecraft/shaders/core/text.vsh".into(),
-        TEXT_VSH.as_bytes().to_vec(),
+        text_vsh().into_bytes(),
     ));
     let clear = |w: u32, h: u32| png(w, h, &vec![0; (w * h * 4) as usize]);
     for h in HEARTS {
@@ -870,204 +865,59 @@ mod tests {
         // 숫자 폭: 5 + 테두리 2 + 1
         assert_eq!(advance('0'), 8);
         assert_eq!(advance('.'), 4);
-        assert_eq!(advance(COIN), 10);
-        assert_eq!(advance(PANEL_MID[3]), 9);
-        assert_eq!(advance(Bar::Health.fill(10).unwrap()), 12);
-        assert_eq!(advance(Bar::Mana.frame()), 82);
-        assert_eq!(Bar::Mana.fill(BAR_INNER), Some('\u{E39F}'));
+        assert_eq!(advance(super::super::sprites::COIN), 10);
+        assert_eq!(advance(Strip::Card11.mid(3)), 9);
+        assert_eq!(advance(bar_fill(10).unwrap()), 12);
+        assert_eq!(advance(BAR_FRAME), BAR_W + 1);
+        assert_eq!(advance(space_char(4, true)), -16);
+        // 라벨 한글: 16px을 8px로 → 잉크 폭의 반 + 1
+        let ga = label_char('공').unwrap();
+        assert!((7..=9).contains(&advance(ga)), "{}", advance(ga));
+        // 글자 번호가 겹치지 않음
+        let mut seen = std::collections::HashSet::new();
+        for s in sheets() {
+            for (c, _) in &s.glyphs {
+                assert!(seen.insert(*c), "{c:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn markers_round_trip() {
+        let t = tint(Anchor::Left, Pal::Gold);
+        assert_eq!(t.color(), "#FD10F4");
+        assert_eq!(Tint::parse(&t.color()), Some(t));
+        assert_eq!(tint(Anchor::Right, Pal::White).color(), "#FD08F0");
+        assert_eq!(tint(Anchor::Center, Pal::Black).shadow() as u32, 0xFFFC0CFF);
+        assert_eq!(default_width("Lv 12"), 6 + 6 + 4 + 6 + 6);
+        assert_eq!(default_width("퀘스트"), 24);
     }
 
     #[test]
     fn fonts_are_valid_json_with_legal_ascent() {
-        let sheets = sheets();
-        for row in TOP.iter().chain(BOTTOM.iter()).chain([&HP, &MP]) {
-            let j = crate::json::parse(&font_json(row.down, &sheets)).unwrap();
-            for p in j
-                .get("providers")
-                .unwrap()
-                .as_array()
-                .unwrap()
-                .iter()
-                .skip(1)
-            {
+        for row in all_rows() {
+            let j = crate::json::parse(&font_json(row)).unwrap();
+            let providers = j.get("providers").unwrap().as_array().unwrap();
+            assert!(providers.len() > 1, "{}", row.id);
+            for p in providers.iter().skip(1) {
                 let ascent = p.get("ascent").unwrap().as_f64().unwrap();
                 let height = p.get("height").unwrap().as_f64().unwrap();
                 assert!(ascent <= height, "{} {ascent} > {height}", row.id);
             }
         }
         let p = pack();
-        assert!(
-            p.files
-                .iter()
-                .any(|(n, _)| n == "assets/minecraft/shaders/core/text.vsh")
-        );
+        let vsh = p
+            .files
+            .iter()
+            .find(|(n, _)| n == "assets/minecraft/shaders/core/text.vsh")
+            .unwrap();
+        let vsh = String::from_utf8_lossy(&vsh.1);
+        assert!(vsh.contains("DANGU_PALETTE[16] = vec3[16]("));
+        assert!(!vsh.contains("//PALETTE//"));
         assert!(
             p.files
                 .iter()
                 .any(|(n, _)| n.ends_with("hud/heart/full.png"))
         );
-    }
-}
-
-/// 미리보기: 클라이언트가 할 배치(공백 폭, 줄마다 ascent, 오른쪽 표시 색)를 흉내 내어 GUI 화면
-/// 한 장을 그립니다. `MC_HUD_PREVIEW=<경로.png> cargo test hud_preview -- --ignored`
-#[cfg(test)]
-pub(crate) mod preview {
-    use super::*;
-    use crate::protocol::nbt::Tag;
-
-    pub struct Screen {
-        img: Image,
-    }
-
-    impl Screen {
-        pub fn new(w: usize, h: usize) -> Self {
-            let mut img = Image::new(w, h);
-            for y in 0..h {
-                for x in 0..w {
-                    // 하늘 → 풀밭
-                    let c = if y < h * 3 / 5 {
-                        0x86b7f0ff - ((y as u32 / 8) << 16)
-                    } else if (x / 16 + y / 16) % 2 == 0 {
-                        0x5d9b3aff
-                    } else {
-                        0x558f35ff
-                    };
-                    img.set(x, y, c);
-                }
-            }
-            // 핫바 자리
-            let (cx, hb) = (w as i32 / 2, h as i32 - 22);
-            for y in hb..h as i32 {
-                for x in cx - 91..cx + 91 {
-                    let edge = y == hb || x == cx - 91 || x == cx + 90 || (x - cx + 91) % 20 == 0;
-                    img.set(
-                        x as usize,
-                        y as usize,
-                        if edge { 0x202020ff } else { 0x8b8b8bff },
-                    );
-                }
-            }
-            Self { img }
-        }
-
-        fn blend(&mut self, x: i32, y: i32, c: u32) {
-            if x < 0 || y < 0 || x as usize >= self.img.w || y as usize >= self.img.h {
-                return;
-            }
-            let a = (c & 0xff) as f32 / 255.0;
-            let d = self.img.get(x as usize, y as usize);
-            let mix = |s: u32| {
-                let (sc, dc) = ((c >> s) & 0xff, (d >> s) & 0xff);
-                ((sc as f32 * a + dc as f32 * (1.0 - a)) as u32) << s
-            };
-            self.img
-                .set(x as usize, y as usize, mix(24) | mix(16) | mix(8) | 0xff);
-        }
-
-        /// 텍스트 한 줄을 `y`(보스바 제목이면 3, 액션바면 화면 높이 - 72)에.
-        pub fn draw_line(&mut self, tag: &Tag, y: i32) {
-            let sheets = sheets();
-            let glyph = |c: char| {
-                sheets.iter().find_map(|s| {
-                    s.glyphs
-                        .iter()
-                        .find(|(g, _)| *g == c)
-                        .map(|(_, img)| (img.clone(), s.lift))
-                })
-            };
-            let rows: Vec<&RowFont> = TOP.iter().chain(BOTTOM.iter()).chain([&HP, &MP]).collect();
-            let Tag::Compound(f) = tag else { return };
-            let Some((_, Tag::List(parts))) = f.iter().find(|(k, _)| k == "extra") else {
-                return;
-            };
-            let mut cursor = 0;
-            for p in parts {
-                let Tag::Compound(f) = p else { continue };
-                let get = |k: &str| {
-                    f.iter().find_map(|(n, v)| match v {
-                        Tag::String(s) if n == k => Some(s.clone()),
-                        _ => None,
-                    })
-                };
-                let (text, font, color) = (
-                    get("text").unwrap(),
-                    get("font").unwrap(),
-                    get("color").unwrap(),
-                );
-                let down = rows.iter().find(|r| r.id == font).unwrap().down;
-                let shift = if color == RIGHT {
-                    self.img.w as i32 / 2
-                } else {
-                    0
-                };
-                for c in text.chars() {
-                    let u = c as u32;
-                    if (0xE400..=0xE40A).contains(&u) {
-                        cursor += 1 << (u - 0xE400);
-                        continue;
-                    }
-                    if (0xE410..=0xE41A).contains(&u) {
-                        cursor -= 1 << (u - 0xE410);
-                        continue;
-                    }
-                    let (img, lift) = glyph(c).expect("모르는 글자");
-                    let x0 = self.img.w as i32 / 2 + shift + cursor;
-                    let y0 = y + down - lift;
-                    for gy in 0..img.h {
-                        for gx in 0..img.w {
-                            let px = img.get(gx, gy);
-                            if px & 0xff != 0 {
-                                self.blend(x0 + gx as i32, y0 + gy as i32, px);
-                            }
-                        }
-                    }
-                    cursor += advance(c);
-                }
-            }
-        }
-
-        /// `scale`배 키운 PNG.
-        pub fn png(&self, scale: usize) -> Vec<u8> {
-            let (w, h) = (self.img.w * scale, self.img.h * scale);
-            let mut big = Image::new(w, h);
-            for y in 0..h {
-                for x in 0..w {
-                    big.set(x, y, self.img.get(x / scale, y / scale));
-                }
-            }
-            png(w as u32, h as u32, &big.rgba())
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn hud_preview() {
-        let Ok(path) = std::env::var("MC_HUD_PREVIEW") else {
-            return;
-        };
-        let (w, h) = (480, 270);
-        let mut s = Screen::new(w, h);
-        let top = crate::plugins::hud::top(&crate::plugins::hud::Currencies {
-            money: 1_234_567,
-            cash: 120,
-            afk: 45,
-        });
-        let stats = crate::plugins::rpg::Stats {
-            level: 12,
-            attack: 7.0,
-            defense: 8.0,
-            max_health: 20.0,
-            speed: 100.0,
-            max_mana: 155.0,
-        };
-        let bottom = crate::plugins::hud::bottom(&crate::plugins::hud::Bottom {
-            stats: Some(&stats),
-            health: Some((14.0, 20.0)),
-            mana: Some((96.0, 155.0)),
-        });
-        s.draw_line(&top, 3);
-        s.draw_line(&bottom, h as i32 - 72);
-        std::fs::write(path, s.png(3)).unwrap();
     }
 }
