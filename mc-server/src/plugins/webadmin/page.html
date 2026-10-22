@@ -120,6 +120,16 @@ button.danger { color: var(--bad); }
         거르기는 쉼표로, <code>*</code> 하나를 쓸 수 있습니다 (예: <code>*_ore</code>).</p>
       <div class="grid" id="quest-counts"></div>
     </section>
+    <section class="card">
+      <h2>일일·주간·길드 납품 <span class="chip" id="n-supply"></span></h2>
+      <p class="hint">일일: 매일 0시(한국)에 사람마다 아래 자원 중 최소~최대 가지를 뽑음 (개수 = 일일 개수).
+        주간: 월요일에 같은 방식으로, 개수 × 주간 배율. 길드: 매일 길드마다, 개수 × 길드 배율 (길드원이 함께 냄).
+        뽑힌 것을 <b>모두</b> 내면 보상 한 번. 받는 아이템은 쉼표로 여럿 (<code>raw_iron, iron_ingot</code>, <code>*_planks</code>).
+        <code>dangu:</code> 아이템은 그 콘텐츠가 있을 때만 뽑힙니다 (지금 없는 물고기·특수 작물은 건너뜀).</p>
+      <div class="grid" id="supply-misc"></div>
+      <div class="scroll" style="margin-top:10px"><table id="supply"></table></div>
+      <div class="row" style="margin-top:8px"><button class="btn small" id="add-resource">자원 추가</button></div>
+    </section>
     <section class="card"><h2>일반 <span class="chip" id="n-normal"></span></h2><div id="q-normal"></div>
       <button class="btn small" data-add="normal">일반 퀘스트 추가</button></section>
     <section class="card"><h2>주간 후보 <span class="chip" id="n-weekly"></span></h2><div id="q-weekly"></div>
@@ -348,12 +358,45 @@ function renderQuests() {
     $("#q-" + l).replaceChildren(...quests[l].map((q, i) => questCard(l, q, i)));
     $("#n-" + l).textContent = quests[l].length + "개";
   }
+  renderSupply();
 }
+function renderSupply() {
+  const s = quests.supply;
+  const rw = (key, label) => [
+    el("label", {}, label + " 자동심기", num(s[key].autoplant, 10, v => s[key].autoplant = Math.max(0, Math.round(v)))),
+    el("label", {}, label + " 플라이 (분)", num(s[key].fly_minutes, 10, v => s[key].fly_minutes = Math.max(0, Math.round(v)))),
+    el("label", {}, label + " 돈", num(s[key].money, 100, v => s[key].money = Math.round(v))),
+  ];
+  $("#supply-misc").replaceChildren(
+    el("label", {}, "하루에 뽑는 수 (최소)", num(s.min_pick, 1, v => s.min_pick = Math.max(1, Math.round(v)))),
+    el("label", {}, "하루에 뽑는 수 (최대)", num(s.max_pick, 1, v => s.max_pick = Math.max(1, Math.round(v)))),
+    el("label", {}, "주간 배율", num(s.weekly_mult, 1, v => s.weekly_mult = Math.max(1, Math.round(v)))),
+    el("label", {}, "길드 배율", num(s.guild_mult, 1, v => s.guild_mult = Math.max(1, Math.round(v)))),
+    ...rw("daily_rewards", "일일"), ...rw("weekly_rewards", "주간"), ...rw("guild_rewards", "길드"),
+    el("label", {}, "길드 GP", num(s.guild_rewards.gp, 10, v => s.guild_rewards.gp = Math.round(v))));
+  const t = $("#supply");
+  t.replaceChildren(el("tr", {}, ...["id", "묶음", "이름", "받는 아이템", "일일 개수", ""].map(h => el("th", {}, h))),
+    ...s.resources.map((r, i) => el("tr", {},
+      el("td", {}, text(r.id, v => r.id = v.trim())),
+      el("td", {}, text(r.category, v => r.category = v)),
+      el("td", {}, text(r.name, v => r.name = v)),
+      el("td", {}, text((r.items || []).join(", "), v => r.items = v.split(",").map(x => x.trim()).filter(Boolean), { style: "min-width:220px" })),
+      el("td", {}, num(r.amount, 1, v => r.amount = Math.max(1, Math.round(v)))),
+      el("td", {}, el("button", { className: "btn small danger", textContent: "빼기", on: { click: () => { s.resources.splice(i, 1); markDirty(); renderSupply(); } } })))));
+  $("#n-supply").textContent = s.resources.length + "가지";
+}
+$("#add-resource").onclick = () => {
+  const s = quests.supply;
+  let n = s.resources.length + 1, id;
+  do id = "res_" + n++; while (s.resources.some(r => r.id === id));
+  s.resources.push({ id, category: "기타", name: "새 자원", items: ["stone"], amount: 16 });
+  markDirty(); renderSupply();
+};
 $$("[data-add]").forEach(b => b.onclick = () => {
   const l = b.dataset.add;
   let n = quests[l].length + 1, id;
   do id = `${l}_${n++}`; while (LISTS.some(k => quests[k].some(q => q.id === id)));
-  quests[l].push({ id, name: "새 퀘스트", description: "", objective: { kind: "mine", filter: [] }, target: 10, rewards: { money: 100, cash: 0, gp: 0, items: [], job_xp: [] }, repeatable: false });
+  quests[l].push({ id, name: "새 퀘스트", description: "", objective: { kind: "mine", filter: [] }, target: 10, rewards: { money: 100, cash: 0, gp: 0, autoplant: 0, fly_minutes: 0, items: [], job_xp: [] }, repeatable: false });
   markDirty(); renderQuests();
 });
 $("#quests-default").onclick = async () => { quests = await api("GET", "quests/default"); markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다."); };

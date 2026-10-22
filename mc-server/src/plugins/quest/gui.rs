@@ -23,10 +23,11 @@ pub struct Page {
     pub page: usize,
 }
 
-const TABS: [(usize, Kind, &str); 3] = [
-    (2, Kind::Normal, "writable_book"),
-    (4, Kind::Weekly, "clock"),
-    (6, Kind::Guild, "white_banner"),
+const TABS: [(usize, Kind, &str); 4] = [
+    (1, Kind::Normal, "writable_book"),
+    (3, Kind::Daily, "sunflower"),
+    (5, Kind::Weekly, "clock"),
+    (7, Kind::Guild, "white_banner"),
 ];
 const FIRST: usize = 9;
 const PER_PAGE: usize = 36;
@@ -60,7 +61,17 @@ pub fn bar(progress: u32, target: u32) -> String {
 
 fn rewards_lore(def: &QuestDef) -> Vec<String> {
     let r = &def.rewards;
+    if *r == super::config::Rewards::default() {
+        return Vec::new();
+    }
     let mut v = vec!["보상".to_owned()];
+    v.extend(reward_lines(r));
+    v
+}
+
+/// 보상 줄들 (`  돈 1,000` …).
+pub fn reward_lines(r: &super::config::Rewards) -> Vec<String> {
+    let mut v = Vec::new();
     if r.money > 0 {
         v.push(format!("  돈 {}", crate::plugins::hud::number(r.money)));
     }
@@ -72,6 +83,12 @@ fn rewards_lore(def: &QuestDef) -> Vec<String> {
     }
     for (j, x) in &r.job_xp {
         v.push(format!("  {j} 경험치 {x:.0}"));
+    }
+    if r.autoplant > 0 {
+        v.push(format!("  자동심기 {}블록", r.autoplant));
+    }
+    if r.fly_minutes > 0 {
+        v.push(format!("  플라이 {}분", r.fly_minutes));
     }
     for (i, c) in &r.items {
         let label = super::session::item_by_name(i, 1)
@@ -196,14 +213,30 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             "book",
             "퀘스트",
             "gold",
-            vec![
-                "일반: 받아서 하는 퀘스트".into(),
-                "주간: 월요일 0시(한국)에 새로".into(),
-                "길드 주간: 길드원이 함께 채움".into(),
-            ],
+            self.quest_info(page.tab),
             false,
         );
         slots
+    }
+
+    /// 가운데 아래 책: 종류 설명과 납품 보상.
+    fn quest_info(&self, tab: Kind) -> Vec<String> {
+        let mut v = vec![
+            "일반: 받아서 하는 퀘스트".into(),
+            "일일: 매일 0시(한국)에 납품 1~3가지".into(),
+            "주간: 월요일 0시에 새로 (납품은 일일의 3배)".into(),
+            "길드: 길드원이 함께 (납품은 매일, 일일의 2배)".into(),
+        ];
+        if let Some(r) =
+            config::with(|cfg| super::progress::Progress::supply_rewards(cfg, tab).cloned())
+        {
+            v.push(format!("{} 납품을 모두 내면", tab.name()));
+            v.extend(reward_lines(&r));
+            if tab == Kind::Guild {
+                v.push("  (GP는 길드에, 나머지는 낸 길드원 모두)".into());
+            }
+        }
+        v
     }
 
     pub(crate) async fn quest_click(
@@ -321,7 +354,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
         self.message(&text::colored(&format!("{took}개를 냈습니다."), "green"))
             .await?;
-        if let Some(c) = done {
+        for c in done {
             self.grant_quest(c).await?;
         }
         Ok(())

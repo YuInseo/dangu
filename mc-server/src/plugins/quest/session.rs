@@ -76,6 +76,20 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         for (job, xp) in &r.job_xp {
             crate::plugins::rank::job_xp(me, job, *xp).await;
         }
+        // 자동심기·플라이: 길드 납품이면 낸 길드원 모두에게 (접속해 있지 않아도)
+        let receivers = if c.contributors.is_empty() {
+            vec![me]
+        } else {
+            c.contributors.clone()
+        };
+        for &u in &receivers {
+            if r.autoplant > 0 {
+                crate::plugins::rank::add_autoplant(u, r.autoplant);
+            }
+            if r.fly_minutes > 0 {
+                crate::plugins::rank::add_fly_minutes(u, r.fly_minutes);
+            }
+        }
         for (name, count) in &r.items {
             if let Some(item) = item_by_name(name, 1) {
                 let given = self.give_many(item, *count).await?;
@@ -101,10 +115,21 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 .unwrap_or_else(|| name.clone());
             parts.push(format!("{label} ×{count}"));
         }
+        if r.autoplant > 0 {
+            parts.push(format!("자동심기 {}블록", r.autoplant));
+        }
+        if r.fly_minutes > 0 {
+            parts.push(format!("플라이 {}분", r.fly_minutes));
+        }
         if let (Kind::Guild, Some(gid)) = (c.kind, c.guild) {
             crate::plugins::guild::guilds().write(|d| d.add_gp(gid, Some(me), r.gp));
+            let extra = if c.contributors.len() > 1 {
+                format!(" · 낸 길드원 {}명 모두 보상", c.contributors.len())
+            } else {
+                String::new()
+            };
             self.tell_guild(&format!(
-                "[길드 주간] {} 완료! 길드 GP +{} (마지막: {})",
+                "[길드] {} 완료! 길드 GP +{} (마지막: {}){extra}",
                 c.def.name, r.gp, self.profile.name
             ));
         }
@@ -134,6 +159,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     pub(crate) async fn quest_command(&mut self, args: &[&str]) -> Result<(), FrameError> {
         let tab = match args.first().copied() {
             Some("주간" | "weekly") => Kind::Weekly,
+            Some("일일" | "daily") => Kind::Daily,
             Some("길드" | "guild") => Kind::Guild,
             _ => Kind::Normal,
         };

@@ -134,6 +134,7 @@ pub struct Currencies {
 fn kind_style(k: Kind) -> (&'static str, Pal) {
     match k {
         Kind::Normal => ("일반", Pal::Green),
+        Kind::Daily => ("일일", Pal::Pink),
         Kind::Weekly => ("주간", Pal::Gold),
         Kind::Guild => ("길드", Pal::Aqua),
     }
