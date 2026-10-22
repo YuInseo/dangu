@@ -55,7 +55,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 손에 든 사용자 정의 아이템의 능력을 씁니다. 썼으면 true.
-    pub(super) async fn use_ability(&mut self, off_hand: bool) -> Result<bool, FrameError> {
+    pub(crate) async fn use_ability(&mut self, off_hand: bool) -> Result<bool, FrameError> {
         let item = if off_hand {
             self.off_hand()
         } else {
@@ -211,7 +211,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 때릴 때의 피해: 사용자 정의 아이템이면 그 값.
-    pub(super) fn held_damage(&self) -> f32 {
+    pub(crate) fn held_damage(&self) -> f32 {
         let item = self.main_hand();
         item.and_then(|i| i.custom)
             .and_then(custom_items::get)

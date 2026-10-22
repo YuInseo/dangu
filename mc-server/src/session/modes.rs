@@ -22,7 +22,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// F3+F4 메뉴. `/gamemode` 권한이 있어야 합니다 (바닐라도 OP 2단계).
-    pub(super) async fn request_game_mode(
+    pub(crate) async fn request_game_mode(
         &mut self,
         mode: Option<GameMode>,
     ) -> Result<(), FrameError> {
@@ -38,7 +38,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 설정 화면의 난이도 버튼과 자물쇠.
-    pub(super) async fn request_difficulty(&mut self, id: i32) -> Result<(), FrameError> {
+    pub(crate) async fn request_difficulty(&mut self, id: i32) -> Result<(), FrameError> {
         if self.may("difficulty") && (0..4).contains(&id) {
             self.server.set_difficulty(Difficulty::from_id(id as u8));
         }
@@ -46,7 +46,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(self.send_difficulty(self.server.difficulty()).await?)
     }
 
-    pub(super) async fn request_lock_difficulty(&mut self, locked: bool) -> Result<(), FrameError> {
+    pub(crate) async fn request_lock_difficulty(&mut self, locked: bool) -> Result<(), FrameError> {
         if locked && self.may("difficulty") {
             self.server.lock_difficulty();
         }
@@ -54,7 +54,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 클라이언트가 비행을 켜고 끔. 날 수 없는 모드면 능력을 다시 보내 끕니다.
-    pub(super) async fn player_abilities(&mut self, flags: u8) -> Result<(), FrameError> {
+    pub(crate) async fn player_abilities(&mut self, flags: u8) -> Result<(), FrameError> {
         let flying = flags & 0x02 != 0;
         let can_fly = matches!(self.gamemode, GameMode::Creative | GameMode::Spectator);
         if flying && !can_fly {
@@ -71,7 +71,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 관전 중 엔티티를 좌클릭: 그 눈으로 봅니다. 허공이면 자기 시점으로.
-    pub(super) async fn spectate(&mut self, target: Option<i32>) -> Result<(), FrameError> {
+    pub(crate) async fn spectate(&mut self, target: Option<i32>) -> Result<(), FrameError> {
         if self.gamemode != GameMode::Spectator {
             return Ok(());
         }
@@ -79,7 +79,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         self.set_camera(target).await
     }
 
-    pub(super) async fn set_camera(&mut self, target: Option<i32>) -> Result<(), FrameError> {
+    pub(crate) async fn set_camera(&mut self, target: Option<i32>) -> Result<(), FrameError> {
         if self.camera == target {
             return Ok(());
         }
@@ -91,7 +91,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 관전 메뉴(숫자 키)에서 다른 플레이어에게 순간 이동. 다른 차원이어도 갑니다.
-    pub(super) async fn spectator_teleport(&mut self, uuid: u128) -> Result<(), FrameError> {
+    pub(crate) async fn spectator_teleport(&mut self, uuid: u128) -> Result<(), FrameError> {
         if self.gamemode != GameMode::Spectator {
             return Ok(());
         }
@@ -105,7 +105,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// F 키: 주 손과 보조 손을 바꿉니다.
-    pub(super) async fn swap_hands(&mut self) -> Result<(), FrameError> {
+    pub(crate) async fn swap_hands(&mut self) -> Result<(), FrameError> {
         if self.gamemode == GameMode::Spectator || self.vitals.dead {
             return Ok(());
         }
@@ -118,7 +118,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 크리에이티브 인벤토리에서 밖으로 던진 아이템 (슬롯 -1).
-    pub(super) fn creative_drop(&mut self, item: Option<Item>) {
+    pub(crate) fn creative_drop(&mut self, item: Option<Item>) {
         if self.gamemode != GameMode::Creative {
             return;
         }
@@ -128,7 +128,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 가운데 클릭. 크리에이티브는 블록을 새로 쥐고, 서바이벌은 가진 것에서 찾아 핫바로.
-    pub(super) async fn pick_block_any_mode(&mut self, pos: BlockPos) -> Result<(), FrameError> {
+    pub(crate) async fn pick_block_any_mode(&mut self, pos: BlockPos) -> Result<(), FrameError> {
         if self.gamemode == GameMode::Creative {
             return self.pick_block(pos).await;
         }
@@ -144,7 +144,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 가진 아이템 `id`를 손에 쥡니다: 핫바에 있으면 그 칸, 가방에 있으면 지금 칸과 맞바꿈.
-    pub(super) async fn pick_from_inventory(&mut self, id: i32) -> Result<(), FrameError> {
+    pub(crate) async fn pick_from_inventory(&mut self, id: i32) -> Result<(), FrameError> {
         let has = |s: &Option<Item>| s.is_some_and(|i| i.id == id && i.custom.is_none());
         if let Some(i) = (0..9).find(|&i| has(&self.inventory[36 + i])) {
             self.held = i;
@@ -170,7 +170,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 크리에이티브에서 엔티티를 가운데 클릭: 그 몹의 스폰 알을 쥡니다.
-    pub(super) async fn pick_entity(&mut self, entity_id: i32) -> Result<(), FrameError> {
+    pub(crate) async fn pick_entity(&mut self, entity_id: i32) -> Result<(), FrameError> {
         if self.gamemode != GameMode::Creative {
             return Ok(());
         }
@@ -209,7 +209,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 하드코어에서 죽고 "관전하기"를 누르면 관전 모드로 남습니다.
-    pub(super) fn hardcore_after_death(&self) -> bool {
+    pub(crate) fn hardcore_after_death(&self) -> bool {
         self.server.config.hardcore
     }
 }

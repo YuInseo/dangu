@@ -426,9 +426,9 @@ pub struct Server {
     pub furnaces: crate::game::mechanics::furnace::Furnaces,
     pub redstone: crate::game::mechanics::redstone::State,
     /// 이 채널의 복권.
-    pub lottery: crate::game::lottery::Lottery,
+    pub lottery: crate::plugins::lottery::Lottery,
     /// 이 채널의 NPC.
-    pub npcs: crate::game::npcs::Npcs,
+    pub npcs: crate::plugins::npc::Npcs,
     difficulty: std::sync::atomic::AtomicU8,
     /// 난이도 잠금 (설정 화면의 자물쇠). 잠그면 다시 풀 수 없습니다.
     difficulty_locked: std::sync::atomic::AtomicBool,
@@ -573,10 +573,10 @@ impl Server {
             ticks: Default::default(),
             furnaces: Default::default(),
             redstone: Default::default(),
-            lottery: crate::game::lottery::Lottery::open(
+            lottery: crate::plugins::lottery::Lottery::open(
                 data_dir.as_ref().map(|d| d.join("lottery.json")),
             ),
-            npcs: crate::game::npcs::Npcs::open(data_dir.as_ref().map(|d| d.join("npcs.json"))),
+            npcs: crate::plugins::npc::Npcs::open(data_dir.as_ref().map(|d| d.join("npcs.json"))),
             perms: Arc::new(
                 crate::perms::Permissions::open(None, true).expect("memory permissions"),
             ),

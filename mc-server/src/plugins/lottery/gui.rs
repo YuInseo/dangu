@@ -8,15 +8,15 @@
 
 use tokio::io::AsyncWrite;
 
-use super::play::Session;
-use super::windows::{Window, WindowKind};
 use crate::dambi::child;
 use crate::data::{items, menu};
 use crate::game::custom_items::{self, Look};
-use crate::game::lottery::{self, Claim, NUMBERS, PICK, numbers_text, won};
 use crate::packets::container as pc;
 use crate::packets::world::Item;
+use crate::plugins::lottery::{self, Claim, NUMBERS, PICK, numbers_text, won};
 use crate::protocol::frame::FrameError;
+use crate::session::play::Session;
+use crate::session::windows::{Window, WindowKind};
 use crate::text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,7 +64,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         0x8000_0000 | ((self.entity_id as u32 & 0x7_FFFF) << 6) | slot as u32
     }
 
-    pub(super) fn icon(
+    pub(crate) fn icon(
         &self,
         slot: usize,
         item: &str,
@@ -90,7 +90,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         })
     }
 
-    pub(super) fn pane(&self, slot: usize) -> Option<Item> {
+    pub(crate) fn pane(&self, slot: usize) -> Option<Item> {
         self.icon(
             slot,
             "gray_stained_glass_pane",
@@ -101,7 +101,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         )
     }
 
-    pub(super) fn lottery_slots(&self, page: &Page) -> Vec<Option<Item>> {
+    pub(crate) fn lottery_slots(&self, page: &Page) -> Vec<Option<Item>> {
         let l = &self.server.lottery;
         let c = l.config();
         let now = lottery::now();
@@ -240,14 +240,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
     }
 
-    pub(super) fn lottery_closed(&self) {
+    pub(crate) fn lottery_closed(&self) {
         for s in 0..54 {
             custom_items::remove_look(self.icon_serial(s));
         }
     }
 
     /// 판매소를 엽니다 (NPC 우클릭, `/복권`).
-    pub(super) async fn open_lottery(&mut self, page: Page) -> std::io::Result<()> {
+    pub(crate) async fn open_lottery(&mut self, page: Page) -> std::io::Result<()> {
         self.close_window(false).await?;
         self.next_window = self.next_window % 100 + 1;
         let id = self.next_window;
@@ -277,7 +277,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
     }
 
-    pub(super) async fn lottery_click(&mut self, page: Page, slot: i16) -> Result<(), FrameError> {
+    pub(crate) async fn lottery_click(&mut self, page: Page, slot: i16) -> Result<(), FrameError> {
         let Ok(slot) = usize::try_from(slot) else {
             return Ok(());
         };
@@ -377,7 +377,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 가방의 복권을 모두 냅니다.
-    pub(super) async fn submit_tickets(&mut self) -> Result<(), FrameError> {
+    pub(crate) async fn submit_tickets(&mut self) -> Result<(), FrameError> {
         let Some(ticket) = lottery::ticket_index() else {
             return Ok(());
         };

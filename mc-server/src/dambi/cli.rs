@@ -189,12 +189,12 @@ pub fn execute(master: &Arc<Master>, line: &str) -> Vec<String> {
         }
         ["money", player, rest @ ..] => money(master, player, rest),
         ["iazip"] | ["iareload"] | ["팩"] => {
-            let l = crate::contents::reload_and_rebuild();
+            let l = crate::plugins::contents::reload_and_rebuild();
             master.broadcast(Msg::Event {
-                channel: crate::contents::PACK_RELOAD.into(),
+                channel: crate::plugins::contents::PACK_RELOAD.into(),
                 payload: String::new(),
             });
-            crate::contents::summary(&l)
+            crate::plugins::contents::summary(&l)
         }
         ["stop"] => {
             master.shutdown.notify_one();

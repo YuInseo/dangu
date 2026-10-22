@@ -1,10 +1,17 @@
 //! 프레임워크 없이 tokio만으로 짜는 마인크래프트 Java Edition 26.3 서버.
+//!
+//! 층 (아래층은 위층을 모름):
+//! - [`plugins`] 이 서버만의 기능 (콘텐츠·복권·NPC …), 기능 하나 = 폴더 하나
+//! - [`session`] 접속 하나의 흐름과 플레이어 행동 / [`game`] 틱으로 돌아가는 세계 / [`world`] 지형과 청크
+//! - [`server`]·[`network`] 인스턴스의 공유 상태 / [`dambi`] 여러 프로세스를 묶는 마스터 노드
+//! - [`packets`]·[`protocol`]·[`crypto`]·[`data`] 프로토콜과 바닐라 데이터
+//!
+//! 자세한 지도는 README의 "구조"를 보세요.
 
 pub mod admin;
 pub mod auth;
 pub mod chat;
 pub mod connection;
-pub mod contents;
 pub mod crypto;
 pub mod dambi;
 pub mod data;
@@ -13,6 +20,7 @@ pub mod json;
 pub mod network;
 pub mod packets;
 pub mod perms;
+pub mod plugins;
 pub mod protocol;
 pub mod resource_pack;
 pub mod server;

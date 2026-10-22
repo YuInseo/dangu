@@ -36,7 +36,7 @@ pub enum Kind {
         fuse: u32,
     },
     Projectile(Projectile),
-    /// 사용자 정의 NPC ([`super::npcs`]): 엔티티 종류, 모습, 쳐다보기.
+    /// 사용자 정의 NPC ([`crate::plugins::npc`]): 엔티티 종류, 모습, 쳐다보기.
     Npc {
         npc: u32,
         type_id: i32,
@@ -374,7 +374,7 @@ impl Entities {
                         physics(server, e, 0.04, 0.98);
                     }
                     Kind::Npc { .. } => {
-                        super::npcs::tick(e, &players);
+                        crate::plugins::npc::tick(e, &players);
                     }
                     Kind::Projectile(_) => {
                         if projectiles::tick(server, e, &players, &mut out.events) {
@@ -427,7 +427,7 @@ impl Entities {
         }
         super::mechanics::tick(server, now as u64, &players);
         if now.is_multiple_of(100) {
-            super::lottery::tick(server);
+            crate::plugins::lottery::tick(server);
             server.npcs.ensure_spawned(server);
         }
         super::spawning::tick(server, &players, now);

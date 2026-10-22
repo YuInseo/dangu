@@ -22,44 +22,6 @@ pub struct Sprite {
     pub palette: &'static [(char, [u8; 4])],
 }
 
-/// 복권: 빨간 머리띠에 불빛, 숫자 칸, 금빛 도장, 양옆 절취선 홈.
-pub const LOTTERY_TICKET: Sprite = Sprite {
-    name: "lottery_ticket",
-    rows: [
-        "................",
-        ".OOOOOOOOOOOOOO.",
-        "OrrrrrrrrrrrrrRO",
-        "OrwrrwrrwrrwrrRO",
-        "ORRRRRRRRRRRRRRO",
-        "OccccccccccccCCO",
-        ".OckkcckkcckkcO.",
-        "OccccccccccccCCO",
-        "OcbbcbbcbbcbbcCO",
-        ".OcccccccccccCO.",
-        "OcccccccccgggcCO",
-        "OckkkkkkccgwgcCO",
-        "OCCCCCCCCCgggCCO",
-        ".OOOOOOOOOOOOOO.",
-        "................",
-        "................",
-    ],
-    palette: &[
-        ('.', [0, 0, 0, 0]),
-        ('O', [0x4a, 0x2c, 0x12, 0xff]),
-        ('r', [0xe0, 0x40, 0x40, 0xff]),
-        ('R', [0xa8, 0x24, 0x24, 0xff]),
-        ('w', [0xff, 0xf6, 0xc8, 0xff]),
-        ('c', [0xff, 0xf4, 0xcf, 0xff]),
-        ('C', [0xec, 0xd9, 0xa0, 0xff]),
-        ('k', [0x3b, 0x2a, 0x1e, 0xff]),
-        ('b', [0x3d, 0x7b, 0xe0, 0xff]),
-        ('g', [0xff, 0xc8, 0x2a, 0xff]),
-    ],
-};
-
-/// 서버가 직접 그린 그림들 (내장 콘텐츠 팩이 씀).
-pub const SPRITES: &[&Sprite] = &[&LOTTERY_TICKET, &crate::contents::LOTTERY_TICKET_BACK];
-
 impl Sprite {
     pub fn rgba(&self) -> Vec<u8> {
         let mut out = Vec::with_capacity(16 * 16 * 4);
@@ -170,7 +132,7 @@ pub fn pack() -> Arc<Pack> {
     rebuild()
 }
 
-/// 콘텐츠([`crate::contents`])를 다시 읽은 뒤 등 — 팩을 새로 만듭니다.
+/// 콘텐츠([`crate::plugins::contents`])를 다시 읽은 뒤 등 — 팩을 새로 만듭니다.
 pub fn rebuild() -> Arc<Pack> {
     let p = Arc::new(build());
     *PACK.write().unwrap() = Some(Arc::clone(&p));
@@ -187,7 +149,7 @@ fn build() -> Pack {
         .into_bytes(),
     )];
     // ItemsAdder식 콘텐츠의 그림·모델·폰트·블록 상태 (같은 이름이면 콘텐츠가 이김)
-    for (name, bytes) in crate::contents::current().files.iter() {
+    for (name, bytes) in crate::plugins::contents::current().files.iter() {
         if name == "pack.mcmeta" {
             continue;
         }
@@ -284,21 +246,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sprites_are_16_by_16_with_known_colors() {
-        for s in SPRITES {
-            assert_eq!(s.rows.len(), 16);
-            for (y, row) in s.rows.iter().enumerate() {
-                assert_eq!(row.chars().count(), 16, "{} row {y}", s.name);
-                for c in row.chars() {
-                    assert!(s.palette.iter().any(|(p, _)| *p == c), "{} '{c}'", s.name);
-                }
-            }
-        }
-    }
-
-    #[test]
     fn png_decodes_back() {
-        let rgba = LOTTERY_TICKET.rgba();
+        let rgba = crate::plugins::lottery::art::LOTTERY_TICKET.rgba();
         let file = png(16, 16, &rgba);
         assert_eq!(&file[1..4], b"PNG");
         // IDAT를 풀면 행마다 필터 바이트 + 원래 픽셀
@@ -324,7 +273,7 @@ mod tests {
         ] {
             assert!(text.contains(name), "{name}");
         }
-        let paper = crate::contents::current()
+        let paper = crate::plugins::contents::current()
             .files
             .iter()
             .find(|(n, _)| n == "assets/minecraft/items/paper.json")

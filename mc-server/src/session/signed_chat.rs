@@ -37,11 +37,11 @@ fn now_ms() -> i64 {
 }
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
-    pub(super) fn chat_session(&self) -> Option<Arc<ChatSession>> {
+    pub(crate) fn chat_session(&self) -> Option<Arc<ChatSession>> {
         self.chat.session.as_ref().map(|(s, _)| s.clone())
     }
 
-    pub(super) async fn chat_session_update(
+    pub(crate) async fn chat_session_update(
         &mut self,
         session: ChatSession,
     ) -> Result<(), FrameError> {
@@ -73,7 +73,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
-    pub(super) async fn chat_message(&mut self, m: ChatMessage) -> Result<(), FrameError> {
+    pub(crate) async fn chat_message(&mut self, m: ChatMessage) -> Result<(), FrameError> {
         let clean = sanitize(&m.message);
         if clean.is_empty() {
             return Ok(());
@@ -85,7 +85,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
         let last_seen = self.chat.last_seen.apply_update(m.offset, m.acknowledged);
         // :이모지:가 있으면 그림 글자로 바꿔 서명 없는 채팅으로 (서명은 원문에만 맞음)
-        let shown = crate::contents::emojify(&clean);
+        let shown = crate::plugins::contents::emojify(&clean);
         if shown != clean {
             self.server.publish(Event::Chat {
                 kind: ChatKind::Chat,
@@ -131,14 +131,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
-    pub(super) fn chat_ack(&mut self, offset: i32) {
+    pub(crate) fn chat_ack(&mut self, offset: i32) {
         // 틀린 offset은 바닐라라면 끊지만, 여기서는 서명 확인이 실패하는 것으로 충분합니다.
         let _ = self.chat.last_seen.apply_offset(offset);
     }
 
     /// 다른 사람(또는 나)의 서명된 채팅을 받음.
     #[allow(clippy::too_many_arguments)]
-    pub(super) async fn deliver_signed_chat(
+    pub(crate) async fn deliver_signed_chat(
         &mut self,
         sender: u128,
         sender_name: &str,
@@ -175,7 +175,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 다른 사람의 채팅 세션을 탭 목록에 붙입니다.
-    pub(super) async fn announce_chat_session(
+    pub(crate) async fn announce_chat_session(
         &mut self,
         uuid: u128,
         session: &ChatSession,

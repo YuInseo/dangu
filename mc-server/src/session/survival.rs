@@ -105,14 +105,14 @@ fn death_message(name: &str, cause: &str, attacker: &str) -> String {
 }
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
-    pub(super) async fn send_health(&mut self) -> std::io::Result<()> {
+    pub(crate) async fn send_health(&mut self) -> std::io::Result<()> {
         let v = &self.vitals;
         let body = pe::encode_set_health(v.health, v.food, v.saturation);
         self.send(pe::SET_HEALTH_ID, &body).await
     }
 
     /// 이동 패킷마다: 낙하 거리와 배고픔.
-    pub(super) async fn after_move(
+    pub(crate) async fn after_move(
         &mut self,
         old: (f64, f64, f64),
         on_ground: bool,
@@ -169,12 +169,12 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 텔레포트·부활 뒤에는 낙하 거리를 셈하지 않습니다.
-    pub(super) fn reset_fall(&mut self) {
+    pub(crate) fn reset_fall(&mut self) {
         self.vitals.fall_peak = None;
     }
 
     /// 250ms마다: 환경 피해, 회복, 굶주림, 먹기 완료.
-    pub(super) async fn survival_tick(&mut self) -> Result<(), FrameError> {
+    pub(crate) async fn survival_tick(&mut self) -> Result<(), FrameError> {
         if self.vitals.dead {
             return Ok(());
         }
@@ -248,7 +248,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 피해를 입습니다. 0.5초 안에 다시 맞은 것은 무시합니다.
-    pub(super) async fn damage(
+    pub(crate) async fn damage(
         &mut self,
         amount: f32,
         cause: &'static str,
@@ -338,7 +338,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 사망 화면에서 "부활"을 눌렀을 때. 오버월드 스폰으로 돌아갑니다.
-    pub(super) async fn respawn(&mut self) -> Result<(), FrameError> {
+    pub(crate) async fn respawn(&mut self) -> Result<(), FrameError> {
         if !self.vitals.dead {
             return Ok(());
         }
@@ -364,7 +364,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 왼클릭으로 엔티티를 때림 (플레이어든 몹이든).
-    pub(super) async fn attack(&mut self, target: i32) -> Result<(), FrameError> {
+    pub(crate) async fn attack(&mut self, target: i32) -> Result<(), FrameError> {
         if self.vitals.dead || self.gamemode == GameMode::Spectator || target == self.entity_id {
             return Ok(());
         }
@@ -410,7 +410,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 오른클릭(허공): 음식이면 먹기 시작.
-    pub(super) async fn use_item(
+    pub(crate) async fn use_item(
         &mut self,
         off_hand: bool,
         sequence: i32,
@@ -437,7 +437,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
-    pub(super) fn stop_using_item(&mut self) {
+    pub(crate) fn stop_using_item(&mut self) {
         self.vitals.eating = None;
     }
 
@@ -467,7 +467,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
-    pub(super) fn exhaust(&mut self, amount: f32) {
+    pub(crate) fn exhaust(&mut self, amount: f32) {
         if self.gamemode.takes_damage() {
             self.vitals.exhaust(amount);
         }

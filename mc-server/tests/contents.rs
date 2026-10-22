@@ -55,7 +55,7 @@ async fn itemsadder_style_contents() {
     let dir = std::env::temp_dir().join(format!("dangu-contents-e2e-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     copy_dir(Path::new("examples/contents"), &dir);
-    let loaded = mc_server::contents::reload_from(&dir);
+    let loaded = mc_server::plugins::contents::reload_from(&dir);
     assert!(loaded.errors.is_empty(), "{:?}", loaded.errors);
     // 서버 내장 팩(dangu: 복권)을 빼면 예시 팩의 아이템 3개
     let example: Vec<_> = loaded
@@ -112,7 +112,7 @@ async fn itemsadder_style_contents() {
     send(&mut s, 0x42, &b).await;
     let placed_at = (under.0, under.1 + 1, under.2);
     let index = mc_server::game::custom_items::index_of("example:ruby_block").unwrap();
-    let state = mc_server::contents::block_state(index).unwrap();
+    let state = mc_server::plugins::contents::block_state(index).unwrap();
     let up = recv_where(&mut s, |p| p.id == BLOCK_UPDATE).await;
     let mut body = &up.body[8..];
     assert_eq!(read_varint(&mut body).unwrap() as u32, state);

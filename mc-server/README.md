@@ -301,25 +301,44 @@ OP 단계는 권한 규칙이 없을 때의 기본값입니다 (`/perm`으로 �
 - **운영**: `server.properties` 파일 대신 환경 변수.
 - **플러그인 API**: 스피곳 자바 플러그인을 돌리려면 JVM이 필요해서, Rust/WASM 플러그인이 현실적.
 
-## 구조
+## 구조 (코드 지도)
+
+아래층은 위층을 모릅니다. 새 기능은 대부분 맨 위 `plugins/`에 폴더 하나로 들어갑니다.
 
 ```
-src/protocol/            VarInt·기본 타입·NBT·zlib·패킷 코덱(압축·암호화)
-src/crypto/              SHA-1/256, AES-CFB8, 큰 정수, RSA, Base64
-src/auth.rs              Mojang 세션 서버 (HTTPS만 rustls)
-src/chat.rs              서명된 채팅 (키 확인, 서명 대상, 읽은 메시지 창)
-src/packets/             상태별 패킷 (ID와 형식)
-src/connection.rs        Handshake → Status | Login
-src/network.rs           인스턴스 목록과 이동
-src/session/             Login → Configuration → Play(→ 다른 인스턴스), 명령어, 건축, 서바이벌, 창, 채팅
-src/game/                엔티티 틱, 몹(mobs·path·projectiles·spawning·villagers), 상자·플레이어 저장
-src/dambi/               마스터 노드: master·proxy·cli·process(램)·ipc·shared·child
-src/world/               바이옴, 지형·동굴, 나무·풀·광석, 구조물(structure/), 청크 인코딩, 바뀐 블록
-tools/gen_worldgen.py    바닐라 구조물 묶음·바이옴 태그·전리품 표 → src/world/structure/data.rs
-tools/gen_trades.py      바닐라 26.3 주민 거래표 → src/data/trades.rs
-tools/gen_collision.py   충돌 모양 없는 블록 → src/data/collision.rs
-src/data/generated.rs    tools/gen_data.py가 만든 바닐라 데이터 (커밋됨)
+ ┌ plugins/   이 서버만의 기능 — 기능 하나 = 폴더 하나
+ │   contents/   ItemsAdder 호환: source(폴더 구조 5가지) → load → item_config, cache, builtin, catalog(/ia 창)
+ │   lottery/    복권: mod(규칙·추첨·저장) · gui(번호 고르기 창·NPC 제출) · art(도트·3D 모델·설정)
+ │   npc/        NPC: mod(저장·틱·스킨) · session(/npc 명령·우클릭)
+ ├ session/   접속 하나: login → configuration → play
+ │   play/       mod(세션 상태·루프) · packets(받은 패킷 처리) · events(다른 세션 소식) · view(청크·순간이동·엔티티 표시)
+ │   commands · windows(창·클릭) · interact(우클릭) · survival · merchant(거래) · modes · hud · signed_chat
+ ├ game/      틱으로 돌아가는 세계: entities, mobs/(mod·ai·movement), path(A*), projectiles,
+ │            spawning, villagers, custom_items, containers, playerdata, mechanics/(물·작물·화로·레드스톤…)
+ ├ world/     지형·바이옴·구조물(structure/)·청크 인코딩·저장(anvil, store)
+ ├ server.rs / network.rs   인스턴스 하나의 공유 상태 · 인스턴스 여럿과 이동
+ ├ dambi/     마스터 노드: master · proxy · cli · process(램) · ipc · shared · child
+ ├ admin.rs / perms.rs     관리 명령어 · 권한·밴·화이트리스트
+ ├ resource_pack.rs        팩 굽기(PNG·ZIP) + 내장 HTTP 서버
+ ├ packets/   상태별 패킷 형식 (ID와 encode/decode)
+ ├ protocol/  VarInt·NBT·zlib·프레임(압축·암호화)    crypto/  SHA·AES·RSA      auth.rs  Mojang 인증
+ └ data/      바닐라 데이터 (tools/*.py가 만든 generated.rs, trades.rs, collision.rs, item_definitions.json.gz)
+   json.rs · yaml.rs · text.rs · uuid.rs   작은 도구들
 ```
+
+어디를 고치면 되나:
+
+| 하고 싶은 것 | 파일 |
+|---|---|
+| 새 명령어 | `session/commands.rs` (권한 표는 `admin.rs`) |
+| 받은 패킷 처리 바꾸기 | `session/play/packets.rs` |
+| 몹 행동 | `game/mobs/ai.rs`, 걷기는 `game/mobs/movement.rs` |
+| 새 서버 기능 | `plugins/<이름>/` 만들고 `plugins/mod.rs` 표에 한 줄 |
+| ItemsAdder 설정 키 하나 더 읽기 | `plugins/contents/item_config.rs` |
+| 리소스 팩에 파일 넣기 | 플러그인의 콘텐츠 팩 (`plugins/lottery/art.rs` 참고) |
+
+도구: `tools/gen_data.py`(레지스트리·블록·아이템) · `gen_worldgen.py`(구조물·바이옴 태그·전리품) ·
+`gen_trades.py`(주민 거래) · `gen_collision.py`(충돌 없는 블록) · `gen_item_definitions.py`(바닐라 아이템 정의).
 
 ## 프로토콜 자료의 출처
 

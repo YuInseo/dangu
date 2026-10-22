@@ -342,9 +342,9 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
     let changed = |uuid: u128| server.publish_all(Event::PermissionsChanged { uuid: Some(uuid) });
 
     Some(match (spec.name, args) {
-        ("iareload", _) => crate::contents::apply(server),
+        ("iareload", _) => crate::plugins::contents::apply(server),
         ("복권", [sub, ..]) => {
-            use crate::game::lottery::{self, format_short, numbers_text, won};
+            use crate::plugins::lottery::{self, format_short, numbers_text, won};
             let l = &server.lottery;
             match *sub {
                 "정보" | "info" => {
@@ -844,7 +844,7 @@ pub fn suggest(server: &Server, actor: &Actor, line: &str) -> (usize, Vec<String
     };
     let mut out: Vec<String> = match (spec.name, &words[1..]) {
         ("server", []) => instance_names(),
-        ("iaget", []) => crate::contents::current().items.clone(),
+        ("iaget", []) => crate::plugins::contents::current().items.clone(),
         ("npc", []) => [
             "create", "select", "list", "info", "rename", "type", "skin", "desc", "tphere", "look",
             "msg", "cmd", "action", "remove",

@@ -43,7 +43,7 @@ fn view(v: &Villager) -> Vec<MerchantOffer> {
 }
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
-    pub(super) fn villager(&self, id: i32) -> Option<Villager> {
+    pub(crate) fn villager(&self, id: i32) -> Option<Villager> {
         match self.server.entities.get(id)?.kind {
             Kind::Mob(m) if !m.dead() => m.villager,
             _ => None,
@@ -53,7 +53,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     /// 낸 두 칸으로 받을 것. 고른 거래가 맞으면 그것, 아니면 맞는 첫 거래 (바닐라처럼).
     /// (거래 번호, 받을 것, 낼 것, 두 번째로 낼 것).
     #[allow(clippy::type_complexity)]
-    pub(super) fn merchant_result(
+    pub(crate) fn merchant_result(
         &self,
         villager: i32,
         selected: usize,
@@ -72,7 +72,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         None
     }
 
-    pub(super) fn merchant_closed(&self, villager: i32) {
+    pub(crate) fn merchant_closed(&self, villager: i32) {
         self.server.entities.update(villager, |e| {
             if let Kind::Mob(m) = &mut e.kind {
                 m.trading = false;
@@ -121,7 +121,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 거래를 `times`번 함: 주민 경험치·레벨, 새 목록.
-    pub(super) async fn after_trade(
+    pub(crate) async fn after_trade(
         &mut self,
         villager: i32,
         offer: usize,
@@ -155,7 +155,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 왼쪽 목록에서 거래를 고름: 칸에 있던 것을 돌려받고, 가방에서 낼 것을 옮겨 놓습니다.
-    pub(super) async fn select_trade(&mut self, index: i32) -> Result<(), FrameError> {
+    pub(crate) async fn select_trade(&mut self, index: i32) -> Result<(), FrameError> {
         let Some(Window {
             kind: WindowKind::Merchant { villager, .. },
             ..
@@ -223,7 +223,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// `Interact`: 엔티티를 우클릭.
-    pub(super) async fn interact_entity(
+    pub(crate) async fn interact_entity(
         &mut self,
         target: i32,
         hand: i32,

@@ -18,9 +18,9 @@ async fn main() -> std::io::Result<()> {
     // 인자 없음: 혼자 도는 서버 (한 프로세스 안의 인스턴스들).
     let master = std::env::args().nth(1).as_deref() == Some("master");
     // ItemsAdder식 콘텐츠 (MC_CONTENTS, 기본 ./contents): 아이템·블록·이모지 + 리소스 팩
-    let loaded = mc_server::contents::reload();
+    let loaded = mc_server::plugins::contents::reload();
     if !loaded.items.is_empty() || !loaded.errors.is_empty() {
-        for l in mc_server::contents::summary(&loaded) {
+        for l in mc_server::plugins::contents::summary(&loaded) {
             println!("{l}");
         }
     }

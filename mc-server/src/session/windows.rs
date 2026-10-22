@@ -34,9 +34,9 @@ pub enum WindowKind {
         selected: usize,
     },
     /// 서버가 그리는 메뉴 (복권): 클릭은 버튼으로만 쓰고 아이템은 움직이지 않음.
-    Lottery(super::lottery::Page),
+    Lottery(crate::plugins::lottery::gui::Page),
     /// `/ia` 아이템 목록 (메뉴).
-    Catalog(super::catalog::Catalog),
+    Catalog(crate::plugins::contents::catalog::Catalog),
 }
 
 #[derive(Debug, Clone)]
@@ -44,7 +44,7 @@ pub struct Window {
     pub id: i32,
     pub kind: WindowKind,
     /// 작업대의 3×3 조합 칸 (거래 창은 앞 두 칸이 낼 것).
-    pub(super) grid: [Option<Item>; 9],
+    pub(crate) grid: [Option<Item>; 9],
 }
 
 /// 플레이어 인벤토리 메뉴의 칸: 0 결과, 1..5 조합, 5..9 갑옷, 9..36 가방, 36..45 핫바, 45 보조 손.
@@ -62,13 +62,13 @@ fn inventory_index(menu_slot: usize) -> Option<i32> {
 }
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
-    pub(super) fn next_state_id(&mut self) -> i32 {
+    pub(crate) fn next_state_id(&mut self) -> i32 {
         self.state_id = self.state_id.wrapping_add(1) & 0x7FFF;
         self.state_id
     }
 
     /// 플레이어 인벤토리 전체를 다시 보냅니다.
-    pub(super) async fn send_inventory(&mut self) -> std::io::Result<()> {
+    pub(crate) async fn send_inventory(&mut self) -> std::io::Result<()> {
         self.inventory[0] = items::craft(&self.inventory[INV_GRID], 2);
         let state = self.next_state_id();
         let body = pc::encode_set_content(0, state, &self.inventory, self.carried);
@@ -76,7 +76,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 서버가 바꾼 인벤토리 한 칸을 알립니다 (어느 창이 열려 있든 통함).
-    pub(super) async fn sync_slot(&mut self, menu_slot: usize) -> std::io::Result<()> {
+    pub(crate) async fn sync_slot(&mut self, menu_slot: usize) -> std::io::Result<()> {
         if let Some(i) = inventory_index(menu_slot) {
             let body = pw::encode_player_inventory(i, self.inventory[menu_slot]);
             self.send(pw::SET_PLAYER_INVENTORY_ID, &body).await?;
@@ -86,7 +86,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
     /// 주운 아이템을 넣습니다: 같은 것이 있는 칸부터, 그다음 빈 칸 (핫바 먼저).
     /// 넣은 개수를 돌려줍니다.
-    pub(super) async fn give(&mut self, item: Item) -> std::io::Result<i32> {
+    pub(crate) async fn give(&mut self, item: Item) -> std::io::Result<i32> {
         let max = crate::game::custom_items::max_stack(&item);
         let order: Vec<usize> = (36..45).chain(9..36).collect();
         let mut left = item.count;
@@ -123,7 +123,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 핫바에서 들고 있는 것을 버립니다 (Q).
-    pub(super) async fn drop_held(&mut self, whole_stack: bool) -> std::io::Result<()> {
+    pub(crate) async fn drop_held(&mut self, whole_stack: bool) -> std::io::Result<()> {
         let slot = 36 + self.held;
         let Some(item) = self.inventory[slot] else {
             return Ok(());
@@ -141,7 +141,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 바라보는 쪽으로 던집니다.
-    pub(super) fn throw(&self, item: Item) {
+    pub(crate) fn throw(&self, item: Item) {
         let (yaw, pitch) = (self.yaw.to_radians() as f64, self.pitch.to_radians() as f64);
         let vel = (
             -yaw.sin() * pitch.cos() * 0.3,
@@ -159,7 +159,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         );
     }
 
-    pub(super) async fn open_crafting(&mut self) -> std::io::Result<()> {
+    pub(crate) async fn open_crafting(&mut self) -> std::io::Result<()> {
         self.close_window(false).await?;
         self.next_window = self.next_window % 100 + 1;
         let id = self.next_window;
@@ -177,7 +177,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         self.send_window().await
     }
 
-    pub(super) async fn open_chest(&mut self, pos: BlockPos) -> std::io::Result<()> {
+    pub(crate) async fn open_chest(&mut self, pos: BlockPos) -> std::io::Result<()> {
         self.close_window(false).await?;
         self.server.fill_structure_loot(self.dimension, pos);
         let state = self.server.world.get(self.dimension, pos.0, pos.1, pos.2);
@@ -218,7 +218,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 화로의 진행 값을 창에 보냅니다.
-    pub(super) async fn container_data(
+    pub(crate) async fn container_data(
         &mut self,
         dimension: Dimension,
         pos: BlockPos,
@@ -282,7 +282,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         slots
     }
 
-    pub(super) async fn send_window(&mut self) -> std::io::Result<()> {
+    pub(crate) async fn send_window(&mut self) -> std::io::Result<()> {
         let Some(id) = self.window.as_ref().map(|w| w.id) else {
             return self.send_inventory().await;
         };
@@ -293,7 +293,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 창을 닫습니다. 조합 칸에 남은 것은 인벤토리로 (자리가 없으면 떨어뜨림).
-    pub(super) async fn close_window(&mut self, by_client: bool) -> std::io::Result<()> {
+    pub(crate) async fn close_window(&mut self, by_client: bool) -> std::io::Result<()> {
         let leftovers: Vec<Item> = match self.window.take() {
             Some(w) => {
                 if let WindowKind::Merchant { villager, .. } = w.kind {
@@ -369,7 +369,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         }
     }
 
-    pub(super) async fn click(&mut self, c: Click) -> Result<(), FrameError> {
+    pub(crate) async fn click(&mut self, c: Click) -> Result<(), FrameError> {
         let window_id = self.window.as_ref().map_or(0, |w| w.id);
         if c.window != window_id {
             return Ok(()); // 이미 닫힌 창에 대한 클릭
@@ -549,7 +549,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 다른 사람이 같은 상자를 바꿨을 때.
-    pub(super) async fn chest_changed(
+    pub(crate) async fn chest_changed(
         &mut self,
         dimension: Dimension,
         pos: BlockPos,
@@ -568,7 +568,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 상자가 부서지면 보던 창을 닫습니다.
-    pub(super) async fn chest_removed(
+    pub(crate) async fn chest_removed(
         &mut self,
         dimension: Dimension,
         pos: BlockPos,

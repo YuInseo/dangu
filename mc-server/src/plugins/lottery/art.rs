@@ -1,10 +1,47 @@
-//! 서버에 들어 있는 콘텐츠 팩 `dangu` (ItemsAdder 구조 1과 같은 모양을 메모리에 둠).
+//! 복권 아이템의 생김새: 직접 찍은 도트 두 장, 3D 카드 모델, ItemsAdder 모양의 설정.
 //!
-//! 복권: 바닐라 종이(`PAPER`) + `model_id`(custom_model_data) 10001 → 직접 만든 3D 모델.
-//! 두께가 있는 카드 모양이고, 앞면은 복권 그림, 뒷면은 따로 그린 무늬입니다. 다른 팩처럼
-//! `contents/dangu/`에 같은 이름의 파일을 두면 그쪽이 이깁니다.
+//! 바닐라 종이(`PAPER`) + `model_id`(custom_model_data) 10001 → 이 파일의 3D 모델.
+//! 두께가 있는 카드 모양이고, 앞면은 복권 그림, 뒷면은 따로 그린 무늬입니다.
+//! 콘텐츠 로더가 다른 ItemsAdder 팩과 똑같이 읽으므로, `contents/dangu/`에 같은 이름의
+//! 파일을 두면 그쪽이 이깁니다.
 
-use crate::resource_pack::{LOTTERY_TICKET, Sprite, png};
+use crate::plugins::contents::source::Pack;
+use crate::resource_pack::{Sprite, png};
+
+/// 복권: 빨간 머리띠에 불빛, 숫자 칸, 금빛 도장, 양옆 절취선 홈.
+pub const LOTTERY_TICKET: Sprite = Sprite {
+    name: "lottery_ticket",
+    rows: [
+        "................",
+        ".OOOOOOOOOOOOOO.",
+        "OrrrrrrrrrrrrrRO",
+        "OrwrrwrrwrrwrrRO",
+        "ORRRRRRRRRRRRRRO",
+        "OccccccccccccCCO",
+        ".OckkcckkcckkcO.",
+        "OccccccccccccCCO",
+        "OcbbcbbcbbcbbcCO",
+        ".OcccccccccccCO.",
+        "OcccccccccgggcCO",
+        "OckkkkkkccgwgcCO",
+        "OCCCCCCCCCgggCCO",
+        ".OOOOOOOOOOOOOO.",
+        "................",
+        "................",
+    ],
+    palette: &[
+        ('.', [0, 0, 0, 0]),
+        ('O', [0x4a, 0x2c, 0x12, 0xff]),
+        ('r', [0xe0, 0x40, 0x40, 0xff]),
+        ('R', [0xa8, 0x24, 0x24, 0xff]),
+        ('w', [0xff, 0xf6, 0xc8, 0xff]),
+        ('c', [0xff, 0xf4, 0xcf, 0xff]),
+        ('C', [0xec, 0xd9, 0xa0, 0xff]),
+        ('k', [0x3b, 0x2a, 0x1e, 0xff]),
+        ('b', [0x3d, 0x7b, 0xe0, 0xff]),
+        ('g', [0xff, 0xc8, 0x2a, 0xff]),
+    ],
+};
 
 /// 복권 뒷면: 크림색 바탕에 빨간 사선, 가운데 금빛 별.
 pub const LOTTERY_TICKET_BACK: Sprite = Sprite {
@@ -98,8 +135,8 @@ const LOTTERY_MODEL: &str = r##"{
 }
 "##;
 
-/// 들어 있는 팩.
-pub fn packs() -> Vec<super::source::Pack> {
+/// 복권 콘텐츠 팩 (`dangu` 이름공간): 설정 + 모델 + 그림 두 장.
+pub fn pack() -> Pack {
     let mut files = vec![(
         "assets/dangu/models/item/lottery_ticket.json".to_owned(),
         LOTTERY_MODEL.as_bytes().to_vec(),
@@ -110,14 +147,14 @@ pub fn packs() -> Vec<super::source::Pack> {
             png(16, 16, &s.rgba()),
         ));
     }
-    vec![super::source::Pack {
+    Pack {
         name: "dangu".into(),
         configs: vec![(
             "(서버 내장) dangu/configs/lottery.yml".into(),
             LOTTERY_YML.into(),
         )],
         files,
-    }]
+    }
 }
 
 #[cfg(test)]

@@ -97,12 +97,12 @@ async fn buy_draw_and_claim() {
     // 추첨: 1~5 → 첫 장이 1등 (2장 × 1,000 + 1,000,000)
     let d = server
         .lottery
-        .draw(Some([1, 2, 3, 4, 5]), mc_server::game::lottery::now());
+        .draw(Some([1, 2, 3, 4, 5]), mc_server::plugins::lottery::now());
     assert_eq!(d.winners, [1, 0, 0, 0]);
     assert_eq!(d.prizes[0], 1_002_000);
 
     // 스폰의 NPC를 우클릭 → 판매소 → 당첨 복권 내기 (칸 15)
-    let id = mc_server::game::lottery::ensure_npc(&server);
+    let id = mc_server::plugins::lottery::ensure_npc(&server);
     let npc = server.npcs.entity_of(id).unwrap();
     let mut interact = Vec::new();
     write_varint(&mut interact, npc);

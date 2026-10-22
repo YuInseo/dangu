@@ -10,6 +10,9 @@
 //!
 //! 저장은 인스턴스 폴더의 `lottery.json` (설정·회차·판매·복권·지난 추첨).
 
+pub mod art;
+pub mod gui;
+
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -241,7 +244,7 @@ pub fn random_numbers(keep: &[u8]) -> [u8; PICK] {
 /// 복권 아이템과 GUI 아이콘은 서버 내장 콘텐츠 팩(`dangu`)에 있습니다 — 읽혀 있게 합니다.
 pub fn register_items() {
     if custom_items::index_of(TICKET_ITEM).is_none() {
-        crate::contents::current();
+        crate::plugins::contents::current();
     }
 }
 
@@ -709,7 +712,7 @@ pub fn announce(server: &crate::Server, d: &Draw) {
 /// 스폰의 복권 판매소 NPC가 없으면 세웁니다 (한 번 세우면 `/npc`로 옮기거나 꾸밀 수 있음).
 /// 그 NPC 번호.
 pub fn ensure_npc(server: &crate::Server) -> u32 {
-    use crate::game::npcs::Npc;
+    use crate::plugins::npc::Npc;
     use crate::world::{Dimension, terrain};
     server.npcs.ensure_action(server, "lottery", || {
         let d = Dimension::Overworld;

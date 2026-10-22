@@ -17,7 +17,7 @@ use crate::world::placement::{self, Context};
 const REACH: f64 = 6.0;
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
-    pub(super) async fn player_action(&mut self, a: PlayerActionPacket) -> Result<(), FrameError> {
+    pub(crate) async fn player_action(&mut self, a: PlayerActionPacket) -> Result<(), FrameError> {
         // 크리에이티브는 누르자마자, 서바이벌은 다 캤다고 알려 올 때 부서집니다.
         // 채굴 속도 검사는 아직 하지 않습니다 (클라이언트를 믿습니다).
         let breaks = matches!(
@@ -64,7 +64,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 return Ok(());
             }
             self.exhaust(0.005);
-            if let Some((custom, drops)) = crate::contents::block_item(old) {
+            if let Some((custom, drops)) = crate::plugins::contents::block_item(old) {
                 // 사용자 정의 블록은 그 아이템을 떨어뜨림
                 if drops && let Some(def) = crate::game::custom_items::get(custom) {
                     let item = Item {
@@ -121,7 +121,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
-    pub(super) async fn use_item_on(&mut self, u: UseItemOn) -> Result<(), FrameError> {
+    pub(crate) async fn use_item_on(&mut self, u: UseItemOn) -> Result<(), FrameError> {
         if self.vitals.dead {
             return Ok(());
         }
@@ -257,7 +257,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         // ItemsAdder식 사용자 정의 블록이면 그 상태로 (소리 블록 상태를 빌림)
         let custom_state = item
             .and_then(|i| i.custom)
-            .and_then(crate::contents::block_state);
+            .and_then(crate::plugins::contents::block_state);
         let block = match custom_state {
             Some(s) => blocks::block_of(s),
             None => {
@@ -351,7 +351,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 크리에이티브 인벤토리에서 아이템을 옮김. 바닐라처럼 크리에이티브에서만 받습니다.
-    pub(super) fn set_creative_slot(&mut self, slot: i16, item: Option<Item>) {
+    pub(crate) fn set_creative_slot(&mut self, slot: i16, item: Option<Item>) {
         if self.gamemode != GameMode::Creative || !(1..46).contains(&slot) {
             return; // -1은 아이템을 던짐 — 아직 엔티티가 없어 무시
         }
@@ -364,7 +364,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// 크리에이티브 가운데 클릭: 그 블록을 손에 쥡니다.
-    pub(super) async fn pick_block(&mut self, pos: BlockPos) -> Result<(), FrameError> {
+    pub(crate) async fn pick_block(&mut self, pos: BlockPos) -> Result<(), FrameError> {
         if self.gamemode != GameMode::Creative || !self.can_reach(pos) {
             return Ok(());
         }
@@ -392,7 +392,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
-    pub(super) fn hands_changed(&mut self) {
+    pub(crate) fn hands_changed(&mut self) {
         let (main, off) = (self.main_hand(), self.off_hand());
         self.server.update_player(self.profile.uuid, |s| {
             s.main_hand = main;

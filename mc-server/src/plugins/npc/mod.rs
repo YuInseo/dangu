@@ -8,12 +8,14 @@
 //!
 //! 관리는 게임 안 `/npc` (= `/엔피시`).
 
+pub(crate) mod session;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Mutex;
 
-use super::entities::{Entity, Kind, Vec3, dist2};
 use crate::auth::Property;
+use crate::game::entities::{Entity, Kind, Vec3, dist2};
 use crate::json::{self, Json};
 use crate::packets::entity::Meta;
 use crate::server::{PlayerState, Server};

@@ -185,7 +185,7 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
 }
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
-    pub(super) async fn command(&mut self, line: &str) -> Result<(), FrameError> {
+    pub(crate) async fn command(&mut self, line: &str) -> Result<(), FrameError> {
         let (name, rest) = line.split_once(' ').unwrap_or((line, ""));
         let rest = rest.trim();
         let args: Vec<&str> = rest.split_whitespace().collect();
@@ -216,7 +216,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         match spec.name {
             "server" => self.server_command(args.first().copied()).await,
             "이동" => self.move_command(args.first().copied()).await,
-            "복권" => Ok(self.open_lottery(super::lottery::Page::Hub).await?),
+            "복권" => Ok(self
+                .open_lottery(crate::plugins::lottery::gui::Page::Hub)
+                .await?),
             "npc" => self.npc_command(&args).await,
             "ia" | "iaget" | "iaimage" => self.ia_command(spec.name, &args).await,
             "재화" => self.money_command(&args).await,
@@ -441,7 +443,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
 
     /// `/server`: 목록 또는 이동.
     /// `/이동`: 마스터 뒤라면 다른 프로세스로 (Transfer), 혼자라면 이 프로세스 안의 인스턴스로.
-    pub(super) async fn move_command(&mut self, name: Option<&str>) -> Result<(), FrameError> {
+    pub(crate) async fn move_command(&mut self, name: Option<&str>) -> Result<(), FrameError> {
         use crate::dambi::child;
         if !child::active() {
             return self.server_command(name).await;
@@ -619,7 +621,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(self.message(&text::colored(&msg, "green")).await?)
     }
 
-    pub(super) async fn error(&mut self, message: &str) -> Result<(), FrameError> {
+    pub(crate) async fn error(&mut self, message: &str) -> Result<(), FrameError> {
         Ok(self.message(&text::colored(message, "red")).await?)
     }
 }

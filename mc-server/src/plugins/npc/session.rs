@@ -18,9 +18,9 @@
 
 use tokio::io::AsyncWrite;
 
-use super::play::Session;
-use crate::game::npcs::{self, Npc, NpcCommand};
+use crate::plugins::npc::{self, Npc, NpcCommand};
 use crate::protocol::frame::FrameError;
+use crate::session::play::Session;
 use crate::text;
 
 fn sub(word: &str) -> &str {
@@ -52,18 +52,21 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// NPC를 우클릭: 메시지 → 동작 → 명령어.
-    pub(super) async fn npc_clicked(&mut self, id: u32) -> Result<(), FrameError> {
+    pub(crate) async fn npc_clicked(&mut self, id: u32) -> Result<(), FrameError> {
         let Some(npc) = self.server.npcs.get(id) else {
             return Ok(());
         };
-        let (messages, action, commands) = npcs::on_click(&npc, &self.profile.name);
+        let (messages, action, commands) = npc::on_click(&npc, &self.profile.name);
         for m in messages {
             let line = format!("{}&r: {}", npc.name, m);
             self.message(&text::plain(&text::legacy_colors(&line)))
                 .await?;
         }
         match action.as_deref() {
-            Some("lottery") => self.open_lottery(super::lottery::Page::Hub).await?,
+            Some("lottery") => {
+                self.open_lottery(crate::plugins::lottery::gui::Page::Hub)
+                    .await?
+            }
             Some(a) if a.starts_with("server:") => {
                 let to = a["server:".len()..].to_owned();
                 self.move_command(Some(&to)).await?;
@@ -91,7 +94,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         self.selected_npc.and_then(|id| self.server.npcs.get(id))
     }
 
-    pub(super) async fn npc_command(&mut self, args: &[&str]) -> Result<(), FrameError> {
+    pub(crate) async fn npc_command(&mut self, args: &[&str]) -> Result<(), FrameError> {
         let words: Vec<&str> = args.iter().map(|w| sub(w)).collect();
         let rest = |from: usize| args.get(from..).map(|a| a.join(" ")).unwrap_or_default();
         let npcs = &self.server.npcs;

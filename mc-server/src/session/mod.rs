@@ -1,21 +1,18 @@
 //! 핸드셰이크 이후의 접속 흐름: Login → Configuration → Play.
 
 mod abilities;
-mod catalog;
 mod commands;
 mod configuration;
 mod hud;
 mod ignored;
 mod interact;
 mod login;
-mod lottery;
 mod merchant;
 mod modes;
-mod npc;
-mod play;
+pub(crate) mod play;
 mod signed_chat;
 mod survival;
-mod windows;
+pub(crate) mod windows;
 
 use std::sync::Arc;
 

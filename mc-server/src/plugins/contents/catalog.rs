@@ -5,13 +5,13 @@
 
 use tokio::io::AsyncWrite;
 
-use super::play::Session;
-use super::windows::{Window, WindowKind};
-use crate::contents;
 use crate::data::menu;
 use crate::packets::container as pc;
 use crate::packets::world::Item;
+use crate::plugins::contents;
 use crate::protocol::frame::FrameError;
+use crate::session::play::Session;
+use crate::session::windows::{Window, WindowKind};
 use crate::text;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,7 +26,7 @@ const PREV: usize = 48;
 const NEXT: usize = 50;
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
-    pub(super) async fn open_catalog(&mut self, page: Catalog) -> std::io::Result<()> {
+    pub(crate) async fn open_catalog(&mut self, page: Catalog) -> std::io::Result<()> {
         self.close_window(false).await?;
         self.next_window = self.next_window % 100 + 1;
         let id = self.next_window;
@@ -57,7 +57,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         })
     }
 
-    pub(super) fn catalog_slots(&self, page: &Catalog) -> Vec<Option<Item>> {
+    pub(crate) fn catalog_slots(&self, page: &Catalog) -> Vec<Option<Item>> {
         let loaded = contents::current();
         let (entries, page_no, back): (Vec<Option<Item>>, usize, bool) = match page {
             Catalog::Categories { page } => (
@@ -128,7 +128,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         slots
     }
 
-    pub(super) async fn catalog_click(
+    pub(crate) async fn catalog_click(
         &mut self,
         page: Catalog,
         slot: i16,
@@ -195,7 +195,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     /// `/iaget`과 목록에서: 사용자 정의 아이템을 줍니다.
-    pub(super) async fn ia_give(&mut self, id: &str, count: i32) -> Result<(), FrameError> {
+    pub(crate) async fn ia_give(&mut self, id: &str, count: i32) -> Result<(), FrameError> {
         let Some(item) = Self::catalog_item(id) else {
             return self.error(&format!("모르는 아이템: {id}")).await;
         };
@@ -208,7 +208,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
-    pub(super) async fn ia_command(&mut self, name: &str, args: &[&str]) -> Result<(), FrameError> {
+    pub(crate) async fn ia_command(&mut self, name: &str, args: &[&str]) -> Result<(), FrameError> {
         match name {
             "ia" => Ok(self.open_catalog(Catalog::Categories { page: 0 }).await?),
             "iaget" => {

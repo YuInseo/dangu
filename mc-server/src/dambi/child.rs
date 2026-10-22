@@ -325,9 +325,9 @@ fn handle(server: &Arc<crate::Server>, msg: Msg) {
             }
         }
         Msg::Event { channel, payload } => {
-            if channel == crate::contents::PACK_RELOAD {
-                let l = crate::contents::reload_and_rebuild();
-                crate::contents::summary(&l)
+            if channel == crate::plugins::contents::PACK_RELOAD {
+                let l = crate::plugins::contents::reload_and_rebuild();
+                crate::plugins::contents::summary(&l)
                     .iter()
                     .for_each(|l| println!("{l}"));
                 server.publish_all(Event::ResourcePackChanged);
