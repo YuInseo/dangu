@@ -47,3 +47,46 @@ pub fn legacy_colors(s: &str) -> String {
     }
     out
 }
+
+/// 여러 조각을 한 줄로. NBT 목록은 한 종류만 담으므로 문자열 조각도 `{text}`로 감쌉니다.
+pub fn join(parts: Vec<Tag>) -> Tag {
+    let extra = parts
+        .into_iter()
+        .map(|t| match t {
+            Tag::String(s) => Tag::Compound(vec![("text".into(), Tag::String(s))]),
+            other => other,
+        })
+        .collect();
+    Tag::Compound(vec![
+        ("text".into(), Tag::String(String::new())),
+        ("extra".into(), Tag::List(extra)),
+    ])
+}
+
+/// 조각(색 입힌 것)에 마우스를 올리면 보일 글과, 누르면 채팅 창에 넣을 글을 붙입니다.
+pub fn interactive(tag: Tag, hover: Option<&str>, suggest: Option<&str>) -> Tag {
+    let mut fields = match tag {
+        Tag::Compound(f) => f,
+        Tag::String(s) => vec![("text".into(), Tag::String(s))],
+        other => return other,
+    };
+    if let Some(h) = hover {
+        fields.push((
+            "hover_event".into(),
+            Tag::Compound(vec![
+                ("action".into(), Tag::String("show_text".into())),
+                ("value".into(), Tag::String(h.to_owned())),
+            ]),
+        ));
+    }
+    if let Some(c) = suggest {
+        fields.push((
+            "click_event".into(),
+            Tag::Compound(vec![
+                ("action".into(), Tag::String("suggest_command".into())),
+                ("command".into(), Tag::String(c.to_owned())),
+            ]),
+        ));
+    }
+    Tag::Compound(fields)
+}

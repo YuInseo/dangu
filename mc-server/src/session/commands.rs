@@ -156,6 +156,18 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
             let id = t.argument_ask_server(c, "item", STRING, WORD, true);
             t.argument_with(id, "count", INTEGER, &[0], true);
         }
+        "채널" => {
+            let c = t.literal(ROOT, name, true);
+            for ch in crate::plugins::chat::Channel::ALL {
+                t.literal(c, ch.name(), true);
+            }
+            for sub in ["끄기", "켜기"] {
+                let s = t.literal(c, sub, false);
+                for ch in crate::plugins::chat::Channel::ALL {
+                    t.literal(s, ch.name(), true);
+                }
+            }
+        }
         "npc" => {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "args", STRING, GREEDY, true);
@@ -220,6 +232,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 .open_lottery(crate::plugins::lottery::gui::Page::Hub)
                 .await?),
             "npc" => self.npc_command(&args).await,
+            "채널" => self.channel_command(&args).await,
             "ia" | "iaget" | "iaimage" => self.ia_command(spec.name, &args).await,
             "재화" => self.money_command(&args).await,
             "locate" => self.locate(&args).await,

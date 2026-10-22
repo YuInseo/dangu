@@ -101,6 +101,7 @@ async fn main() -> std::io::Result<()> {
             .and_then(|v| v.parse().ok())
             .unwrap_or(8),
         lottery_npc: env_flag("MC_LOTTERY_NPC", true),
+        chat_channels: env_flag("MC_CHAT_CHANNELS", true),
     };
     // 인스턴스: MC_INSTANCES="lobby,survival:12345:survival,build::creative" (이름[:시드[:모드]]).
     // 처음 켤 때만 쓰이고, 그 뒤로는 world/instances.json이 기준입니다.

@@ -121,6 +121,8 @@ pub enum Event {
     },
     /// 모두에게 가는 서버 알림.
     System(Tag),
+    /// 채널 채팅 ([`crate::plugins::chat`]). 받을지는 받는 세션이 정합니다.
+    ChannelChat(std::sync::Arc<crate::plugins::chat::Message>),
     /// 서명을 확인한 채팅. 받는 세션마다 서명째 전합니다.
     SignedChat {
         sender: u128,
@@ -318,6 +320,8 @@ pub struct Config {
     pub pregen_radius: i32,
     /// 스폰에 복권 NPC를 세움.
     pub lottery_npc: bool,
+    /// 채팅 채널(전체·채널·주변·거래·길드·관리자). 끄면 바닐라 서명 채팅.
+    pub chat_channels: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -387,6 +391,7 @@ impl Default for Config {
             hardcore: false,
             pregen_radius: 0,
             lottery_npc: false,
+            chat_channels: false,
         }
     }
 }

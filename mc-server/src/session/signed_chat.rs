@@ -84,6 +84,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             self.chat.next_index += 1;
         }
         let last_seen = self.chat.last_seen.apply_update(m.offset, m.acknowledged);
+        if self.server.config.chat_channels {
+            return self.channel_chat(&clean).await;
+        }
         // :이모지:가 있으면 그림 글자로 바꿔 서명 없는 채팅으로 (서명은 원문에만 맞음)
         let shown = crate::plugins::contents::emojify(&clean);
         if shown != clean {

@@ -112,6 +112,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 self.send(p::DISGUISED_CHAT_ID, &body).await?;
             }
             Event::System(message) => self.message(&message).await?,
+            Event::ChannelChat(m) => self.deliver_channel_chat(&m).await?,
             Event::SignedChat {
                 sender,
                 sender_name,

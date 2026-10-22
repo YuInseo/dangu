@@ -332,6 +332,9 @@ fn handle(server: &Arc<crate::Server>, msg: Msg) {
                     .for_each(|l| println!("{l}"));
                 server.publish_all(Event::ResourcePackChanged);
             }
+            if channel == crate::plugins::chat::BUS {
+                crate::plugins::chat::receive(server, &payload);
+            }
             if channel == "broadcast" {
                 server.publish(Event::System(text::colored(
                     &format!("[공지] {payload}"),

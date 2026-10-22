@@ -7,10 +7,14 @@
 //!
 //! | 폴더 | 하는 일 |
 //! |---|---|
+//! | [`chat`]     | 채팅 채널: 전체·채널·주변·거래·길드·관리자, `/채널`, 앞 기호 |
 //! | [`contents`] | ItemsAdder 호환 콘텐츠: 설정·그림 → 아이템·블록·이모지·리소스 팩, `/ia` 목록 |
 //! | [`lottery`]  | 채널별 주간 복권: 번호 고르기 창, 일련번호 복권, 추첨·당첨금 |
+//! | [`guild`]    | 길드 |
 //! | [`npc`]      | Citizens 비슷한 NPC: `/npc`, 스킨, 말·명령·동작 |
 
+pub mod chat;
 pub mod contents;
+pub mod guild;
 pub mod lottery;
 pub mod npc;

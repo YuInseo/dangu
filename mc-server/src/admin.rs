@@ -245,6 +245,12 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/npc create|select|list|info|rename|type|skin|desc|tphere|look|msg|cmd|action|remove — NPC 만들기 (/npc help)",
     },
     Spec {
+        name: "채널",
+        aliases: &["ch", "channel"],
+        level: 0,
+        usage: "/채널 [전체|채널|주변|거래|길드|관리자] | 끄기|켜기 <이름> — 채팅 채널 (앞에 ! $ @ # ~ 를 붙이면 한 번만)",
+    },
+    Spec {
         name: "복권",
         aliases: &["lottery", "로또"],
         level: 0,
