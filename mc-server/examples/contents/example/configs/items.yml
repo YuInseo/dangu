@@ -1,0 +1,55 @@
+# ItemsAdder와 같은 모양의 예시. 서버를 MC_CONTENTS=examples/contents 로 켜면 읽힙니다.
+info:
+  namespace: example
+
+items:
+  ruby:
+    display_name: "&c루비"
+    lore:
+      - "&7붉게 빛나는 보석"
+      - "&8채팅에 :heart: 를 쳐 보세요"
+    resource:
+      material: EMERALD
+      generate: true
+      textures:
+        - item/ruby.png
+    enchant_glint: false
+    rarity: rare
+
+  ruby_sword:
+    display_name: "&4루비 검"
+    resource:
+      material: IRON_SWORD
+      generate: true
+      textures: [item/ruby.png]
+    attribute_modifiers:
+      mainhand: {attackDamage: 9}
+
+  ruby_block:
+    display_name: "&c루비 블록"
+    resource:
+      material: PAPER
+      generate: true
+      textures:
+        - block/ruby_block.png
+    specific_properties:
+      block:
+        placed_model:
+          type: REAL_NOTE
+        drop_when_mined: true
+
+font_images:
+  heart:
+    path: font/heart.png
+    scale_ratio: 9
+    y_position: 8
+
+categories:
+  gems:
+    enabled: true
+    name: "&c보석"
+    icon: example:ruby
+    items:
+      - example:ruby
+      - example:ruby_sword
+      - example:ruby_block
