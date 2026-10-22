@@ -5,7 +5,11 @@ pub mod custom_items;
 pub mod entities;
 pub mod mechanics;
 pub mod mobs;
+pub mod path;
 pub mod playerdata;
+pub mod projectiles;
+pub mod spawning;
+pub mod villagers;
 
 /// 1틱 = 50ms (초당 20틱).
 pub const TICK: std::time::Duration = std::time::Duration::from_millis(50);

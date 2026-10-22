@@ -97,6 +97,9 @@ fn death_message(name: &str, cause: &str, attacker: &str) -> String {
         "out_of_world" => format!("{name}님이 세계 밖으로 떨어졌습니다"),
         "starve" => format!("{name}님이 굶어 죽었습니다"),
         "player_attack" | "mob_attack" => format!("{name}님이 {attacker}에게 죽었습니다"),
+        "arrow" => format!("{name}님이 {attacker}의 화살에 맞아 죽었습니다"),
+        "fireball" => format!("{name}님이 {attacker}의 화염구에 맞아 죽었습니다"),
+        "explosion" | "player_explosion" => format!("{name}님이 폭발로 죽었습니다"),
         _ => format!("{name}님이 죽었습니다"),
     }
 }

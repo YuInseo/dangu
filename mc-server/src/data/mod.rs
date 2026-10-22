@@ -5,7 +5,9 @@
 mod generated;
 
 pub mod blocks;
+mod collision;
 pub mod items;
+pub mod trades;
 
 pub use generated::{
     BLOCK_ENTITY_TYPES, BLOCK_STATE_COUNT, COOKING, ENTITY_NAMES, PARTICLE_NAMES, SOUND_NAMES,

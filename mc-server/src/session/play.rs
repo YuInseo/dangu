@@ -499,6 +499,13 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             )
             .await?;
         }
+        if !e.meta.is_empty() {
+            self.send(
+                pe::SET_ENTITY_DATA_ID,
+                &pe::encode_entity_data(e.id, &e.meta),
+            )
+            .await?;
+        }
         Ok(())
     }
 
@@ -996,6 +1003,14 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                     self.send(p::REMOVE_ENTITIES_ID, &p::encode_remove_entities(&ids))
                         .await?;
                 }
+            }
+            Event::EntityData {
+                dimension,
+                id,
+                meta,
+            } if dimension == self.dimension && self.visible_entities.contains(&id) => {
+                self.send(pe::SET_ENTITY_DATA_ID, &pe::encode_entity_data(id, &meta))
+                    .await?;
             }
             Event::ItemStackChanged {
                 dimension,

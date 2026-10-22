@@ -20,6 +20,7 @@ pub const TAKE_ITEM_ENTITY_ID: i32 = 0x7F;
 // Serverbound
 pub const SB_ATTACK_ID: i32 = 0x01;
 pub const SB_CLIENT_COMMAND_ID: i32 = 0x0C;
+pub const SB_INTERACT_ID: i32 = 0x1A;
 pub const SB_PLAYER_COMMAND_ID: i32 = 0x2A;
 pub const SB_USE_ITEM_ID: i32 = 0x43;
 
@@ -143,6 +144,54 @@ pub fn encode_player_data(
     out
 }
 
+/// 몹 엔티티 데이터 한 칸 (번호는 26.3 클래스 계층 순서: 0..8 `Entity`, 8..15 `LivingEntity`,
+/// 15 `Mob` 플래그, 그다음 종류별).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Meta {
+    Byte(u8, u8),
+    Int(u8, i32),
+    Bool(u8, bool),
+    /// 주민 종류·직업 (레지스트리 번호)과 레벨.
+    Villager(u8, i32, i32, i32),
+}
+
+const DATA_INT: i32 = 1;
+const DATA_BOOL: i32 = 8;
+const DATA_VILLAGER: i32 = 18;
+
+pub fn encode_entity_data(id: i32, meta: &[Meta]) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_varint(&mut out, id);
+    for m in meta {
+        match *m {
+            Meta::Byte(i, v) => {
+                out.push(i);
+                write_varint(&mut out, DATA_BYTE);
+                out.push(v);
+            }
+            Meta::Int(i, v) => {
+                out.push(i);
+                write_varint(&mut out, DATA_INT);
+                write_varint(&mut out, v);
+            }
+            Meta::Bool(i, v) => {
+                out.push(i);
+                write_varint(&mut out, DATA_BOOL);
+                write_bool(&mut out, v);
+            }
+            Meta::Villager(i, kind, profession, level) => {
+                out.push(i);
+                write_varint(&mut out, DATA_VILLAGER);
+                write_varint(&mut out, kind);
+                write_varint(&mut out, profession);
+                write_varint(&mut out, level);
+            }
+        }
+    }
+    out.push(0xFF);
+    out
+}
+
 /// 떨어진 아이템 엔티티가 무엇인지.
 pub fn encode_item_entity_data(id: i32, item: Item) -> Vec<u8> {
     let mut out = Vec::new();
@@ -209,6 +258,14 @@ pub fn decode_entity_id(mut buf: &[u8]) -> Result<i32, DecodeError> {
 }
 
 /// `Player Command`: (엔티티, 동작).
+/// `Interact`: (대상, 손, 웅크림). 맞은 자리(LpVec3)는 쓰지 않습니다.
+pub fn decode_interact(mut buf: &[u8]) -> Result<(i32, i32, bool), DecodeError> {
+    let target = read_varint(&mut buf)?;
+    let hand = read_varint(&mut buf)?;
+    let sneaking = buf.last().is_some_and(|&b| b == 1);
+    Ok((target, hand, sneaking))
+}
+
 pub fn decode_player_command(mut buf: &[u8]) -> Result<i32, DecodeError> {
     read_varint(&mut buf)?;
     read_varint(&mut buf)

@@ -117,6 +117,28 @@ pub fn is_replaceable(state: StateId) -> bool {
     TAG.get_or_init(|| block_tag("replaceable"))[block_of(state)]
 }
 
+/// 몸이 부딪히는 블록인가 (꽃·횃불·레일·표지판·물은 통과). 26.1 데이터에 없는 새 블록은
+/// 이름으로 짐작합니다.
+pub fn has_collision(state: StateId) -> bool {
+    static SOLID: OnceLock<Vec<bool>> = OnceLock::new();
+    SOLID.get_or_init(|| {
+        let none: std::collections::HashSet<&str> =
+            super::collision::NO_COLLISION.iter().copied().collect();
+        BLOCKS
+            .iter()
+            .map(|(n, ..)| {
+                let guess = n.ends_with("_sapling")
+                    || n.ends_with("_sign")
+                    || n.ends_with("_button")
+                    || n.ends_with("_pressure_plate")
+                    || n.ends_with("_flower")
+                    || n.ends_with("_grass");
+                !(none.contains(n) || guess && !n.ends_with("grass_block"))
+            })
+            .collect()
+    })[block_of(state)]
+}
+
 pub fn is_air(state: StateId) -> bool {
     static TAG: OnceLock<Vec<bool>> = OnceLock::new();
     TAG.get_or_init(|| block_tag("air"))[block_of(state)]

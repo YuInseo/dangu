@@ -44,6 +44,31 @@ pub struct PlayerState {
     pub sneaking: bool,
 }
 
+impl PlayerState {
+    /// 시험용: 그 자리에 서 있는 서바이벌 플레이어.
+    pub fn test(dimension: Dimension, position: (f64, f64, f64)) -> Self {
+        Self {
+            uuid: 1,
+            name: "test".into(),
+            entity_id: 1_000_000,
+            dimension,
+            position,
+            yaw: 0.0,
+            pitch: 0.0,
+            gamemode: GameMode::Survival,
+            main_hand: None,
+            off_hand: None,
+            properties: Default::default(),
+            dead: false,
+            ip: String::new(),
+            chat_session: None,
+            skin_parts: 0,
+            main_arm: 1,
+            sneaking: false,
+        }
+    }
+}
+
 /// 접속자 사이를 오가는 소식. 모든 세션이 받고, 각자 자기와 관련 있는 것만 처리합니다.
 #[derive(Debug, Clone)]
 pub enum Event {
@@ -135,6 +160,12 @@ pub enum Event {
     EntitiesRemoved {
         dimension: Dimension,
         ids: Vec<i32>,
+    },
+    /// 몹 모습이 바뀜 (불붙음, 크리퍼 부풂, 털 깎임, 주민 직업·레벨).
+    EntityData {
+        dimension: Dimension,
+        id: i32,
+        meta: Vec<crate::packets::entity::Meta>,
     },
     /// 떨어진 아이템 묶음의 개수가 바뀜 (일부만 주웠을 때).
     ItemStackChanged {

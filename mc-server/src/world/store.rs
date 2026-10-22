@@ -213,6 +213,21 @@ impl WorldStore {
             .map(|e| e.col.clone())
     }
 
+    /// 청크 하나를 직접 고칩니다 (생성기·전리품 목록 등 블록 밖의 것).
+    pub fn edit_chunk(&self, dim: Dimension, cx: i32, cz: i32, f: impl FnOnce(&mut Column)) {
+        let key = (dim, cx, cz);
+        let persist = self.dir.is_some();
+        loop {
+            self.chunk(dim, cx, cz);
+            let mut c = self.cache.lock().unwrap();
+            if let Some(e) = c.map.get_mut(&key) {
+                f(Arc::make_mut(&mut e.col));
+                e.dirty = persist;
+                return;
+            }
+        }
+    }
+
     /// 한 블록의 지금 상태.
     pub fn get(&self, dim: Dimension, x: i32, y: i32, z: i32) -> u32 {
         let ((cx, cz), (lx, lz)) = split(x, z);
@@ -316,9 +331,9 @@ impl WorldStore {
         Ok(total)
     }
 
-    /// 엔티티가 서거나 부딪히는 블록인가 (공기·물·풀처럼 덮어써지는 블록이 아닌 것).
+    /// 엔티티가 서거나 부딪히는 블록인가 (공기·물·풀·꽃·횃불처럼 충돌 모양이 없는 것이 아닌 것).
     pub fn is_solid(&self, dim: Dimension, x: i32, y: i32, z: i32) -> bool {
-        !crate::data::blocks::is_replaceable(self.get(dim, x, y, z))
+        crate::data::blocks::has_collision(self.get(dim, x, y, z))
     }
 
     /// 켠 뒤 바뀐 블록 수.

@@ -71,6 +71,7 @@ pub fn spawn_primed(server: &Server, dim: Dimension, at: Vec3, fuse: u32) {
             yaw: 0.0,
             pitch: 0.0,
             on_ground: false,
+            collided: false,
             age: 0,
             kind: Kind::Tnt { fuse },
         },

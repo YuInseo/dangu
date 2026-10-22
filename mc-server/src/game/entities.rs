@@ -1,12 +1,15 @@
-//! 플레이어가 아닌 엔티티: 떨어진 아이템과 몹. 서버 전체에서 하나의 틱 루프가 움직입니다.
+//! 플레이어가 아닌 엔티티: 떨어진 아이템, 몹, 화살, 불붙은 TNT. 서버 전체에서 하나의 틱 루프가
+//! 움직입니다.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
 use super::mobs::{self, Mob};
-use super::{rand_f64, rand_u32};
+use super::projectiles::{self, Projectile};
+use super::rand_f64;
 use crate::data::entity_type;
-use crate::packets::world::Item;
+use crate::packets::entity::Meta;
+use crate::packets::world::{BlockPos, Item};
 use crate::server::{Event, Server};
 use crate::world::Dimension;
 
@@ -32,6 +35,7 @@ pub enum Kind {
     Tnt {
         fuse: u32,
     },
+    Projectile(Projectile),
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +48,8 @@ pub struct Entity {
     pub yaw: f32,
     pub pitch: f32,
     pub on_ground: bool,
+    /// 지난 틱에 옆 벽에 막혔음 (몹이 뛰어오를지 고를 때).
+    pub collided: bool,
     pub age: u32,
     pub kind: Kind,
 }
@@ -60,6 +66,8 @@ pub struct Snapshot {
     pub yaw: f32,
     pub pitch: f32,
     pub item: Option<Item>,
+    /// 띄운 뒤 곧바로 보낼 엔티티 데이터 (몹 모습).
+    pub meta: Vec<Meta>,
 }
 
 impl Entity {
@@ -78,6 +86,14 @@ impl Entity {
                 crate::data::entity_id("tnt").unwrap_or(entity_type::ITEM),
                 None,
             ),
+            Kind::Projectile(p) => (
+                crate::data::entity_id(p.kind.name()).unwrap_or(entity_type::ITEM),
+                None,
+            ),
+        };
+        let meta = match &self.kind {
+            Kind::Mob(m) => m.meta(),
+            _ => Vec::new(),
         };
         Snapshot {
             id: self.id,
@@ -89,14 +105,45 @@ impl Entity {
             yaw: self.yaw,
             pitch: self.pitch,
             item,
+            meta,
+        }
+    }
+
+    /// (반쪽 폭, 키): 옆 벽에 막히는지 볼 때.
+    fn size(&self) -> (f64, f64) {
+        match &self.kind {
+            Kind::Mob(m) => m.kind.size(),
+            Kind::Tnt { .. } => (0.49, 0.98),
+            _ => (0.125, 0.25),
         }
     }
 }
+
+/// 틱 하나 동안 몹·화살이 남긴 일: 엔티티 목록을 잠근 채로는 할 수 없는 것들.
+#[derive(Default)]
+pub struct TickOut {
+    pub events: Vec<Event>,
+    /// (차원, 중심, 위력, 부서진 블록을 모두 떨어뜨릴지)
+    pub explosions: Vec<(Dimension, Vec3, f32, bool)>,
+    /// 새로 생길 엔티티 (화살 등).
+    pub spawns: Vec<Entity>,
+    /// 떨어뜨릴 것.
+    pub drops: Vec<(Dimension, BlockPos, Item)>,
+    /// 이번 틱에 길찾기를 더 할 수 있는 횟수.
+    pub path_budget: u32,
+}
+
+/// 한 틱에 길찾기(A*)를 하는 몹 수 상한.
+const PATHS_PER_TICK: u32 = 6;
 
 #[derive(Default)]
 pub struct Entities {
     pub(super) map: Mutex<HashMap<i32, Entity>>,
     pub(super) tick: Mutex<u32>,
+    /// 생성기마다 다음에 몹을 낼 틱.
+    pub(super) spawners: Mutex<HashMap<(Dimension, BlockPos), u32>>,
+    /// 주민을 채운 마을 (차원, 시작 청크).
+    pub(super) villages: Mutex<HashSet<(Dimension, i32, i32)>>,
 }
 
 fn new_uuid() -> u128 {
@@ -128,6 +175,7 @@ impl Entities {
                 yaw: (rand_f64() * 360.0) as f32,
                 pitch: 0.0,
                 on_ground: false,
+                collided: false,
                 age: 0,
                 kind: Kind::Item {
                     item,
@@ -233,6 +281,16 @@ impl Entities {
         self.map.lock().unwrap().get(&id).cloned()
     }
 
+    /// 엔티티 하나를 고칩니다 (주민 거래, 양털 깎기).
+    pub fn update<R>(&self, id: i32, f: impl FnOnce(&mut Entity) -> R) -> Option<R> {
+        self.map.lock().unwrap().get_mut(&id).map(f)
+    }
+
+    /// 지금 틱 번호.
+    pub fn now(&self) -> u32 {
+        *self.tick.lock().unwrap()
+    }
+
     /// 1틱 진행.
     pub fn tick(&self, server: &Server) {
         let now = {
@@ -241,14 +299,16 @@ impl Entities {
             *t
         };
         let players = server.players();
-        let mut events = Vec::new();
+        let mut out = TickOut {
+            path_budget: PATHS_PER_TICK,
+            ..TickOut::default()
+        };
         let mut removed: Vec<(Dimension, i32)> = Vec::new();
-        let mut explosions: Vec<(Dimension, Vec3)> = Vec::new();
         {
             let mut map = self.map.lock().unwrap();
             for e in map.values_mut() {
                 e.age += 1;
-                let before = e.pos;
+                let before = (e.pos, e.yaw);
                 match &mut e.kind {
                     Kind::Item {
                         item,
@@ -282,7 +342,7 @@ impl Entities {
                                 if let Kind::Item { claimed, .. } = &mut e.kind {
                                     *claimed = Some((p.uuid, now));
                                 }
-                                events.push(Event::PickupOffer {
+                                out.events.push(Event::PickupOffer {
                                     to: p.uuid,
                                     entity_id: e.id,
                                     item,
@@ -293,14 +353,25 @@ impl Entities {
                     Kind::Tnt { fuse } => {
                         *fuse = fuse.saturating_sub(1);
                         if *fuse == 0 {
-                            explosions.push((e.dimension, e.pos));
+                            out.explosions.push((
+                                e.dimension,
+                                (e.pos.0, e.pos.1 + 0.06, e.pos.2),
+                                super::mechanics::explosion::TNT_POWER,
+                                true,
+                            ));
                             removed.push((e.dimension, e.id));
                             continue;
                         }
                         physics(server, e, 0.04, 0.98);
                     }
+                    Kind::Projectile(_) => {
+                        if projectiles::tick(server, e, &players, &mut out.events) {
+                            removed.push((e.dimension, e.id));
+                            continue;
+                        }
+                    }
                     Kind::Mob(_) => {
-                        mobs::tick(server, e, &players, now, &mut events);
+                        mobs::tick(server, e, &players, now, &mut out);
                         if let Kind::Mob(m) = &e.kind
                             && m.dead_ticks > 20
                         {
@@ -309,8 +380,8 @@ impl Entities {
                         }
                     }
                 }
-                if dist2(before, e.pos) > 1e-6 {
-                    events.push(Event::EntityMoved {
+                if dist2(before.0, e.pos) > 1e-6 || before.1 != e.yaw {
+                    out.events.push(Event::EntityMoved {
                         dimension: e.dimension,
                         id: e.id,
                         pos: e.pos,
@@ -325,25 +396,25 @@ impl Entities {
             }
         }
         for (dimension, id) in removed {
-            events.push(Event::EntitiesRemoved {
+            out.events.push(Event::EntitiesRemoved {
                 dimension,
                 ids: vec![id],
             });
         }
-        for e in events {
+        for e in out.events {
             server.publish(e);
         }
-        for (dim, at) in explosions {
-            super::mechanics::explosion::explode(
-                server,
-                dim,
-                (at.0, at.1 + 0.06, at.2),
-                super::mechanics::explosion::TNT_POWER,
-                true,
-            );
+        for e in out.spawns {
+            self.insert(server, e);
+        }
+        for (dim, at, item) in out.drops {
+            self.drop_at_block(server, dim, at, item);
+        }
+        for (dim, at, power, drops_all) in out.explosions {
+            super::mechanics::explosion::explode(server, dim, at, power, drops_all);
         }
         super::mechanics::tick(server, now as u64, &players);
-        mobs::natural_spawning(server, &players, now);
+        super::spawning::tick(server, &players, now);
     }
 }
 
@@ -351,7 +422,24 @@ pub fn dist2(a: Vec3, b: Vec3) -> f64 {
     (a.0 - b.0).powi(2) + (a.1 - b.1).powi(2) + (a.2 - b.2).powi(2)
 }
 
-/// 중력과 마찰, 땅에 닿기. 블록 충돌은 아래 방향만 봅니다 (옆 벽은 통과).
+/// 몸(반쪽 폭 `hw`, 키 `h`)이 (x, y, z)에 있으면 단단한 블록과 겹치나.
+fn overlaps(server: &Server, dim: Dimension, x: f64, y: f64, z: f64, hw: f64, h: f64) -> bool {
+    let (y0, y1) = ((y + 0.01).floor() as i32, (y + h - 0.01).floor() as i32);
+    let (x0, x1) = ((x - hw).floor() as i32, (x + hw).floor() as i32);
+    let (z0, z1) = ((z - hw).floor() as i32, (z + hw).floor() as i32);
+    for by in y0..=y1 {
+        for bx in x0..=x1 {
+            for bz in z0..=z1 {
+                if server.world.is_solid(dim, bx, by, bz) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// 중력과 마찰, 땅에 닿기, 옆 벽에 막히기. 바닥은 몸 가운데 아래 칸만 봅니다.
 pub fn physics(server: &Server, e: &mut Entity, gravity: f64, drag: f64) {
     let world = &server.world;
     let cell = |v: f64| v.floor() as i32;
@@ -361,8 +449,41 @@ pub fn physics(server: &Server, e: &mut Entity, gravity: f64, drag: f64) {
         e.vel.1 = 0.0;
     }
     e.vel.1 -= gravity;
+    // 옆으로: x와 z를 따로 막습니다 (벽을 따라 미끄러지게).
+    let (hw, h) = e.size();
+    e.collided = false;
+    let y = e.pos.1.max(e.pos.1 + e.vel.1);
+    if e.vel.0 != 0.0
+        && overlaps(server, e.dimension, e.pos.0 + e.vel.0, y, e.pos.2, hw, h)
+        && !overlaps(server, e.dimension, e.pos.0, y, e.pos.2, hw, h)
+    {
+        e.vel.0 = 0.0;
+        e.collided = true;
+    }
+    if e.vel.2 != 0.0
+        && overlaps(
+            server,
+            e.dimension,
+            e.pos.0 + e.vel.0,
+            y,
+            e.pos.2 + e.vel.2,
+            hw,
+            h,
+        )
+        && !overlaps(server, e.dimension, e.pos.0 + e.vel.0, y, e.pos.2, hw, h)
+    {
+        e.vel.2 = 0.0;
+        e.collided = true;
+    }
     let next = (e.pos.0 + e.vel.0, e.pos.1 + e.vel.1, e.pos.2 + e.vel.2);
-    if e.vel.1 <= 0.0 && world.is_solid(e.dimension, cell(next.0), cell(next.1), cell(next.2)) {
+    if e.vel.1 > 0.0 && world.is_solid(e.dimension, cell(next.0), cell(next.1 + h), cell(next.2)) {
+        // 천장
+        e.vel.1 = 0.0;
+        e.pos = (next.0, e.pos.1, next.2);
+        e.on_ground = false;
+    } else if e.vel.1 <= 0.0
+        && world.is_solid(e.dimension, cell(next.0), cell(next.1), cell(next.2))
+    {
         e.pos = (next.0, next.1.floor() + 1.0, next.2);
         e.vel = (e.vel.0 * 0.6, 0.0, e.vel.2 * 0.6);
         e.on_ground = true;
@@ -398,9 +519,4 @@ pub async fn run(server: std::sync::Arc<Server>) {
             eprintln!("엔티티 틱이 실패했습니다");
         }
     }
-}
-
-#[allow(dead_code)]
-fn _rand() -> u32 {
-    rand_u32()
 }
