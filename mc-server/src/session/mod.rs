@@ -5,6 +5,8 @@ mod configuration;
 mod interact;
 mod login;
 mod play;
+mod survival;
+mod windows;
 
 use std::sync::Arc;
 

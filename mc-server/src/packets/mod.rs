@@ -6,6 +6,8 @@
 
 pub mod commands;
 pub mod configuration;
+pub mod container;
+pub mod entity;
 pub mod handshake;
 pub mod login;
 pub mod play;

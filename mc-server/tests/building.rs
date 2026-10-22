@@ -32,6 +32,7 @@ async fn place_and_break_are_shared_and_saved() {
 
     let (mut alice, _) = join(addr, "Alice", 2).await;
     let (mut bob, _) = join(addr, "Bob", 2).await;
+    common::send_string(&mut alice, 0x07, "gamemode creative").await;
 
     // Alice가 크리에이티브 인벤토리에서 핫바 첫 칸(메뉴 36번)에 돌(아이템 1)을 넣습니다.
     let mut slot = 36i16.to_be_bytes().to_vec();

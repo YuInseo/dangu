@@ -44,6 +44,7 @@ pub const SB_KEEP_ALIVE_ID: i32 = 0x1C;
 pub const SB_MOVE_PLAYER_POS_ID: i32 = 0x1E;
 pub const SB_MOVE_PLAYER_POS_ROT_ID: i32 = 0x1F;
 pub const SB_MOVE_PLAYER_ROT_ID: i32 = 0x20;
+pub const SB_PLAYER_INPUT_ID: i32 = 0x2B;
 pub const SB_PLAYER_LOADED_ID: i32 = 0x2C;
 
 /// `Game Event`의 "게임 모드 바꾸기". 값은 게임 모드 번호(실수).
@@ -79,6 +80,11 @@ impl GameMode {
             GameMode::Adventure => "adventure",
             GameMode::Spectator => "spectator",
         }
+    }
+
+    /// 피해를 입는 모드 (서바이벌·모험).
+    pub fn takes_damage(self) -> bool {
+        matches!(self, GameMode::Survival | GameMode::Adventure)
     }
 
     pub fn from_name(name: &str) -> Option<GameMode> {

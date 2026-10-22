@@ -11,7 +11,12 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::{broadcast, mpsc};
 
 use super::commands;
+use super::survival::Vitals;
+use super::windows::Window;
 use super::{ClientSettings, Profile};
+use crate::game::playerdata::{self, PlayerData};
+use crate::packets::container as pc;
+use crate::packets::entity as pe;
 use crate::packets::play::{self as p, ChatKind, GameMode, ListedPlayer, Login, SpawnInfo};
 use crate::packets::world::{self as pw, Item};
 use crate::protocol::conn::{Conn, PacketWriter};
@@ -23,10 +28,12 @@ use crate::world::store::WorldStore;
 use crate::world::{Dimension, chunk, terrain};
 
 const KEEP_ALIVE_INTERVAL: Duration = Duration::from_secs(10);
+/// 체력·배고픔·환경 피해를 보는 간격.
+const SURVIVAL_TICK: Duration = Duration::from_millis(250);
 /// 이 시간 안에 keep-alive 응답이 없으면 끊습니다 (바닐라와 같은 30초).
 const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(30);
-/// 클라이언트가 더 멀리 보겠다고 해도 이만큼만 보냅니다. 압축이 없어서 청크가 큽니다.
-const MAX_VIEW_DISTANCE: i32 = 8;
+/// 클라이언트가 더 멀리 보겠다고 해도 이만큼만 보냅니다.
+const MAX_VIEW_DISTANCE: i32 = 10;
 /// 바닐라와 같은 채팅 길이 제한.
 const MAX_CHAT_LENGTH: usize = 256;
 
@@ -82,8 +89,10 @@ where
 
         let mut keep_alive = tokio::time::interval(KEEP_ALIVE_INTERVAL);
         keep_alive.tick().await; // 첫 tick은 즉시 오므로 버립니다
+        let mut survival = tokio::time::interval(SURVIVAL_TICK);
         loop {
             tokio::select! {
+                _ = survival.tick() => session.survival_tick().await?,
                 packet = rx.recv() => match packet {
                     Some(Ok(packet)) => session.handle(packet).await?,
                     Some(Err(e)) => return Err(e),
@@ -102,6 +111,7 @@ where
     .await;
 
     reader_task.abort();
+    session.save();
     server.remove_player(session.profile.uuid);
     server.publish(Event::System(text::colored(
         &format!("{}님이 나갔습니다", session.profile.name),
@@ -136,6 +146,17 @@ pub(super) struct Session<'a, W> {
     listed: HashSet<u128>,
     /// 이 클라이언트에 엔티티로 띄운 다른 플레이어: UUID → 엔티티 ID.
     visible: HashMap<u128, i32>,
+    /// 띄운 아이템·몹.
+    visible_entities: HashSet<i32>,
+    pub(super) vitals: Vitals,
+    /// 열린 창 (없으면 플레이어 인벤토리).
+    pub(super) window: Option<Window>,
+    pub(super) next_window: i32,
+    pub(super) state_id: i32,
+    /// 창에서 마우스로 들고 있는 것.
+    pub(super) carried: Option<Item>,
+    /// 저장해 둔 위치로 처음 들어갈 때.
+    resume_at: Option<(f64, f64, f64)>,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
@@ -145,7 +166,11 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         profile: Profile,
         settings: ClientSettings,
     ) -> Self {
-        let dimension = Dimension::Overworld;
+        let saved = server
+            .data_dir
+            .as_ref()
+            .and_then(|d| playerdata::load(d, profile.uuid));
+        let dimension = saved.as_ref().map_or(Dimension::Overworld, |d| d.dimension);
         Self {
             w,
             server,
@@ -153,12 +178,26 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             entity_id: server.allocate_entity_id(),
             view_distance: (settings.view_distance as i32).clamp(2, MAX_VIEW_DISTANCE),
             dimension,
-            gamemode: GameMode::Creative,
-            position: terrain::spawn_point(dimension, server.seed),
-            yaw: 0.0,
-            pitch: 0.0,
-            inventory: [None; 46],
-            held: 0,
+            gamemode: saved
+                .as_ref()
+                .map_or(server.config.default_gamemode, |d| d.gamemode),
+            position: saved.as_ref().map_or_else(
+                || terrain::spawn_point(dimension, server.seed),
+                |d| d.position,
+            ),
+            yaw: saved.as_ref().map_or(0.0, |d| d.yaw),
+            pitch: saved.as_ref().map_or(0.0, |d| d.pitch),
+            inventory: saved.as_ref().map_or([None; 46], |d| d.inventory),
+            held: saved.as_ref().map_or(0, |d| d.held),
+            visible_entities: HashSet::new(),
+            vitals: saved.as_ref().map_or_else(Vitals::default, |d| {
+                Vitals::with(d.health, d.food, d.saturation)
+            }),
+            window: None,
+            next_window: 0,
+            state_id: 0,
+            carried: None,
+            resume_at: saved.map(|d| d.position),
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,
@@ -168,7 +207,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         }
     }
 
-    fn state(&self) -> PlayerState {
+    pub(super) fn state(&self) -> PlayerState {
         PlayerState {
             uuid: self.profile.uuid,
             name: self.profile.name.clone(),
@@ -181,6 +220,39 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             main_hand: self.main_hand(),
             off_hand: self.off_hand(),
             properties: self.profile.properties.clone(),
+            dead: self.vitals.dead,
+        }
+    }
+
+    /// 다시 접속했을 때 이어지도록 저장합니다.
+    pub(super) fn save(&self) {
+        let Some(dir) = &self.server.data_dir else {
+            return;
+        };
+        let mut inventory = self.inventory;
+        inventory[0] = None; // 조합 결과는 저장하지 않음
+        let data = PlayerData {
+            dimension: self.dimension,
+            position: self.position,
+            yaw: self.yaw,
+            pitch: self.pitch,
+            gamemode: self.gamemode,
+            health: if self.vitals.dead {
+                super::survival::MAX_HEALTH
+            } else {
+                self.vitals.health
+            },
+            food: if self.vitals.dead {
+                20
+            } else {
+                self.vitals.food
+            },
+            saturation: self.vitals.saturation,
+            held: self.held,
+            inventory,
+        };
+        if let Err(e) = playerdata::save(dir, self.profile.uuid, &data) {
+            eprintln!("{}의 데이터를 저장하지 못했습니다: {e}", self.profile.name);
         }
     }
 
@@ -192,7 +264,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         self.inventory[45]
     }
 
-    fn spawn_info(&self) -> SpawnInfo {
+    pub(super) fn spawn_info(&self) -> SpawnInfo {
         SpawnInfo {
             dimension: self.dimension,
             // 클라이언트는 이 값을 바이옴 색 섞기에만 씁니다. 실제 시드를 줄 필요는 없습니다.
@@ -233,7 +305,15 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             .extend(std::iter::once(me.uuid).chain(others.iter().map(|s| s.uuid)));
 
         self.send_time().await?;
-        self.enter_world().await?;
+        let resume = self.resume_at.take();
+        self.enter_world(resume).await?;
+        self.send_inventory().await?;
+        self.send(
+            pw::SET_HELD_SLOT_ID,
+            &pw::encode_held_slot(self.held as i32),
+        )
+        .await?;
+        self.send_health().await?;
         self.message(&text::colored(
             "순수 Rust 서버에 오신 것을 환영합니다! /help 로 명령어를 볼 수 있습니다.",
             "aqua",
@@ -242,13 +322,18 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         Ok(())
     }
 
-    /// 지금 차원의 스폰 지점에 세우고 주변 청크와 사람들을 보냅니다.
-    /// 접속 직후와 차원 이동 후에 씁니다.
-    async fn enter_world(&mut self) -> Result<(), FrameError> {
+    /// 지금 차원의 스폰 지점(또는 `at`)에 세우고 주변 청크와 사람·엔티티를 보냅니다.
+    /// 접속 직후, 차원 이동과 부활 후에 씁니다.
+    pub(super) async fn enter_world(
+        &mut self,
+        at: Option<(f64, f64, f64)>,
+    ) -> Result<(), FrameError> {
         let spawn = terrain::spawn_point(self.dimension, self.server.seed);
         // 새 차원에 들어가면 클라이언트도 청크와 엔티티를 모두 버립니다.
         self.loaded.clear();
         self.visible.clear();
+        self.visible_entities.clear();
+        self.reset_fall();
 
         self.send(p::PLAYER_ABILITIES_ID, &p::encode_abilities(self.gamemode))
             .await?;
@@ -259,15 +344,34 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         );
         let body = p::encode_spawn_position(self.dimension, block);
         self.send(p::SET_DEFAULT_SPAWN_POSITION_ID, &body).await?;
-        self.teleport(spawn).await?;
+        self.teleport(at.unwrap_or(spawn)).await?;
         let body = p::encode_game_event(p::GAME_EVENT_LEVEL_CHUNKS_LOAD_START, 0.0);
         self.send(p::GAME_EVENT_ID, &body).await?;
         self.update_chunks(true).await?;
 
         for other in self.server.players() {
-            if other.uuid != self.profile.uuid && other.dimension == self.dimension {
+            if other.uuid != self.profile.uuid && other.dimension == self.dimension && !other.dead {
                 self.show(&other).await?;
             }
+        }
+        for e in self.server.entities.snapshots_in(self.dimension) {
+            self.show_entity(&e).await?;
+        }
+        Ok(())
+    }
+
+    async fn show_entity(&mut self, e: &crate::game::entities::Snapshot) -> std::io::Result<()> {
+        if !self.visible_entities.insert(e.id) {
+            return Ok(());
+        }
+        let body = pe::encode_add_entity(e.id, e.uuid, e.type_id, e.pos, e.vel, e.yaw, e.pitch);
+        self.send(p::ADD_ENTITY_ID, &body).await?;
+        if let Some(item) = e.item {
+            self.send(
+                pe::SET_ENTITY_DATA_ID,
+                &pe::encode_item_entity_data(e.id, item),
+            )
+            .await?;
         }
         Ok(())
     }
@@ -277,6 +381,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
         let id = self.next_teleport_id;
         self.next_teleport_id += 1;
         self.position = pos;
+        self.reset_fall();
         self.send(
             p::PLAYER_POSITION_ID,
             &p::encode_player_position(id, pos, self.yaw, self.pitch),
@@ -304,7 +409,8 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             .update_player(self.profile.uuid, |s| s.dimension = dimension);
         self.send(p::RESPAWN_ID, &p::encode_respawn(&self.spawn_info()))
             .await?;
-        self.enter_world().await?;
+        self.enter_world(None).await?;
+        self.send_health().await?;
         self.server.publish(Event::ChangedDimension {
             from,
             state: self.state(),
@@ -418,15 +524,18 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
 
     async fn handle(&mut self, packet: RawPacket) -> Result<(), FrameError> {
         match packet.id {
-            p::SB_MOVE_PLAYER_POS_ID => {
+            p::SB_MOVE_PLAYER_POS_ID | p::SB_MOVE_PLAYER_POS_ROT_ID if !self.vitals.dead => {
+                let old = self.position;
                 self.position = p::decode_position(&packet.body)?;
-                self.moved(on_ground(&packet.body, 24));
-                self.update_chunks(false).await?;
-            }
-            p::SB_MOVE_PLAYER_POS_ROT_ID => {
-                self.position = p::decode_position(&packet.body)?;
-                (self.yaw, self.pitch) = p::decode_rotation_after_position(&packet.body)?;
-                self.moved(on_ground(&packet.body, 32));
+                let flags_at = if packet.id == p::SB_MOVE_PLAYER_POS_ID {
+                    24
+                } else {
+                    (self.yaw, self.pitch) = p::decode_rotation_after_position(&packet.body)?;
+                    32
+                };
+                let grounded = on_ground(&packet.body, flags_at);
+                self.moved(grounded);
+                self.after_move(old, grounded).await?;
                 self.update_chunks(false).await?;
             }
             p::SB_MOVE_PLAYER_ROT_ID => {
@@ -472,6 +581,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                 let slot = pw::decode_carried_item(&packet.body)?;
                 if (0..9).contains(&slot) {
                     self.held = slot as usize;
+                    self.stop_using_item();
                     self.hands_changed();
                 }
             }
@@ -479,6 +589,27 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                 self.pick_block(pw::decode_pick_item_from_block(&packet.body)?)
                     .await?;
             }
+            pe::SB_ATTACK_ID => self.attack(pe::decode_entity_id(&packet.body)?).await?,
+            pe::SB_CLIENT_COMMAND_ID => {
+                if pe::decode_entity_id(&packet.body)? == pe::CLIENT_COMMAND_RESPAWN {
+                    self.respawn().await?;
+                }
+            }
+            pe::SB_PLAYER_COMMAND_ID => match pe::decode_player_command(&packet.body)? {
+                pe::PLAYER_COMMAND_START_SPRINT => self.vitals.sprinting = true,
+                pe::PLAYER_COMMAND_STOP_SPRINT => self.vitals.sprinting = false,
+                _ => {}
+            },
+            p::SB_PLAYER_INPUT_ID => {
+                // 0x20 = 웅크리기
+                self.vitals.sneaking = packet.body.first().is_some_and(|f| f & 0x20 != 0);
+            }
+            pe::SB_USE_ITEM_ID => {
+                let (off_hand, sequence) = pe::decode_use_item(&packet.body)?;
+                self.use_item(off_hand, sequence).await?;
+            }
+            pc::SB_CONTAINER_CLICK_ID => self.click(pc::decode_click(&packet.body)?).await?,
+            pc::SB_CONTAINER_CLOSE_ID => self.close_window(true).await?,
             pw::SB_PUNCH_ID => self.server.publish(Event::Swing {
                 uuid: self.profile.uuid,
                 entity_id: self.entity_id,
@@ -517,6 +648,12 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                         &p::encode_player_info_remove(uuid),
                     )
                     .await?;
+                }
+            }
+            Event::Respawned { state, .. } if state.uuid != me => {
+                self.hide(state.uuid).await?;
+                if state.dimension == self.dimension {
+                    self.show(&state).await?;
                 }
             }
             Event::ChangedDimension { state, .. } if state.uuid != me => {
@@ -608,6 +745,107 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
                 )
                 .await?;
             }
+            Event::EntitySpawned(e) if e.dimension == self.dimension => {
+                self.show_entity(&e).await?
+            }
+            Event::EntityMoved {
+                dimension,
+                id,
+                pos,
+                yaw,
+                pitch,
+                on_ground,
+            } if dimension == self.dimension && self.visible_entities.contains(&id) => {
+                let body = p::encode_teleport_entity(id, pos, yaw, pitch, on_ground);
+                self.send(p::TELEPORT_ENTITY_ID, &body).await?;
+                self.send(p::ROTATE_HEAD_ID, &p::encode_rotate_head(id, yaw))
+                    .await?;
+            }
+            Event::EntitiesRemoved { dimension, ids } if dimension == self.dimension => {
+                let ids: Vec<i32> = ids
+                    .into_iter()
+                    .filter(|id| self.visible_entities.remove(id))
+                    .collect();
+                if !ids.is_empty() {
+                    self.send(p::REMOVE_ENTITIES_ID, &p::encode_remove_entities(&ids))
+                        .await?;
+                }
+            }
+            Event::ItemStackChanged {
+                dimension,
+                id,
+                item,
+            } if dimension == self.dimension && self.visible_entities.contains(&id) => {
+                self.send(
+                    pe::SET_ENTITY_DATA_ID,
+                    &pe::encode_item_entity_data(id, item),
+                )
+                .await?;
+            }
+            Event::ItemCollected {
+                dimension,
+                item_entity,
+                collector,
+                count,
+            } if dimension == self.dimension => {
+                self.send(
+                    pe::TAKE_ITEM_ENTITY_ID,
+                    &pe::encode_take_item(item_entity, collector, count),
+                )
+                .await?;
+            }
+            Event::PickupOffer {
+                to,
+                entity_id,
+                item,
+            } if to == me => {
+                let taken = if self.vitals.dead {
+                    0
+                } else {
+                    self.give(item).await?
+                };
+                self.server
+                    .entities
+                    .finish_pickup(self.server, entity_id, self.entity_id, taken);
+            }
+            Event::Damage {
+                target,
+                amount,
+                damage_type,
+                attacker,
+                attacker_name,
+            } if target == me => {
+                self.damage(amount, damage_type, attacker, &attacker_name)
+                    .await?;
+            }
+            Event::Hurt {
+                dimension,
+                entity_id,
+                damage_type,
+                attacker,
+            } if dimension == self.dimension => {
+                let body = pe::encode_damage_event(entity_id, damage_type, attacker);
+                self.send(pe::DAMAGE_EVENT_ID, &body).await?;
+            }
+            Event::EntityAnimation {
+                dimension,
+                entity_id,
+                event,
+            } if dimension == self.dimension => {
+                self.send(
+                    pe::ENTITY_EVENT_ID,
+                    &pe::encode_entity_event(entity_id, event),
+                )
+                .await?;
+            }
+            Event::ContainerChanged {
+                dimension,
+                pos,
+                slot,
+                item,
+            } => {
+                self.chest_changed(dimension, pos, slot, item).await?;
+            }
             Event::Swing {
                 uuid,
                 entity_id,
@@ -677,6 +915,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             .duration_since(UNIX_EPOCH)
             .map_or(0, |d| d.as_millis() as i64);
         self.pending_keep_alive = Some((id, Instant::now()));
+        self.save();
         self.send(p::KEEP_ALIVE_ID, &p::encode_keep_alive(id))
             .await?;
         // 시계가 어긋나지 않도록 가끔 다시 맞춥니다.

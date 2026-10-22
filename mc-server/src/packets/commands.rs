@@ -9,7 +9,11 @@ use crate::protocol::varint::write_varint;
 enum Kind {
     Root,
     Literal(&'static str),
-    Argument { name: &'static str, parser: i32 },
+    Argument {
+        name: &'static str,
+        parser: i32,
+        properties: &'static [u8],
+    },
 }
 
 struct Node {
@@ -61,7 +65,35 @@ impl CommandTree {
         parser: i32,
         executable: bool,
     ) -> usize {
-        self.push(parent, Kind::Argument { name, parser }, executable)
+        self.push(
+            parent,
+            Kind::Argument {
+                name,
+                parser,
+                properties: &[],
+            },
+            executable,
+        )
+    }
+
+    /// 속성이 있는 파서 (예: `brigadier:integer`의 범위 플래그 바이트).
+    pub fn argument_with(
+        &mut self,
+        parent: usize,
+        name: &'static str,
+        parser: i32,
+        properties: &'static [u8],
+        executable: bool,
+    ) -> usize {
+        self.push(
+            parent,
+            Kind::Argument {
+                name,
+                parser,
+                properties,
+            },
+            executable,
+        )
     }
 
     pub fn encode(&self) -> Vec<u8> {
@@ -81,9 +113,14 @@ impl CommandTree {
             match node.kind {
                 Kind::Root => {}
                 Kind::Literal(name) => write_string(&mut out, name),
-                Kind::Argument { name, parser } => {
+                Kind::Argument {
+                    name,
+                    parser,
+                    properties,
+                } => {
                     write_string(&mut out, name);
                     write_varint(&mut out, parser);
+                    out.extend_from_slice(properties);
                 }
             }
         }

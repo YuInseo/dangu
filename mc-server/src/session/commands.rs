@@ -4,8 +4,11 @@ use tokio::io::AsyncWrite;
 
 use super::play::{Session, sanitize};
 use crate::data::argument_type;
+use crate::data::items;
+use crate::game::mobs::{self, MobKind};
 use crate::packets::commands::{CommandTree, ROOT};
 use crate::packets::play::{ChatKind, GameMode};
+use crate::packets::world::Item;
 use crate::protocol::frame::FrameError;
 use crate::server::Event;
 use crate::text;
@@ -44,8 +47,20 @@ pub fn tree() -> CommandTree {
     for (name, _) in TIMES {
         t.literal(set, name, true);
     }
+    // /give <아이템> [개수]
+    let give = t.literal(ROOT, "give", false);
+    let item = t.argument(give, "item", argument_type::ITEM_STACK, true);
+    t.argument_with(item, "count", argument_type::INTEGER, &[0], true);
+    let summon = t.literal(ROOT, "summon", false);
+    for name in ["cow", "pig", "sheep", "chicken", "zombie", "spider"] {
+        t.literal(summon, name, true);
+    }
+    t.literal(ROOT, "kill", true);
     t
 }
+
+/// 관리자만 쓸 수 있는 명령어 (바닐라 권한 2단계에 해당).
+const OP_ONLY: &[&str] = &["gamemode", "time", "give", "summon", "kill", "tp"];
 
 const HELP: &[&str] = &[
     "/overworld, /nether, /end — 차원 이동",
@@ -56,6 +71,7 @@ const HELP: &[&str] = &[
     "/gamemode <survival|creative|adventure|spectator>",
     "/time set <day|noon|night|midnight>",
     "/list — 접속자 목록",
+    "/give <아이템> [개수], /summon <몹>, /kill",
 ];
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
@@ -66,7 +82,57 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if let Some(dimension) = Dimension::from_command(name) {
             return self.travel(dimension).await;
         }
+        if OP_ONLY.contains(&name) && !self.server.is_op(&self.profile.name) {
+            return self.error("이 명령어를 쓸 권한이 없습니다.").await;
+        }
         match name {
+            "give" => {
+                let (spec, count) = rest.split_once(' ').unwrap_or((rest, "1"));
+                // `minecraft:diamond_sword[...]`에서 이름만
+                let id_text = spec.split(['[', '{']).next().unwrap_or("");
+                let Some(id) = items::by_name(id_text).filter(|&id| id > 0) else {
+                    return self.error(&format!("모르는 아이템: {id_text}")).await;
+                };
+                let count = count.trim().parse::<i32>().unwrap_or(1).clamp(1, 64 * 36);
+                let mut left = count;
+                while left > 0 {
+                    let n = left.min(items::max_stack(id));
+                    let taken = self.give(Item { id, count: n }).await?;
+                    if taken < n {
+                        break;
+                    }
+                    left -= n;
+                }
+                let msg = format!("{} {}개를 받았습니다.", items::name(id), count - left);
+                Ok(self.message(&text::colored(&msg, "green")).await?)
+            }
+            "summon" => match MobKind::by_name(rest) {
+                Some(kind) => {
+                    // 바닐라처럼 명령어를 친 자리에
+                    mobs::spawn(self.server, kind, self.dimension, self.position);
+                    Ok(self
+                        .message(&text::colored(
+                            &format!("{}을(를) 불렀습니다.", kind.display_name()),
+                            "green",
+                        ))
+                        .await?)
+                }
+                None => {
+                    self.error("사용법: /summon <cow|pig|sheep|chicken|zombie|spider>")
+                        .await
+                }
+            },
+            "kill" => {
+                let mode = self.gamemode;
+                if !mode.takes_damage() {
+                    self.set_gamemode(GameMode::Survival).await?;
+                }
+                self.damage(f32::MAX, "generic", None, "").await?;
+                if !mode.takes_damage() {
+                    self.gamemode = mode;
+                }
+                Ok(())
+            }
             "spawn" => {
                 let spawn = terrain::spawn_point(self.dimension, self.server.seed);
                 self.teleport_and_load(spawn).await

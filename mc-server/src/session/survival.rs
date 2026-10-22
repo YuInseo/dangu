@@ -1,0 +1,456 @@
+//! 서바이벌: 체력·배고픔, 낙하·용암·공허·굶주림 피해, 때리기, 죽음과 부활, 먹기.
+
+use std::time::{Duration, Instant};
+
+use tokio::io::AsyncWrite;
+
+use super::play::Session;
+use crate::data::items;
+use crate::data::{block, registry_id};
+use crate::game::entities::THROWN_PICKUP_DELAY;
+use crate::game::mobs;
+use crate::packets::entity as pe;
+use crate::packets::play::{self as p, GameMode};
+use crate::packets::world::{self as pw, Item};
+use crate::protocol::frame::FrameError;
+use crate::server::Event;
+use crate::text;
+use crate::world::Dimension;
+
+pub const MAX_HEALTH: f32 = 20.0;
+const INVULNERABLE: Duration = Duration::from_millis(500);
+/// 먹는 데 걸리는 시간 (바닐라 기본 1.6초).
+const EAT_TIME: Duration = Duration::from_millis(1600);
+/// 생존 틱(250ms) 몇 번마다 한 번: 환경 피해 0.5초, 회복·굶주림 4초.
+const ENV_EVERY: u32 = 2;
+const REGEN_EVERY: u32 = 16;
+const REACH: f64 = 4.5;
+const CREATIVE_REACH: f64 = 6.0;
+
+#[derive(Debug, Clone)]
+pub struct Vitals {
+    pub health: f32,
+    pub food: i32,
+    pub saturation: f32,
+    exhaustion: f32,
+    pub dead: bool,
+    /// 공중에 뜬 뒤 가장 높았던 y.
+    fall_peak: Option<f64>,
+    was_on_ground: bool,
+    invulnerable_until: Instant,
+    pub sprinting: bool,
+    pub sneaking: bool,
+    /// (보조 손인가, 아이템, 시작)
+    eating: Option<(bool, i32, Instant)>,
+    ticks: u32,
+}
+
+impl Default for Vitals {
+    fn default() -> Self {
+        Self {
+            health: MAX_HEALTH,
+            food: 20,
+            saturation: 5.0,
+            exhaustion: 0.0,
+            dead: false,
+            fall_peak: None,
+            was_on_ground: true,
+            invulnerable_until: Instant::now(),
+            sprinting: false,
+            sneaking: false,
+            eating: None,
+            ticks: 0,
+        }
+    }
+}
+
+impl Vitals {
+    pub fn with(health: f32, food: i32, saturation: f32) -> Self {
+        Self {
+            health: health.clamp(0.0, MAX_HEALTH),
+            food: food.clamp(0, 20),
+            saturation,
+            ..Self::default()
+        }
+    }
+
+    fn exhaust(&mut self, amount: f32) {
+        self.exhaustion += amount;
+        while self.exhaustion >= 4.0 {
+            self.exhaustion -= 4.0;
+            if self.saturation > 0.0 {
+                self.saturation = (self.saturation - 1.0).max(0.0);
+            } else {
+                self.food = (self.food - 1).max(0);
+            }
+        }
+    }
+}
+
+fn death_message(name: &str, cause: &str, attacker: &str) -> String {
+    match cause {
+        "fall" => format!("{name}님이 높은 곳에서 떨어졌습니다"),
+        "lava" => format!("{name}님이 용암에 빠졌습니다"),
+        "out_of_world" => format!("{name}님이 세계 밖으로 떨어졌습니다"),
+        "starve" => format!("{name}님이 굶어 죽었습니다"),
+        "player_attack" | "mob_attack" => format!("{name}님이 {attacker}에게 죽었습니다"),
+        _ => format!("{name}님이 죽었습니다"),
+    }
+}
+
+impl<W: AsyncWrite + Unpin> Session<'_, W> {
+    pub(super) async fn send_health(&mut self) -> std::io::Result<()> {
+        let v = &self.vitals;
+        let body = pe::encode_set_health(v.health, v.food, v.saturation);
+        self.send(pe::SET_HEALTH_ID, &body).await
+    }
+
+    /// 이동 패킷마다: 낙하 거리와 배고픔.
+    pub(super) async fn after_move(
+        &mut self,
+        old: (f64, f64, f64),
+        on_ground: bool,
+    ) -> Result<(), FrameError> {
+        if self.vitals.dead {
+            return Ok(());
+        }
+        let new = self.position;
+        let horizontal = ((new.0 - old.0).powi(2) + (new.2 - old.2).powi(2)).sqrt();
+        if horizontal < 10.0 && self.gamemode.takes_damage() {
+            if self.vitals.sprinting {
+                self.vitals.exhaust(0.1 * horizontal as f32);
+            }
+            // 땅에서 뛰어오름
+            if self.vitals.was_on_ground && !on_ground && new.1 - old.1 > 0.2 {
+                self.vitals
+                    .exhaust(if self.vitals.sprinting { 0.2 } else { 0.05 });
+            }
+        }
+
+        let feet = self.block_at(new, 0.0);
+        if feet == block::WATER || !self.gamemode.takes_damage() {
+            self.vitals.fall_peak = None;
+        } else if !on_ground {
+            let peak = self.vitals.fall_peak.get_or_insert(new.1);
+            *peak = peak.max(new.1);
+        } else if let Some(peak) = self.vitals.fall_peak.take() {
+            let distance = peak - new.1;
+            if distance > 3.0 {
+                self.damage((distance - 3.0).floor() as f32, "fall", None, "")
+                    .await?;
+            }
+        }
+        self.vitals.was_on_ground = on_ground;
+        Ok(())
+    }
+
+    fn block_at(&self, pos: (f64, f64, f64), dy: f64) -> u32 {
+        let (x, y, z) = (
+            pos.0.floor() as i32,
+            (pos.1 + dy).floor() as i32,
+            pos.2.floor() as i32,
+        );
+        self.server.world.get(self.dimension, x, y, z)
+    }
+
+    /// 텔레포트·부활 뒤에는 낙하 거리를 셈하지 않습니다.
+    pub(super) fn reset_fall(&mut self) {
+        self.vitals.fall_peak = None;
+    }
+
+    /// 250ms마다: 환경 피해, 회복, 굶주림, 먹기 완료.
+    pub(super) async fn survival_tick(&mut self) -> Result<(), FrameError> {
+        if self.vitals.dead {
+            return Ok(());
+        }
+        self.vitals.ticks += 1;
+        let t = self.vitals.ticks;
+
+        if let Some((off_hand, item, started)) = self.vitals.eating
+            && started.elapsed() >= EAT_TIME
+        {
+            self.vitals.eating = None;
+            self.finish_eating(off_hand, item).await?;
+        }
+
+        let void_y = (self.dimension.min_y() - 64) as f64;
+        if self.position.1 < void_y && !self.gamemode.takes_damage() {
+            // 크리에이티브는 공허에 떨어지면 스폰으로
+            let spawn = crate::world::terrain::spawn_point(self.dimension, self.server.seed);
+            return self.teleport_and_load(spawn).await;
+        }
+        if !self.gamemode.takes_damage() {
+            return Ok(());
+        }
+        if t.is_multiple_of(ENV_EVERY) {
+            if self.position.1 < void_y {
+                self.damage(4.0, "out_of_world", None, "").await?;
+            } else if self.block_at(self.position, 0.0) == block::LAVA
+                || self.block_at(self.position, 1.0) == block::LAVA
+            {
+                self.damage(4.0, "lava", None, "").await?;
+            }
+        }
+        if t.is_multiple_of(REGEN_EVERY) {
+            let v = &mut self.vitals;
+            let mut changed = false;
+            if v.food >= 18 && v.health < MAX_HEALTH {
+                v.health = (v.health + 1.0).min(MAX_HEALTH);
+                v.exhaust(6.0);
+                changed = true;
+            } else if v.food == 0 && v.health > 1.0 {
+                self.damage(1.0, "starve", None, "").await?;
+            }
+            if changed {
+                self.send_health().await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 피해를 입습니다. 0.5초 안에 다시 맞은 것은 무시합니다.
+    pub(super) async fn damage(
+        &mut self,
+        amount: f32,
+        cause: &'static str,
+        attacker: Option<(i32, (f64, f64, f64))>,
+        attacker_name: &str,
+    ) -> Result<(), FrameError> {
+        if self.vitals.dead || !self.gamemode.takes_damage() || amount <= 0.0 {
+            return Ok(());
+        }
+        let now = Instant::now();
+        if now < self.vitals.invulnerable_until {
+            return Ok(());
+        }
+        self.vitals.invulnerable_until = now + INVULNERABLE;
+        self.vitals.health = (self.vitals.health - amount).max(0.0);
+        self.vitals.exhaust(0.1);
+        self.server.publish(Event::Hurt {
+            dimension: self.dimension,
+            entity_id: self.entity_id,
+            damage_type: registry_id("damage_type", cause),
+            attacker: attacker.map(|a| a.0),
+        });
+        // 밀려나기: 때린 쪽 반대로
+        if let Some((_, from)) = attacker {
+            let (dx, dz) = (self.position.0 - from.0, self.position.2 - from.2);
+            let len = (dx * dx + dz * dz).sqrt().max(0.01);
+            let body = pe::encode_motion(self.entity_id, (dx / len * 0.4, 0.36, dz / len * 0.4));
+            self.send(pe::SET_ENTITY_MOTION_ID, &body).await?;
+        }
+        self.send_health().await?;
+        if self.vitals.health <= 0.0 {
+            let msg = death_message(&self.profile.name, cause, attacker_name);
+            self.die(msg).await?;
+        }
+        Ok(())
+    }
+
+    async fn die(&mut self, message: String) -> Result<(), FrameError> {
+        self.vitals.dead = true;
+        self.vitals.eating = None;
+        self.server
+            .update_player(self.profile.uuid, |s| s.dead = true);
+        self.close_window(false).await?;
+
+        // 가진 것을 모두 떨어뜨립니다.
+        let at = self.position;
+        for slot in 0..self.inventory.len() {
+            if let Some(item) = self.inventory[slot].take() {
+                let vel = (
+                    crate::game::rand_f64() * 0.4 - 0.2,
+                    0.2,
+                    crate::game::rand_f64() * 0.4 - 0.2,
+                );
+                self.server.entities.spawn_item(
+                    self.server,
+                    self.dimension,
+                    (at.0, at.1 + 1.0, at.2),
+                    vel,
+                    item,
+                    THROWN_PICKUP_DELAY,
+                );
+            }
+        }
+        if let Some(item) = self.carried.take() {
+            self.server.entities.spawn_item(
+                self.server,
+                self.dimension,
+                (at.0, at.1 + 1.0, at.2),
+                (0.0, 0.2, 0.0),
+                item,
+                THROWN_PICKUP_DELAY,
+            );
+        }
+        self.send_inventory().await?;
+        self.hands_changed();
+
+        self.server.publish(Event::EntityAnimation {
+            dimension: self.dimension,
+            entity_id: self.entity_id,
+            event: pe::ENTITY_EVENT_DEATH,
+        });
+        self.server
+            .publish(Event::System(text::colored(&message, "gray")));
+        let body = pe::encode_combat_kill(self.entity_id, &text::plain(&message));
+        self.send(pe::PLAYER_COMBAT_KILL_ID, &body).await?;
+        Ok(())
+    }
+
+    /// 사망 화면에서 "부활"을 눌렀을 때. 오버월드 스폰으로 돌아갑니다.
+    pub(super) async fn respawn(&mut self) -> Result<(), FrameError> {
+        if !self.vitals.dead {
+            return Ok(());
+        }
+        self.vitals = Vitals::default();
+        let from = self.dimension;
+        self.dimension = Dimension::Overworld;
+        self.server.update_player(self.profile.uuid, |s| {
+            s.dead = false;
+            s.dimension = Dimension::Overworld;
+        });
+        self.send(p::RESPAWN_ID, &p::encode_respawn(&self.spawn_info()))
+            .await?;
+        self.enter_world(None).await?;
+        self.send_health().await?;
+        self.server.publish(Event::Respawned {
+            from,
+            state: self.state(),
+        });
+        Ok(())
+    }
+
+    /// 왼클릭으로 엔티티를 때림 (플레이어든 몹이든).
+    pub(super) async fn attack(&mut self, target: i32) -> Result<(), FrameError> {
+        if self.vitals.dead || self.gamemode == GameMode::Spectator || target == self.entity_id {
+            return Ok(());
+        }
+        let reach = if self.gamemode == GameMode::Creative {
+            CREATIVE_REACH
+        } else {
+            REACH
+        } + 1.0;
+        let amount = items::attack_damage(self.main_hand());
+        let me = (self.entity_id, self.position);
+        if let Some(victim) = self
+            .server
+            .players()
+            .into_iter()
+            .find(|p| p.entity_id == target)
+        {
+            if victim.dimension == self.dimension
+                && crate::game::entities::dist2(victim.position, self.position) <= reach * reach
+            {
+                self.server.publish(Event::Damage {
+                    target: victim.uuid,
+                    amount,
+                    damage_type: "player_attack",
+                    attacker: Some(me),
+                    attacker_name: self.profile.name.clone(),
+                });
+                self.vitals.exhaust(0.1);
+            }
+        } else if let Some(mob) = self.server.entities.get(target)
+            && mob.dimension == self.dimension
+            && crate::game::entities::dist2(mob.pos, self.position) <= reach * reach
+        {
+            mobs::damage(
+                self.server,
+                target,
+                amount,
+                Some(self.position),
+                Some(self.entity_id),
+            );
+            self.vitals.exhaust(0.1);
+        }
+        Ok(())
+    }
+
+    /// 오른클릭(허공): 음식이면 먹기 시작.
+    pub(super) async fn use_item(
+        &mut self,
+        off_hand: bool,
+        sequence: i32,
+    ) -> Result<(), FrameError> {
+        self.send(
+            pw::BLOCK_CHANGED_ACK_ID,
+            &pw::encode_block_changed_ack(sequence),
+        )
+        .await?;
+        let item = if off_hand {
+            self.off_hand()
+        } else {
+            self.main_hand()
+        };
+        if let Some(item) = item
+            && items::food(item.id).is_some()
+            && (self.vitals.food < 20 || self.gamemode == GameMode::Creative)
+        {
+            self.vitals.eating = Some((off_hand, item.id, Instant::now()));
+        }
+        Ok(())
+    }
+
+    pub(super) fn stop_using_item(&mut self) {
+        self.vitals.eating = None;
+    }
+
+    async fn finish_eating(&mut self, off_hand: bool, item_id: i32) -> Result<(), FrameError> {
+        let slot = if off_hand { 45 } else { 36 + self.held };
+        let Some(item) = self.inventory[slot].filter(|i| i.id == item_id) else {
+            return Ok(());
+        };
+        let Some((nutrition, saturation)) = items::food(item_id) else {
+            return Ok(());
+        };
+        let v = &mut self.vitals;
+        v.food = (v.food + nutrition).min(20);
+        v.saturation = (v.saturation + saturation).min(v.food as f32);
+        if self.gamemode != GameMode::Creative {
+            self.inventory[slot] = Some(Item {
+                count: item.count - 1,
+                ..item
+            })
+            .filter(|i| i.count > 0);
+            self.sync_slot(slot).await?;
+            self.hands_changed();
+        }
+        let body = pe::encode_entity_event(self.entity_id, pe::ENTITY_EVENT_USE_ITEM_FINISHED);
+        self.send(pe::ENTITY_EVENT_ID, &body).await?;
+        self.send_health().await?;
+        Ok(())
+    }
+
+    pub(super) fn exhaust(&mut self, amount: f32) {
+        if self.gamemode.takes_damage() {
+            self.vitals.exhaust(amount);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn exhaustion_eats_saturation_then_food() {
+        let mut v = Vitals::with(20.0, 20, 1.0);
+        v.exhaust(4.0);
+        assert_eq!((v.food, v.saturation), (20, 0.0));
+        v.exhaust(8.0);
+        assert_eq!(v.food, 18);
+    }
+
+    #[test]
+    fn death_messages() {
+        assert_eq!(
+            death_message("A", "player_attack", "B"),
+            "A님이 B에게 죽었습니다"
+        );
+        assert_eq!(
+            death_message("A", "fall", ""),
+            "A님이 높은 곳에서 떨어졌습니다"
+        );
+    }
+}

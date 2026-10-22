@@ -105,12 +105,92 @@ ITEM_BLOCK_EXCEPTIONS = {
 }
 
 # 쓰는 엔티티 종류.
-ENTITY_TYPES = [("PLAYER", "player")]
+ENTITY_TYPES = [
+    ("PLAYER", "player"),
+    ("ITEM", "item"),
+    ("COW", "cow"),
+    ("PIG", "pig"),
+    ("SHEEP", "sheep"),
+    ("CHICKEN", "chicken"),
+    ("ZOMBIE", "zombie"),
+    ("SKELETON", "skeleton"),
+    ("CREEPER", "creeper"),
+    ("SPIDER", "spider"),
+]
+
+# 열 수 있는 창 종류 (`menu` 레지스트리).
+MENUS = [("GENERIC_9X3", "generic_9x3"), ("CRAFTING", "crafting")]
+
+
+def tool_conditioned(entry):
+    """실크 터치·가위가 있어야만 나오는 항목."""
+    text = json.dumps(entry.get("condition", ""))
+    return "can_silk_touch" in text or "can_shear" in text
+
+
+def simple_drop(table, item_ids):
+    """블록 전리품 표에서 '맨손·일반 도구로 부쉈을 때' 나오는 첫 아이템만 뽑습니다.
+    (아이템, 최소, 최대, 확률 천분율) 또는 None. 행운·폭발 감쇠 같은 수정자는 무시합니다."""
+    pools = table.get("pools") or []
+    if not pools or not pools[0].get("entries"):
+        return None
+
+    def pick(e):
+        t = e.get("type")
+        if t == "minecraft:alternatives":
+            for c in e["children"]:
+                if not tool_conditioned(c):
+                    return pick(c)
+            return None
+        if t == "minecraft:item" and not tool_conditioned(e):
+            return e
+        return None
+
+    e = pick(pools[0]["entries"][0])
+    if e is None:
+        return None
+    item = strip_ns(e["name"])
+    if item not in item_ids:
+        return None
+    lo = hi = 1
+    for f in e.get("functions", []) + pools[0].get("functions", []):
+        if strip_ns(f.get("function", "")) == "set_count":
+            c = f["count"]
+            if isinstance(c, (int, float)):
+                lo = hi = int(c)
+            elif isinstance(c, dict) and "min" in c and "max" in c:
+                lo, hi = int(c["min"]), int(c["max"])
+    chance = 1000
+    conds = []
+    for holder in (e, pools[0]):
+        c = holder.get("condition") or holder.get("conditions")
+        if isinstance(c, list):
+            conds += c
+        elif c is not None:
+            conds.append(c)
+    flat = []
+    for c in conds:
+        if isinstance(c, dict) and strip_ns(c.get("type", "")) == "all_of":
+            flat += c.get("terms", [])
+        else:
+            flat.append(c)
+    for c in flat:
+        if isinstance(c, dict):
+            t = strip_ns(c.get("type", ""))
+            if t == "random_chance" and isinstance(c.get("chance"), (int, float)):
+                chance = int(c["chance"] * 1000)
+            elif t == "table_bonus":
+                chance = int(c["chances"][0] * 1000)
+    if hi <= 0:
+        return None
+    return (item_ids[item], max(lo, 0), hi, chance)
 
 # Commands 패킷의 인자 파서 (`command_argument_type` 레지스트리). 매핑에는 minecraft: 접두사가 빠져 있습니다.
 ARGUMENT_TYPES = [
     ("GAME_PROFILE", "game_profile"),
     ("MESSAGE", "message"),
+    ("ITEM_STACK", "item_stack"),
+    ("INTEGER", "brigadier:integer"),
 ]
 
 
@@ -276,6 +356,91 @@ def main():
     for i in range(0, len(item_block), 32):
         w("    " + ", ".join(str(b) for b in item_block[i:i + 32]) + ",")
     w("];")
+    w("")
+    # ---- 아이템 성질 ----
+    components = load(os.path.join(args.mcmeta_summary, "item_components", "data.json"))
+    item_ids = {name: i for i, name in enumerate(mapping["items"])}
+    w("/// 아이템별 (최대 개수, 음식 (회복량, 포만도) — 음식이 아니면 회복량 0, 공격력).")
+    w("/// 공격력은 맨손 1에 아이템의 attack_damage 수정치를 더한 값입니다.")
+    w("pub const ITEMS: &[(u8, u8, f32, f32)] = &[")
+    for name in mapping["items"]:
+        c = components.get(name, {})
+        stack = c.get("minecraft:max_stack_size", 64)
+        food = c.get("minecraft:food") or {}
+        attack = 1.0 + sum(
+            m["amount"] for m in c.get("minecraft:attribute_modifiers", [])
+            if strip_ns(m.get("type", "")) == "attack_damage" and m.get("slot") in ("mainhand", None)
+        )
+        w(f"    ({stack}, {food.get('nutrition', 0)}, {float(food.get('saturation', 0.0))}, {float(attack)}),")
+    w("];")
+    w("")
+
+    # ---- 조합법 (작업대·2×2) ----
+    recipes = load(os.path.join(args.mcmeta_summary, "data", "recipe", "data.json"))
+    item_tags = tags.get("item", {})
+
+    def ingredient(spec):
+        if isinstance(spec, list):
+            return sorted({i for x in spec for i in ingredient(x)})
+        if spec.startswith("#"):
+            return sorted(item_tags.get(strip_ns(spec[1:]), []))
+        key = strip_ns(spec)
+        return [item_ids[key]] if key in item_ids else []
+
+    out_recipes = []
+    for rid in sorted(recipes):
+        r = recipes[rid]
+        kind = strip_ns(r["type"])
+        res = r.get("result", {})
+        rname = strip_ns(res.get("id", ""))
+        if rname not in item_ids:
+            continue
+        if kind == "crafting_shaped":
+            pattern = r["pattern"]
+            h, wdt = len(pattern), max(len(row) for row in pattern)
+            cells = []
+            ok = True
+            for row in pattern:
+                for x in range(wdt):
+                    ch = row[x] if x < len(row) else " "
+                    if ch == " ":
+                        cells.append(None)
+                    else:
+                        ing = ingredient(r["key"][ch])
+                        ok &= bool(ing)
+                        cells.append(ing)
+            if ok:
+                out_recipes.append((True, wdt, h, cells, item_ids[rname], res.get("count", 1)))
+        elif kind == "crafting_shapeless":
+            cells = [ingredient(x) for x in r["ingredients"]]
+            if all(cells):
+                out_recipes.append((False, len(cells), 1, cells, item_ids[rname], res.get("count", 1)))
+    w("/// 조합법: (모양 있음, 너비, 높이, 칸별 재료(없으면 빈 칸), 결과 아이템, 개수).")
+    w("/// 모양 없는 조합법은 너비 = 재료 수, 높이 1.")
+    w("pub const RECIPES: &[(bool, u8, u8, &[Option<&[u16]>], u16, u8)] = &[")
+    for shaped, wdt, h, cells, result, count in out_recipes:
+        cs = ", ".join("None" if c is None else "Some(&[" + ", ".join(map(str, c)) + "])" for c in cells)
+        w(f"    ({str(shaped).lower()}, {wdt}, {h}, &[{cs}], {result}, {count}),")
+    w("];")
+    w("")
+
+    # ---- 블록 전리품 ----
+    loot = load(os.path.join(args.mcmeta_summary, "data", "loot_table", "data.json"))
+    w("/// 블록 ID → 부쉈을 때 떨어지는 것 (아이템, 최소, 최대, 확률 천분율). 없으면 -1 아이템.")
+    w("pub const BLOCK_DROPS: &[(i16, u8, u8, u16)] = &[")
+    for name in mapping["blocks"]:
+        d = simple_drop(loot.get(f"blocks/{name}", {}), item_ids)
+        w(f"    ({d[0]}, {d[1]}, {d[2]}, {d[3]})," if d else "    (-1, 0, 0, 0),")
+    w("];")
+    w("")
+    w("/// 열 수 있는 창 종류의 네트워크 ID.")
+    w("pub mod menu {")
+    for name, key in MENUS:
+        w(f"    pub const {name}: i32 = {mapping['menus'].index(key)};")
+    w("}")
+    w("")
+    w("/// 아이템 이름 → ID (명령어, 도구 판별용). 순서 = 네트워크 ID.")
+    w("pub const ITEM_NAMES: &[&str] = &[" + ", ".join(rust_str(n) for n in mapping["items"]) + "];")
     w("")
     w("/// 엔티티 종류의 네트워크 ID.")
     w("pub mod entity_type {")

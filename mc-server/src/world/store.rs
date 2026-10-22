@@ -9,8 +9,8 @@
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 
 use super::Dimension;
 use super::terrain::{self, Column};
@@ -27,6 +27,40 @@ pub struct WorldStore {
     dir: Option<PathBuf>,
     changes: Mutex<HashMap<ChunkKey, HashMap<LocalPos, u32>>>,
     dirty: AtomicBool,
+    /// 블록 하나를 물을 때마다 청크를 새로 만들지 않도록, 최근에 만든 지형을 몇 개 둡니다.
+    terrain: Mutex<TerrainCache>,
+}
+
+const TERRAIN_CACHE_CHUNKS: usize = 48;
+
+#[derive(Default)]
+struct TerrainCache {
+    columns: HashMap<ChunkKey, (Arc<Column>, u64)>,
+    clock: u64,
+}
+
+impl TerrainCache {
+    fn get(&mut self, seed: u64, key: ChunkKey) -> Arc<Column> {
+        self.clock += 1;
+        let clock = self.clock;
+        if let Some((col, used)) = self.columns.get_mut(&key) {
+            *used = clock;
+            return col.clone();
+        }
+        if self.columns.len() >= TERRAIN_CACHE_CHUNKS {
+            // 가장 오래 안 쓴 것 버리기
+            let oldest = *self
+                .columns
+                .iter()
+                .min_by_key(|(_, (_, used))| *used)
+                .unwrap()
+                .0;
+            self.columns.remove(&oldest);
+        }
+        let col = Arc::new(terrain::generate(key.0, seed, key.1, key.2));
+        self.columns.insert(key, (col.clone(), clock));
+        col
+    }
 }
 
 fn split(x: i32, z: i32) -> ((i32, i32), (u8, u8)) {
@@ -41,6 +75,7 @@ impl WorldStore {
             dir,
             changes: Mutex::new(HashMap::new()),
             dirty: AtomicBool::new(false),
+            terrain: Mutex::new(TerrainCache::default()),
         };
         if let Some(dir) = &store.dir {
             let path = dir.join(FILE_NAME);
@@ -97,7 +132,11 @@ impl WorldStore {
         {
             return *state;
         }
-        terrain::generate(dim, self.seed, cx, cz).get(lx as usize, y, lz as usize)
+        self.terrain
+            .lock()
+            .unwrap()
+            .get(self.seed, (dim, cx, cz))
+            .get(lx as usize, y, lz as usize)
     }
 
     pub fn set(&self, dim: Dimension, x: i32, y: i32, z: i32, state: u32) {
@@ -169,6 +208,11 @@ impl WorldStore {
             }
         }
         out
+    }
+
+    /// 엔티티가 서거나 부딪히는 블록인가 (공기·물·풀처럼 덮어써지는 블록이 아닌 것).
+    pub fn is_solid(&self, dim: Dimension, x: i32, y: i32, z: i32) -> bool {
+        !crate::data::blocks::is_replaceable(self.get(dim, x, y, z))
     }
 
     pub fn changed_block_count(&self) -> usize {

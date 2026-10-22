@@ -32,6 +32,8 @@ pub struct PlayerState {
     pub off_hand: Option<Item>,
     /// 프로필 속성 (스킨). 탭 목록에 넣으면 다른 사람에게도 그 스킨으로 보입니다.
     pub properties: std::sync::Arc<Vec<Property>>,
+    /// 죽어서 부활을 기다리는 중.
+    pub dead: bool,
 }
 
 /// 접속자 사이를 오가는 소식. 모든 세션이 받고, 각자 자기와 관련 있는 것만 처리합니다.
@@ -43,6 +45,11 @@ pub enum Event {
     Left {
         uuid: u128,
         entity_id: i32,
+    },
+    /// 죽었다가 부활함 (쓰러진 모습을 지우고 새로 띄움).
+    Respawned {
+        from: Dimension,
+        state: PlayerState,
     },
     /// 다른 차원으로 감. `state`는 도착한 뒤의 모습.
     ChangedDimension {
@@ -86,6 +93,67 @@ pub enum Event {
         state: u32,
         broken: Option<u32>,
     },
+    /// 엔티티(아이템, 몹)가 생김.
+    EntitySpawned(crate::game::entities::Snapshot),
+    EntityMoved {
+        dimension: Dimension,
+        id: i32,
+        pos: (f64, f64, f64),
+        yaw: f32,
+        pitch: f32,
+        on_ground: bool,
+    },
+    EntitiesRemoved {
+        dimension: Dimension,
+        ids: Vec<i32>,
+    },
+    /// 떨어진 아이템 묶음의 개수가 바뀜 (일부만 주웠을 때).
+    ItemStackChanged {
+        dimension: Dimension,
+        id: i32,
+        item: Item,
+    },
+    /// 누가 아이템을 주움 (빨려 들어가는 모습).
+    ItemCollected {
+        dimension: Dimension,
+        item_entity: i32,
+        collector: i32,
+        count: i32,
+    },
+    /// 이 사람에게 아이템을 주울지 묻습니다. 답은 `Entities::finish_pickup`으로.
+    PickupOffer {
+        to: u128,
+        entity_id: i32,
+        item: Item,
+    },
+    /// 플레이어에게 피해. 맞은 사람의 세션이 처리합니다.
+    Damage {
+        target: u128,
+        amount: f32,
+        damage_type: &'static str,
+        attacker: Option<(i32, (f64, f64, f64))>,
+        attacker_name: String,
+    },
+    /// 맞은 모습 (빨갛게 깜빡임). 플레이어든 몹이든.
+    Hurt {
+        dimension: Dimension,
+        entity_id: i32,
+        damage_type: i32,
+        attacker: Option<i32>,
+    },
+    /// 엔티티 이벤트 (쓰러짐 등).
+    EntityAnimation {
+        dimension: Dimension,
+        entity_id: i32,
+        event: i8,
+    },
+    /// 상자 한 칸이 바뀜.
+    ContainerChanged {
+        dimension: Dimension,
+        pos: BlockPos,
+        slot: usize,
+        item: Option<Item>,
+    },
     /// 손에 든 것이 바뀜.
     HandsChanged {
         uuid: u128,
@@ -110,6 +178,12 @@ pub struct Config {
     pub compression_threshold: Option<usize>,
     /// 오프라인 모드에서도 같은 이름의 정품 계정 스킨을 입힙니다 (Mojang API 조회).
     pub offline_skins: bool,
+    /// 몹이 저절로 생기는가.
+    pub spawn_mobs: bool,
+    /// 처음 들어온 사람의 게임 모드.
+    pub default_gamemode: GameMode,
+    /// 관리자 이름. `None`이면 모두가 관리자 (혼자 쓰는 개발 서버용 기본값).
+    pub ops: Option<Vec<String>>,
 }
 
 impl Default for Config {
@@ -119,6 +193,9 @@ impl Default for Config {
             online_mode: false,
             compression_threshold: Some(256),
             offline_skins: false,
+            spawn_mobs: true,
+            default_gamemode: GameMode::Survival,
+            ops: None,
         }
     }
 }
@@ -137,6 +214,11 @@ pub struct Server {
     pub seed: u64,
     /// 플레이어가 바꾼 블록들.
     pub world: WorldStore,
+    /// 떨어진 아이템과 몹.
+    pub entities: crate::game::entities::Entities,
+    pub containers: crate::game::containers::Containers,
+    /// 플레이어 저장 위치 (없으면 저장하지 않음).
+    pub data_dir: Option<std::path::PathBuf>,
     players: Mutex<HashMap<u128, PlayerState>>,
     next_entity_id: AtomicI32,
     events: broadcast::Sender<Event>,
@@ -159,20 +241,28 @@ impl Server {
             info,
             seed,
             WorldStore::open(seed, None).expect("memory store"),
+            None,
         )
     }
 
     /// `dir`에 월드를 저장하는 서버. 있던 저장을 읽어 들입니다.
     pub fn open(info: ServerInfo, seed: u64, dir: std::path::PathBuf) -> std::io::Result<Self> {
-        Ok(Self::with_world(
-            info,
-            seed,
-            WorldStore::open(seed, Some(dir))?,
-        ))
+        let world = WorldStore::open(seed, Some(dir.clone()))?;
+        let mut s = Self::with_world(info, seed, world, Some(dir.clone()));
+        s.containers = crate::game::containers::Containers::open(Some(dir))?;
+        Ok(s)
     }
 
-    fn with_world(info: ServerInfo, seed: u64, world: WorldStore) -> Self {
+    fn with_world(
+        info: ServerInfo,
+        seed: u64,
+        world: WorldStore,
+        data_dir: Option<std::path::PathBuf>,
+    ) -> Self {
         Self {
+            entities: Default::default(),
+            containers: crate::game::containers::Containers::open(None).expect("memory containers"),
+            data_dir,
             info,
             config: Config::default(),
             sessions: Box::new(MojangSessionService),
@@ -198,6 +288,13 @@ impl Server {
     pub fn with_session_service(mut self, sessions: impl SessionService + 'static) -> Self {
         self.sessions = Box::new(sessions);
         self
+    }
+
+    pub fn is_op(&self, name: &str) -> bool {
+        self.config
+            .ops
+            .as_ref()
+            .is_none_or(|ops| ops.iter().any(|o| o.eq_ignore_ascii_case(name)))
     }
 
     pub fn key(&self) -> &PrivateKey {

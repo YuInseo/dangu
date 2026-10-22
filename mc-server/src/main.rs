@@ -36,10 +36,25 @@ async fn main() -> std::io::Result<()> {
             None => Some(256),
         },
         offline_skins: env_flag("MC_OFFLINE_SKINS", false),
+        spawn_mobs: env_flag("MC_SPAWN_MOBS", true),
+        default_gamemode: std::env::var("MC_GAMEMODE")
+            .ok()
+            .and_then(|m| mc_server::packets::play::GameMode::from_name(&m))
+            .unwrap_or(mc_server::packets::play::GameMode::Survival),
+        // ops.txt에 해당: 쉼표로 구분한 이름. 없으면 모두가 관리자.
+        ops: std::env::var("MC_OPS").ok().map(|v| {
+            v.split(',')
+                .map(|s| s.trim().to_owned())
+                .filter(|s| !s.is_empty())
+                .collect()
+        }),
     };
     let server = Arc::new(Server::open(info, seed, world_dir.clone())?.with_config(config.clone()));
     if config.online_mode {
         server.key(); // 첫 접속이 키 만드는 시간을 기다리지 않도록 미리
+    }
+    if config.ops.is_none() {
+        println!("MC_OPS가 없어 모든 접속자가 관리자 명령어를 쓸 수 있습니다.");
     }
     println!(
         "정품 인증 {}, 압축 {}",
@@ -89,6 +104,9 @@ fn env_flag(name: &str, default: bool) -> bool {
 }
 
 fn save(server: &Server) {
+    if let Err(e) = server.containers.save() {
+        eprintln!("상자 저장 실패: {e}");
+    }
     match server.world.save() {
         Ok(true) => println!(
             "월드 저장: 바뀐 블록 {}개",

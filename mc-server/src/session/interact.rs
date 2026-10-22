@@ -3,7 +3,8 @@
 use tokio::io::AsyncWrite;
 
 use super::play::Session;
-use crate::data::blocks;
+use crate::data::{blocks, items};
+use crate::game::rand_u32;
 use crate::packets::play::GameMode;
 use crate::packets::world::{
     self as pw, BlockPos, Item, PlayerAction, PlayerActionPacket, UseItemOn, add,
@@ -24,8 +25,15 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             (GameMode::Creative, PlayerAction::StartDestroy)
                 | (GameMode::Survival, PlayerAction::StopDestroy)
         );
-        if breaks && self.can_reach(a.pos) && self.in_world(a.pos) {
-            self.break_block(a.pos);
+        if breaks && !self.vitals.dead && self.can_reach(a.pos) && self.in_world(a.pos) {
+            self.break_block(a.pos).await?;
+        }
+        match a.action {
+            // 26.3 번호: 4 = 묶음째 버리기, 5 = 하나 버리기, 6 = 아이템 쓰기 그만
+            PlayerAction::Other(4) => self.drop_held(true).await?,
+            PlayerAction::Other(5) => self.drop_held(false).await?,
+            PlayerAction::Other(6) => self.stop_using_item(),
+            _ => {}
         }
         if !matches!(
             a.action,
@@ -40,11 +48,37 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(())
     }
 
-    fn break_block(&mut self, pos: BlockPos) {
+    async fn break_block(&mut self, pos: BlockPos) -> std::io::Result<()> {
         let world = &self.server.world;
         let old = world.get(self.dimension, pos.0, pos.1, pos.2);
-        if blocks::is_air(old) {
-            return;
+        if blocks::is_air(old)
+            || old == crate::data::block::WATER
+            || old == crate::data::block::LAVA
+        {
+            return Ok(());
+        }
+        // 서바이벌: 기반암은 못 부수고, 맞는 도구면 전리품이 떨어집니다.
+        if self.gamemode == GameMode::Survival {
+            if old == crate::data::block::BEDROCK {
+                return Ok(());
+            }
+            self.exhaust(0.005);
+            if items::can_harvest(blocks::block_of(old), self.main_hand())
+                && let Some(drop) = items::block_drop(old, rand_u32() % 1000, rand_u32())
+            {
+                self.server
+                    .entities
+                    .drop_at_block(self.server, self.dimension, pos, drop);
+            }
+        }
+        // 상자: 내용을 쏟고, 보던 사람의 창을 닫습니다.
+        if blocks::name(blocks::block_of(old)) == "chest" {
+            for item in self.server.containers.take_all(self.dimension, pos) {
+                self.server
+                    .entities
+                    .drop_at_block(self.server, self.dimension, pos, item);
+            }
+            self.chest_removed(self.dimension, pos).await?;
         }
         // 물에 잠긴 블록을 부수면 물이 남습니다.
         let after = if blocks::property(old, "waterlogged") == Some("true") {
@@ -59,10 +93,59 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         {
             self.set_block(other, crate::data::block::AIR, None);
         }
+        Ok(())
     }
 
     pub(super) async fn use_item_on(&mut self, u: UseItemOn) -> Result<(), FrameError> {
+        if self.vitals.dead {
+            return Ok(());
+        }
+        // 작업대·상자를 누르면 엽니다 (웅크리고 있으면 그냥 놓기).
+        let clicked = self
+            .server
+            .world
+            .get(self.dimension, u.pos.0, u.pos.1, u.pos.2);
+        if !self.vitals.sneaking && self.can_reach(u.pos) && self.gamemode != GameMode::Spectator {
+            match blocks::name(blocks::block_of(clicked)) {
+                "crafting_table" => {
+                    self.send(
+                        pw::BLOCK_CHANGED_ACK_ID,
+                        &pw::encode_block_changed_ack(u.sequence),
+                    )
+                    .await?;
+                    return Ok(self.open_crafting().await?);
+                }
+                "chest" => {
+                    self.send(
+                        pw::BLOCK_CHANGED_ACK_ID,
+                        &pw::encode_block_changed_ack(u.sequence),
+                    )
+                    .await?;
+                    return Ok(self.open_chest(u.pos).await?);
+                }
+                _ => {}
+            }
+        }
         let placed = self.try_place(&u);
+        // 서바이벌에서는 놓은 만큼 줄어듭니다.
+        if placed && self.gamemode == GameMode::Survival {
+            let slot = if u.off_hand { 45 } else { 36 + self.held };
+            if let Some(item) = self.inventory[slot] {
+                // 물·용암 양동이는 빈 양동이가 됩니다.
+                let name = items::name(item.id);
+                self.inventory[slot] = if name.ends_with("_bucket") {
+                    items::by_name("bucket").map(|id| Item { id, count: 1 })
+                } else {
+                    Some(Item {
+                        count: item.count - 1,
+                        ..item
+                    })
+                    .filter(|i| i.count > 0)
+                };
+                self.sync_slot(slot).await?;
+                self.hands_changed();
+            }
+        }
         self.send(
             pw::BLOCK_CHANGED_ACK_ID,
             &pw::encode_block_changed_ack(u.sequence),
