@@ -123,8 +123,8 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
         }
         "summon" => {
             let c = t.literal(ROOT, name, false);
-            for m in ["cow", "pig", "sheep", "chicken", "zombie", "spider"] {
-                t.literal(c, m, true);
+            for m in MobKind::ALL {
+                t.literal(c, m.name(), true);
             }
         }
         "whitelist" => {

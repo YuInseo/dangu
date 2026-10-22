@@ -13,10 +13,14 @@ pub const CONTAINER_SET_CONTENT_ID: i32 = 0x12;
 pub const CONTAINER_SET_DATA_ID: i32 = 0x13;
 pub const CONTAINER_SET_SLOT_ID: i32 = 0x14;
 pub const OPEN_SCREEN_ID: i32 = 0x3C;
+/// `Merchant Offers`: 주민 거래 창의 거래 목록.
+pub const MERCHANT_OFFERS_ID: i32 = 0x35;
 
 // Serverbound
 pub const SB_CONTAINER_CLICK_ID: i32 = 0x12;
 pub const SB_CONTAINER_CLOSE_ID: i32 = 0x13;
+/// `Select Trade`: 거래 창 왼쪽 목록에서 고름 (번호 VarInt).
+pub const SB_SELECT_TRADE_ID: i32 = 0x34;
 
 /// 창 밖을 눌렀을 때의 칸 번호 (손에 든 것을 던짐).
 pub const OUTSIDE: i16 = -999;
@@ -29,6 +33,66 @@ pub fn encode_open_screen(window: i32, menu: i32, title: &Tag) -> Vec<u8> {
     write_varint(&mut out, menu);
     out.extend_from_slice(&to_nbt(title));
     out
+}
+
+/// 거래 하나 (창에 보이는 대로).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MerchantOffer {
+    /// (아이템 ID, 개수)
+    pub wants: (i32, i32),
+    pub extra: Option<(i32, i32)>,
+    pub gives: Item,
+    pub disabled: bool,
+    pub uses: i32,
+    pub max_uses: i32,
+    pub xp: i32,
+    pub price_multiplier: f32,
+}
+
+/// `ItemCost`: 아이템 ID, 개수, 꼭 맞아야 하는 컴포넌트 목록(없음).
+fn write_item_cost(out: &mut Vec<u8>, (id, count): (i32, i32)) {
+    write_varint(out, id);
+    write_varint(out, count);
+    write_varint(out, 0);
+}
+
+pub fn encode_merchant_offers(
+    window: i32,
+    offers: &[MerchantOffer],
+    level: i32,
+    xp: i32,
+    regular_villager: bool,
+) -> Vec<u8> {
+    let mut out = Vec::new();
+    write_varint(&mut out, window);
+    write_varint(&mut out, offers.len() as i32);
+    for o in offers {
+        write_item_cost(&mut out, o.wants);
+        write_slot(&mut out, Some(o.gives));
+        match o.extra {
+            Some(e) => {
+                out.push(1);
+                write_item_cost(&mut out, e);
+            }
+            None => out.push(0),
+        }
+        out.push(o.disabled as u8);
+        out.extend_from_slice(&o.uses.to_be_bytes());
+        out.extend_from_slice(&o.max_uses.to_be_bytes());
+        out.extend_from_slice(&o.xp.to_be_bytes());
+        out.extend_from_slice(&0i32.to_be_bytes()); // 특별 가격 (평판 없음)
+        out.extend_from_slice(&o.price_multiplier.to_be_bytes());
+        out.extend_from_slice(&0i32.to_be_bytes()); // 수요
+    }
+    write_varint(&mut out, level);
+    write_varint(&mut out, xp);
+    out.push(regular_villager as u8);
+    out.push(1); // 다시 채울 수 있음
+    out
+}
+
+pub fn decode_select_trade(mut buf: &[u8]) -> Result<i32, DecodeError> {
+    read_varint(&mut buf)
 }
 
 pub fn encode_set_content(

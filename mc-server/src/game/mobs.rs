@@ -265,6 +265,8 @@ pub struct Mob {
     pub home: Option<BlockPos>,
     pub villager: Option<Villager>,
     pub sheared: bool,
+    /// 누가 거래 창을 열어 둠 (그동안 서 있음).
+    pub trading: bool,
     /// 마지막으로 보낸 상태 플래그 (불붙음).
     flags_sent: u8,
 }
@@ -293,6 +295,7 @@ impl Mob {
                 Villager::new(p, "plains")
             }),
             sheared: false,
+            trading: false,
             flags_sent: 0,
         }
     }
@@ -557,7 +560,11 @@ fn think(
             if kind == MobKind::Blaze {
                 gravity = 0.02;
             }
-            wander(server, e, m, now, out);
+            if m.trading {
+                stop(e);
+            } else {
+                wander(server, e, m, now, out);
+            }
         }
     }
     physics(server, e, gravity, 0.91);

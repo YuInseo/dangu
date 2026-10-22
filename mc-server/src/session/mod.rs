@@ -7,6 +7,7 @@ mod hud;
 mod ignored;
 mod interact;
 mod login;
+mod merchant;
 mod modes;
 mod play;
 mod signed_chat;

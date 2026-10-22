@@ -781,6 +781,14 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             }
             pc::SB_CONTAINER_CLICK_ID => self.click(pc::decode_click(&packet.body)?).await?,
             pc::SB_CONTAINER_CLOSE_ID => self.close_window(true).await?,
+            pc::SB_SELECT_TRADE_ID => {
+                self.select_trade(pc::decode_select_trade(&packet.body)?)
+                    .await?
+            }
+            pe::SB_INTERACT_ID => {
+                let (target, hand, sneaking) = pe::decode_interact(&packet.body)?;
+                self.interact_entity(target, hand, sneaking).await?
+            }
             pw::SB_PUNCH_ID => self.server.publish(Event::Swing {
                 uuid: self.profile.uuid,
                 entity_id: self.entity_id,

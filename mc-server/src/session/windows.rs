@@ -28,14 +28,19 @@ pub enum WindowKind {
         pos: BlockPos,
         size: usize,
     },
+    /// 주민 거래: 0·1 낼 것, 2 받을 것. 고른 거래 번호와 함께.
+    Merchant {
+        villager: i32,
+        selected: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
 pub struct Window {
     pub id: i32,
     pub kind: WindowKind,
-    /// 작업대의 3×3 조합 칸.
-    grid: [Option<Item>; 9],
+    /// 작업대의 3×3 조합 칸 (거래 창은 앞 두 칸이 낼 것).
+    pub(super) grid: [Option<Item>; 9],
 }
 
 /// 플레이어 인벤토리 메뉴의 칸: 0 결과, 1..5 조합, 5..9 갑옷, 9..36 가방, 36..45 핫바, 45 보조 손.
@@ -53,7 +58,7 @@ fn inventory_index(menu_slot: usize) -> Option<i32> {
 }
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
-    fn next_state_id(&mut self) -> i32 {
+    pub(super) fn next_state_id(&mut self) -> i32 {
         self.state_id = self.state_id.wrapping_add(1) & 0x7FFF;
         self.state_id
     }
@@ -260,12 +265,18 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 v.truncate(*size);
                 v
             }
+            WindowKind::Merchant { villager, selected } => {
+                let result = self
+                    .merchant_result(*villager, *selected, w.grid[0], w.grid[1])
+                    .map(|r| r.1);
+                vec![w.grid[0], w.grid[1], result]
+            }
         };
         slots.extend_from_slice(&self.inventory[9..45]);
         slots
     }
 
-    async fn send_window(&mut self) -> std::io::Result<()> {
+    pub(super) async fn send_window(&mut self) -> std::io::Result<()> {
         let Some(id) = self.window.as_ref().map(|w| w.id) else {
             return self.send_inventory().await;
         };
@@ -279,6 +290,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     pub(super) async fn close_window(&mut self, by_client: bool) -> std::io::Result<()> {
         let leftovers: Vec<Item> = match self.window.take() {
             Some(w) => {
+                if let WindowKind::Merchant { villager, .. } = w.kind {
+                    self.merchant_closed(villager);
+                }
                 if !by_client {
                     self.send(0x11, &{
                         let mut b = Vec::new();
@@ -312,6 +326,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 let own = match w.kind {
                     WindowKind::Crafting => 10,
                     WindowKind::Chest { size, .. } => size,
+                    WindowKind::Merchant { .. } => 3,
                 };
                 if slot < own {
                     match &w.kind {
@@ -324,6 +339,13 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         }
                         WindowKind::Chest { dimension, pos, .. } => {
                             Some(SlotRef::Chest(*dimension, *pos, slot))
+                        }
+                        WindowKind::Merchant { .. } => {
+                            if slot == 2 {
+                                Some(SlotRef::Result)
+                            } else {
+                                Some(SlotRef::Inventory(&mut w.grid[slot]))
+                            }
                         }
                     }
                 } else if slot < own + 36 {
@@ -344,14 +366,29 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             self.window.as_ref().map(|w| &w.kind),
             None | Some(WindowKind::Crafting)
         );
-        let result_before = if craft_window {
-            self.window_slots()[0]
+        let merchant = match self.window.as_ref().map(|w| &w.kind) {
+            Some(&WindowKind::Merchant { villager, selected }) => Some((villager, selected)),
+            _ => None,
+        };
+        // 만들어져 나오는 칸: 조합은 0, 거래는 2
+        let result_slot = if craft_window {
+            Some(0)
+        } else if merchant.is_some() {
+            Some(2)
         } else {
             None
         };
+        let trade_before = merchant.and_then(|(v, sel)| {
+            let g = self.window.as_ref().unwrap().grid;
+            self.merchant_result(v, sel, g[0], g[1])
+        });
+        let result_before = match result_slot {
+            Some(i) => self.window_slots()[i],
+            None => None,
+        };
 
         let before_slots = self.window_slots();
-        let before = totals(&before_slots, self.carried, craft_window);
+        let before = totals(&before_slots, self.carried, result_slot);
         let snapshot = (
             self.inventory,
             self.window.clone(),
@@ -384,10 +421,10 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         for &(_, _, i, item) in &chest_changes {
             after_slots[i] = item;
         }
-        let after = totals(&after_slots, self.carried, craft_window);
+        let after = totals(&after_slots, self.carried, result_slot);
 
-        // 늘어난 아이템이 있으면: 조합 결과를 꺼낸 것만 허용
-        let took_result = craft_window && c.slot == 0;
+        // 늘어난 아이템이 있으면: 조합·거래 결과를 꺼낸 것만 허용
+        let took_result = result_slot.is_some_and(|r| c.slot == r as i16);
         let mut ok = true;
         for (&key, &n) in &after {
             let had = before.get(&key).copied().unwrap_or(0);
@@ -396,10 +433,38 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 ok &= allowed && self.gamemode != crate::packets::play::GameMode::Spectator;
             }
         }
+        // 거래: 받은 만큼 정말 냈는지 (몇 번 거래했는지 서버가 셉니다)
+        let mut traded = None;
+        if ok
+            && took_result
+            && let (Some((villager, _)), Some((offer, gives, wants, extra))) =
+                (merchant, trade_before)
+        {
+            let key = (gives.id, gives.custom);
+            let gained =
+                after.get(&key).copied().unwrap_or(0) - before.get(&key).copied().unwrap_or(0);
+            if gained > 0 {
+                let times = gained / gives.count;
+                let paid = |(id, n): (i32, i32)| {
+                    let k = (id, None);
+                    before.get(&k).copied().unwrap_or(0) - after.get(&k).copied().unwrap_or(0)
+                        >= n * times
+                };
+                let fits = self
+                    .villager(villager)
+                    .and_then(|v| v.offers.get(offer).copied())
+                    .is_some_and(|o| o.uses + times as u32 <= o.trade.max_uses as u32);
+                ok = gained % gives.count == 0 && paid(wants) && extra.is_none_or(paid) && fits;
+                traded = Some((villager, offer, times as u32));
+            }
+        }
         if !ok {
             (self.inventory, self.window, self.carried) = (snapshot.0, snapshot.1, snapshot.2);
             self.send_window().await?;
             return Ok(());
+        }
+        if let Some((villager, offer, times)) = traded {
+            self.after_trade(villager, offer, times).await?;
         }
 
         for (d, p, i, item) in chest_changes {
@@ -435,6 +500,12 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
             let state = self.next_state_id();
             let body = pc::encode_set_slot(window_id, state, 0, result);
+            self.send(pc::CONTAINER_SET_SLOT_ID, &body).await?;
+        }
+        if merchant.is_some() {
+            let result = self.window_slots()[2];
+            let state = self.next_state_id();
+            let body = pc::encode_set_slot(window_id, state, 2, result);
             self.send(pc::CONTAINER_SET_SLOT_ID, &body).await?;
         }
         self.hands_changed();
@@ -483,15 +554,20 @@ enum SlotRef<'a> {
     Result,
 }
 
-/// (아이템, 사용자 정의)별 총 개수. 조합 결과 칸(0)은 아직 만들어지지 않은 것이라 셈하지 않습니다.
+/// (아이템, 사용자 정의)별 총 개수. 결과 칸(조합 0, 거래 2)은 아직 만들어지지 않은 것이라
+/// 셈하지 않습니다.
 fn totals(
     slots: &[Option<Item>],
     carried: Option<Item>,
-    skip_result: bool,
+    result_slot: Option<usize>,
 ) -> HashMap<(i32, Option<u16>), i32> {
     let mut t = HashMap::new();
-    let start = if skip_result { 1 } else { 0 };
-    for item in slots.iter().skip(start).flatten().chain(carried.iter()) {
+    let kept = slots
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| Some(*i) != result_slot)
+        .filter_map(|(_, s)| s.as_ref());
+    for item in kept.chain(carried.iter()) {
         *t.entry((item.id, item.custom)).or_insert(0) += item.count;
     }
     t
