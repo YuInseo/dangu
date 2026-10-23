@@ -140,7 +140,8 @@ impl Default for MenuConfig {
                 ),
             ],
             warps: vec![
-                Dest::new("shop", "상점", "emerald", "", &[]),
+                Dest::new("shop", "상점", "emerald", "", &["돈으로 사고팔기"])
+                    .command("상점 general"),
                 Dest::new("afk", "잠수", "clock", "", &["가만히 있으면 잠수 포인트"]),
                 Dest::new("fishing", "낚시터", "cod", "", &[]),
                 Dest::new(
@@ -152,7 +153,8 @@ impl Default for MenuConfig {
                 )
                 .command("대장간"),
                 Dest::new("cosmetic", "치장", "leather_chestplate", "", &[]),
-                Dest::new("cash_shop", "캐시상점", "diamond", "", &[]),
+                Dest::new("cash_shop", "캐시상점", "diamond", "", &["플라이·자동심기"])
+                    .command("상점 cash"),
                 Dest::new("trade_island", "무역섬", "oak_boat", "", &[]),
                 Dest::new("auction", "경매장", "gold_ingot", "", &[]),
                 Dest::new("afk_mine", "잠광", "iron_pickaxe", "", &["잠수 광산"]),

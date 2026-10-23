@@ -51,6 +51,8 @@ pub enum WindowKind {
     Menu(crate::plugins::menu::gui::Page),
     /// 쓰레기통: 넣고 닫으면 사라짐.
     Trash,
+    /// 상점 (메뉴).
+    Shop(crate::plugins::shop::gui::Page),
     /// 길드 창고 한 페이지: 위 45칸은 진짜 칸, 아래 줄은 버튼.
     GuildStorage {
         guild: u32,
@@ -296,6 +298,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             WindowKind::Rank => self.rank_slots(),
             WindowKind::Ender => self.ender_slots(),
             WindowKind::Menu(page) => self.menu_slots(*page),
+            WindowKind::Shop(page) => self.shop_slots(page),
             WindowKind::Trash => {
                 let mut v = self.menu.trash.clone();
                 v.resize(crate::plugins::menu::gui::TRASH_SLOTS, None);
@@ -347,6 +350,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         | WindowKind::Equip(_)
                         | WindowKind::Rank
                         | WindowKind::Menu(_)
+                        | WindowKind::Shop(_)
                         | WindowKind::GuildStorage { .. }
                 ) {
                     self.lottery_closed();
@@ -394,6 +398,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 WindowKind::GuildStorage { .. } => 54,
                 WindowKind::Rank | WindowKind::Ender => 27,
                 WindowKind::Menu(page) => page.size(),
+                WindowKind::Shop(ref page) => page.size(),
                 WindowKind::Trash => crate::plugins::menu::gui::TRASH_SLOTS,
             },
         }
@@ -423,7 +428,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         | WindowKind::Quest(_)
                         | WindowKind::Equip(_)
                         | WindowKind::Rank
-                        | WindowKind::Menu(_) => None,
+                        | WindowKind::Menu(_)
+                        | WindowKind::Shop(_) => None,
                         WindowKind::Trash => {
                             if self.menu.trash.len() < crate::plugins::menu::gui::TRASH_SLOTS {
                                 self.menu
@@ -474,7 +480,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             | WindowKind::Quest(_)
             | WindowKind::Equip(_)
             | WindowKind::Rank
-            | WindowKind::Menu(_),
+            | WindowKind::Menu(_)
+            | WindowKind::Shop(_),
         ) = menu
         {
             // 메뉴: 무엇을 집든 되돌리고, 누른 칸만 버튼으로
@@ -492,6 +499,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 }
                 Some(WindowKind::Rank) => self.rank_click(c.slot).await?,
                 Some(WindowKind::Menu(page)) => self.menu_click(page, c.slot, c.mode).await?,
+                Some(WindowKind::Shop(page)) => {
+                    self.shop_click(page, c.slot, c.button, c.mode).await?
+                }
                 _ => {}
             }
             if self.window.as_ref().is_some_and(|w| w.id == window_id) {

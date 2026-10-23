@@ -75,6 +75,7 @@ button.danger { color: var(--bad); }
     <button data-tab="quests">퀘스트</button>
     <button data-tab="equip">장비</button>
     <button data-tab="server">서버</button>
+    <button data-tab="shops">상점</button>
     <button data-tab="players">플레이어</button>
     <button data-tab="chat">채팅</button>
     <button data-tab="raw">JSON</button>
@@ -205,6 +206,19 @@ button.danger { color: var(--bad); }
     <div class="row"><button class="btn" id="server-default">기본값으로 채우기 (저장 전)</button></div>
   </div>
 
+  <div id="tab-shops" hidden>
+    <section class="card">
+      <h2>상점</h2>
+      <p class="hint">상점 하나 = 재화 하나(돈·캐시·잠수 포인트). 물건마다 한 묶음 개수와 살 값·팔 값 (0이면 그쪽은 안 됨).
+        물건: 바닐라 이름(<code>cobblestone</code>), 우리 아이템(<code>dangu:enhance_stone</code>), 특수 <code>@fly:초</code>(플라이) ·
+        <code>@autoplant:블록</code>(자동심기). 팔 값이 살 값보다 크면 돈이 무한히 생기므로 저장되지 않습니다.
+        게임: <code>/상점 [id]</code>, 퀵메뉴 광장 워프의 상점·캐시상점.</p>
+      <div id="shops"></div>
+      <div class="row" style="margin-top:8px"><button class="btn small" id="add-shop">상점 추가</button>
+        <button class="btn" id="shops-default">기본값으로 채우기 (저장 전)</button></div>
+    </section>
+  </div>
+
   <div id="tab-players" hidden>
     <section class="card">
       <h2>플레이어 <span class="chip" id="n-players"></span></h2>
@@ -271,7 +285,7 @@ button.danger { color: var(--bad); }
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 let token = "";
-let guild = null, quests = null, equipment = null, ranks = null, rules = null, menuCfg = null;
+let guild = null, quests = null, equipment = null, ranks = null, rules = null, menuCfg = null, shops = null;
 let tab = "guild";
 let dirty = false;
 
@@ -531,6 +545,40 @@ $("#server-default").onclick = async () => {
   markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다.");
 };
 
+// ---- 상점 ----
+const CURRENCIES = { money: "돈", cash: "캐시", afk: "잠수 포인트" };
+function renderShops() {
+  if (!shops) return;
+  $("#shops").replaceChildren(...shops.shops.map((sh, si) => {
+    const t = el("table");
+    t.append(el("tr", {}, ...["물건 (id)", "보일 이름 (비우면 아이템 이름)", "묶음 개수", "살 값", "팔 값", ""].map(h => el("th", {}, h))));
+    sh.entries.forEach((en, i) => t.append(el("tr", {},
+      el("td", {}, text(en.item, v => en.item = v.trim(), { style: "min-width:180px" })),
+      el("td", {}, text(en.name, v => en.name = v)),
+      el("td", {}, num(en.count, 1, v => en.count = Math.max(1, Math.round(v)))),
+      el("td", {}, num(en.buy, 10, v => en.buy = Math.max(0, Math.round(v)))),
+      el("td", {}, num(en.sell, 10, v => en.sell = Math.max(0, Math.round(v)))),
+      el("td", {}, el("div", { className: "row" },
+        el("button", { className: "btn small", textContent: "↑", on: { click: () => { if (i) { [sh.entries[i - 1], sh.entries[i]] = [sh.entries[i], sh.entries[i - 1]]; markDirty(); renderShops(); } } } }),
+        el("button", { className: "btn small danger", textContent: "빼기", on: { click: () => { sh.entries.splice(i, 1); markDirty(); renderShops(); } } }))))));
+    const cur = el("select", { on: { change: e => { sh.currency = e.target.value; markDirty(); } } },
+      ...Object.entries(CURRENCIES).map(([v, n]) => el("option", { value: v, textContent: n, selected: sh.currency === v })));
+    return el("section", { className: "card" },
+      el("div", { className: "grid" },
+        el("label", {}, "id (/상점 id)", text(sh.id, v => sh.id = v.trim())),
+        el("label", {}, "이름", text(sh.name, v => sh.name = v)),
+        el("label", {}, "재화", cur),
+        el("label", {}, "목록 아이콘", text(sh.icon, v => sh.icon = v.trim())),
+        el("label", {}, "설명", text(sh.description, v => sh.description = v))),
+      el("div", { className: "scroll", style: "margin-top:8px" }, t),
+      el("div", { className: "row", style: "margin-top:8px" },
+        el("button", { className: "btn small", textContent: "물건 추가", on: { click: () => { sh.entries.push({ item: "stone", name: "", count: 64, buy: 640, sell: 64 }); markDirty(); renderShops(); } } }),
+        el("button", { className: "btn small danger", textContent: "이 상점 지우기", on: { click: () => { if (confirm(sh.name + " 상점을 지울까요?")) { shops.shops.splice(si, 1); markDirty(); renderShops(); } } } })));
+  }));
+}
+$("#add-shop").onclick = () => { shops.shops.push({ id: "shop" + (shops.shops.length + 1), name: "새 상점", currency: "money", icon: "chest", description: "", entries: [] }); markDirty(); renderShops(); };
+$("#shops-default").onclick = async () => { shops = await api("GET", "shops/default"); markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다."); };
+
 // ---- 플레이어 ----
 let people = null, peopleAt = 0;
 const hms = s => { s = Math.max(0, Math.floor(s)); const d = Math.floor(s / 86400), h = Math.floor(s / 3600) % 24, m = Math.floor(s / 60) % 60, x = s % 60;
@@ -664,15 +712,15 @@ function readRaw() {
   try { rules = JSON.parse($("#raw-rules").value); } catch (e) { throw new Error("규칙 JSON: " + e.message); }
   try { menuCfg = JSON.parse($("#raw-menu").value); } catch (e) { throw new Error("퀵메뉴 JSON: " + e.message); }
 }
-function renderAll() { renderGuild(); renderQuests(); renderEquip(); renderServer(); renderRaw(); }
+function renderAll() { renderGuild(); renderQuests(); renderEquip(); renderServer(); renderShops(); renderRaw(); }
 function show(t) {
-  if (tab === "raw" && t !== "raw") { try { readRaw(); renderGuild(); renderQuests(); renderEquip(); renderServer(); } catch (e) { status(e.message, "bad"); return; } }
+  if (tab === "raw" && t !== "raw") { try { readRaw(); renderGuild(); renderQuests(); renderEquip(); renderServer(); renderShops(); } catch (e) { status(e.message, "bad"); return; } }
   if (t === "raw") renderRaw();
   if (t === "players") loadPlayers().catch(e => status(e.message, "bad"));
   if (t === "chat") { renderChat(); pollChat(); }
   tab = t;
   $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
-  for (const k of ["guild", "quests", "equip", "server", "players", "chat", "raw"]) $("#tab-" + k).hidden = k !== t;
+  for (const k of ["guild", "quests", "equip", "server", "shops", "players", "chat", "raw"]) $("#tab-" + k).hidden = k !== t;
 }
 $$("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
 
@@ -681,6 +729,7 @@ async function load() {
   [guild, quests, equipment, ranks, rules] = await Promise.all([api("GET", "guild-config"), api("GET", "quests"), api("GET", "equipment"),
     api("GET", "ranks"), api("GET", "rules")]);
   menuCfg = await api("GET", "menu");
+  shops = await api("GET", "shops");
   renderAll(); clean(); show(tab);
   status("불러왔습니다", "ok");
 }
@@ -696,6 +745,7 @@ $("#save").onclick = async () => {
     await api("PUT", "ranks", ranks, true).catch(e => { throw new Error("등급: " + e.message); });
     await api("PUT", "rules", rules, true).catch(e => { throw new Error("금지 아이템: " + e.message); });
     await api("PUT", "menu", menuCfg, true).catch(e => { throw new Error("퀵메뉴: " + e.message); });
+    await api("PUT", "shops", shops, true).catch(e => { throw new Error("상점: " + e.message); });
     status("저장하는 중…");
     const g = await api("PUT", "guild-config", guild);
     const q = await api("PUT", "quests", quests);
@@ -703,6 +753,7 @@ $("#save").onclick = async () => {
     const rk = await api("PUT", "ranks", ranks);
     const ru = await api("PUT", "rules", rules);
     menuCfg = (await api("PUT", "menu", menuCfg)).saved;
+    shops = (await api("PUT", "shops", shops)).saved;
     guild = g.saved; quests = q.saved; equipment = eq.saved; ranks = rk.saved; rules = ru.saved;
     renderAll(); clean();
     status("저장했습니다 — 모든 인스턴스에 곧바로 적용", "ok");
@@ -710,7 +761,7 @@ $("#save").onclick = async () => {
 };
 window.addEventListener("beforeunload", e => { if (dirty) e.preventDefault(); });
 
-function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "equip", "server", "players", "chat", "raw"]) $("#tab-" + k).hidden = true; }
+function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "equip", "server", "shops", "players", "chat", "raw"]) $("#tab-" + k).hidden = true; }
 $("#login-go").onclick = () => {
   token = $("#token").value.trim();
   try { sessionStorage.setItem("dangu-token", token); } catch {}

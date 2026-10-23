@@ -24,6 +24,8 @@
 //! | `GET /api/menu` · `PUT` | 퀵메뉴 JSON (이동할 곳·워프·던전·링크·길라잡이) |
 //! | `GET /api/menu/default` | 기본값 |
 //! | `GET /api/chat?after=<자리>` | 채팅 기록의 새 줄 (처음엔 끝부분) — 화면이 1초마다 물음 |
+//! | `GET /api/shops` · `PUT` | 상점 JSON (재화·물건·살 값·팔 값) |
+//! | `GET /api/shops/default` | 기본값 |
 //! | `GET /api/players` · `POST` | 사람마다 등급·플라이(시·분·초)·자동심기 ([`players`]) |
 //!
 //! `/api/`는 모두 `Authorization: Bearer <토큰>`이 있어야 합니다. `PUT`에 `X-Dry-Run: 1`을 붙이면
@@ -43,7 +45,7 @@ use crate::plugins::equip::config as equip_config;
 use crate::plugins::guild::config as guild_config;
 use crate::plugins::quest::config as quest_config;
 use crate::plugins::store::data_path;
-use crate::plugins::{menu, rank, rules};
+use crate::plugins::{menu, rank, rules, shop};
 
 const PAGE: &str = include_str!("page.html");
 const MAX_HEAD: usize = 16 * 1024;
@@ -374,6 +376,18 @@ pub fn handle(req: &Request, token: &str) -> Response {
                 None => Response::error(400, "JSON이 아닙니다"),
             }
         }
+        ("GET", "shops") => Response::json(200, &shop::encode(&shop::get())),
+        ("GET", "shops/default") => {
+            Response::json(200, &shop::encode(&shop::ShopConfig::default()))
+        }
+        ("PUT" | "POST", "shops") => save(&req.body, shop::decode, |c| {
+            if dry {
+                c.validate()?;
+                return Ok(shop::encode(c));
+            }
+            shop::set(c.clone())?;
+            Ok(shop::encode(&shop::get()))
+        }),
         ("GET", "menu") => Response::json(200, &menu::encode(&menu::get())),
         ("GET", "menu/default") => Response::json(200, &menu::encode(&menu::MenuConfig::default())),
         ("PUT" | "POST", "menu") => save(&req.body, menu::decode, |c| {
@@ -386,7 +400,9 @@ pub fn handle(req: &Request, token: &str) -> Response {
         }),
         (
             _,
-            "menu"
+            "shops"
+            | "shops/default"
+            | "menu"
             | "menu/default"
             | "ranks"
             | "ranks/default"

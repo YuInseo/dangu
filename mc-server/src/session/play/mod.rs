@@ -272,6 +272,8 @@ pub(crate) struct Session<'a, W> {
     pub(crate) rank: crate::plugins::rank::session::RankState,
     /// 퀵메뉴: 쓰레기통 칸, 열 때 받아 둔 재화.
     pub(crate) menu: crate::plugins::menu::gui::MenuState,
+    /// 상점 창이 받아 둔 재화.
+    pub(crate) shop: crate::plugins::shop::gui::ShopState,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
@@ -331,6 +333,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             guild: Default::default(),
             rank: Default::default(),
             menu: Default::default(),
+            shop: Default::default(),
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,

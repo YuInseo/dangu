@@ -21,7 +21,7 @@ mod session;
 
 pub use config::{QuestConfig, QuestDef};
 pub use progress::{Happened, HudQuest, Kind};
-pub use session::{open_global, progress};
+pub use session::{item_by_name, open_global, progress};
 
 /// 한국 시각 날 번호.
 pub fn day_of(now: i64) -> i64 {

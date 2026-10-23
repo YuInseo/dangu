@@ -177,6 +177,12 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
         "메뉴" | "내정보" | "직업" | "모험가" | "쓰레기통" => {
             t.literal(ROOT, name, true);
         }
+        "상점" => {
+            let c = t.literal(ROOT, name, true);
+            for s in crate::plugins::shop::get().shops {
+                t.literal(c, s.id, true);
+            }
+        }
         "강화" | "ec" | "제작대" | "수리" | "홈목록" | "갑옷숨기기" => {
             t.literal(ROOT, name, true);
         }
@@ -333,6 +339,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             "메뉴" | "내정보" | "직업" | "모험가" | "쓰레기통" => {
                 self.menu_command(spec.name).await
             }
+            "상점" => self.shop_command(&args).await,
             "등급" | "ec" | "제작대" | "수리" | "셋홈" | "홈" | "홈목록" | "홈삭제"
             | "갑옷숨기기" | "플라이" => self.rank_command(spec.name, &args).await,
             "locate" => self.locate(&args).await,

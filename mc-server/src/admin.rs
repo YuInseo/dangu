@@ -335,6 +335,12 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/쓰레기통 — 넣고 닫으면 사라짐",
     },
     Spec {
+        name: "상점",
+        aliases: &["shop", "샵"],
+        level: 0,
+        usage: "/상점 [general|cash|afk] — 돈·캐시·잠수 포인트로 사고팔기",
+    },
+    Spec {
         name: "ec",
         aliases: &["엔더상자", "enderchest"],
         level: 0,

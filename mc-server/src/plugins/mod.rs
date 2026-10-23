@@ -20,6 +20,7 @@
 //! | [`rank`]     | 후원 등급 Budget·VIP·MVP: /ec /제작대 /셋홈 /홈, 마을 플라이·더블점프, 인벤세이브, 잠수·경험치 배율, 자동심기, 갑옷 숨기기 |
 //! | [`rpg`]      | RPG 스탯 계산 (레벨·공격력·방어력·전투력) |
 //! | [`rules`]    | 서버 규칙: 금지 아이템 (제작·드랍 막기) |
+//! | [`shop`]     | 상점: 돈·캐시·잠수 포인트로 사고팔기, 플라이·자동심기 상품, `/상점` |
 //! | [`store`]    | 여러 인스턴스가 함께 쓰는 JSON 파일 (잠금 + 바뀌면 다시 읽기) |
 //! | [`webadmin`] | 웹 관리 화면: 길드 레벨별 효과·강화·작물 단계·창고 막기, 퀘스트 편집 |
 
@@ -36,5 +37,6 @@ pub mod quest;
 pub mod rank;
 pub mod rpg;
 pub mod rules;
+pub mod shop;
 pub mod store;
 pub mod webadmin;
