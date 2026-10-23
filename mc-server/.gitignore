@@ -5,3 +5,4 @@ target/
 /contents/
 **/.cache/
 /server.env
+/dist/

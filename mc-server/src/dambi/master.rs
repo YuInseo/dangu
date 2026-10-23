@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use tokio::net::{TcpListener, UnixListener, UnixStream};
+use tokio::net::TcpListener;
 use tokio::sync::{Notify, mpsc};
 
 use super::ipc::{Msg, read_msg, write_msg};
@@ -471,10 +471,9 @@ impl Master {
 
 /// IPC 소켓: 인스턴스마다 연결 하나. 첫 메시지는 `Hello`여야 합니다.
 pub async fn serve_ipc(master: Arc<Master>) -> std::io::Result<()> {
-    let _ = std::fs::remove_file(&master.ipc_path);
-    let listener = UnixListener::bind(&master.ipc_path)?;
+    let listener = super::ipc::bind(&master.ipc_path).await?;
     loop {
-        let (stream, _) = listener.accept().await?;
+        let stream = listener.accept().await?;
         let m = Arc::clone(&master);
         tokio::spawn(async move {
             if let Err(e) = ipc_link(&m, stream).await {
@@ -484,8 +483,10 @@ pub async fn serve_ipc(master: Arc<Master>) -> std::io::Result<()> {
     }
 }
 
-async fn ipc_link(master: &Arc<Master>, stream: UnixStream) -> std::io::Result<()> {
-    let (mut r, mut w) = stream.into_split();
+async fn ipc_link(
+    master: &Arc<Master>,
+    (mut r, mut w): (super::ipc::IpcRead, super::ipc::IpcWrite),
+) -> std::io::Result<()> {
     let Some(first) = read_msg(&mut r).await? else {
         return Ok(());
     };

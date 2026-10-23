@@ -10,7 +10,6 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
-use tokio::net::UnixStream;
 use tokio::sync::{mpsc, oneshot};
 
 use super::ipc::{Msg, read_msg, write_msg};
@@ -197,7 +196,7 @@ pub async fn start(net: Arc<Network>, port: u16) -> std::io::Result<()> {
     // 마스터 소켓이 막 생기는 중일 수 있어 몇 번 다시
     let mut stream = None;
     for _ in 0..50 {
-        match UnixStream::connect(&path).await {
+        match super::ipc::connect(std::path::Path::new(&path)).await {
             Ok(s) => {
                 stream = Some(s);
                 break;
@@ -206,7 +205,7 @@ pub async fn start(net: Arc<Network>, port: u16) -> std::io::Result<()> {
         }
     }
     let stream = stream.ok_or_else(|| std::io::Error::other("마스터 IPC에 붙지 못함"))?;
-    let (mut r, mut w) = stream.into_split();
+    let (mut r, mut w) = stream;
     let (tx, mut rx) = mpsc::unbounded_channel::<Msg>();
     let _ = LINK.set(Link {
         name: name.clone(),

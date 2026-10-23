@@ -6,6 +6,9 @@ HTTPS(TLS) 하나뿐입니다 (`rustls`, 직접 짠 TLS는 보안 구멍이 되�
 
 ## 빠른 시작
 
+**윈도우에서 빌드 없이**: `tools/package_windows.sh`로 만든 `dangu-server-windows.zip`을 풀고 `서버 켜기.bat`을
+더블클릭 (Rust 설치 필요 없음). 아래는 소스에서 직접 켤 때.
+
 1. [Rust](https://rustup.rs)를 설치합니다 (한 번만).
 2. 이 폴더에서 **`./start.sh`** (윈도우는 **`start.bat`** 더블클릭). 처음에는 빌드에 몇 분 걸립니다.
 3. 처음 켜면 설정 파일 **`server.env`**가 생깁니다. 포트·정품 인증·OP·시드·인스턴스·웹 관리 포트 등이

@@ -357,6 +357,57 @@ impl Msg {
     }
 }
 
+// ---- 연결: 유닉스는 소켓 파일, 윈도우는 127.0.0.1 TCP (주소를 그 파일에 적어 둠) ----
+
+pub type IpcRead = Box<dyn tokio::io::AsyncRead + Unpin + Send>;
+pub type IpcWrite = Box<dyn tokio::io::AsyncWrite + Unpin + Send>;
+
+/// 마스터가 듣는 곳.
+pub struct IpcListener {
+    #[cfg(unix)]
+    inner: tokio::net::UnixListener,
+    #[cfg(not(unix))]
+    inner: tokio::net::TcpListener,
+}
+
+/// `path`에서 듣기 (윈도우면 빈 포트를 열고 그 주소를 `path`에 씀).
+pub async fn bind(path: &std::path::Path) -> std::io::Result<IpcListener> {
+    let _ = std::fs::remove_file(path);
+    #[cfg(unix)]
+    {
+        Ok(IpcListener {
+            inner: tokio::net::UnixListener::bind(path)?,
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let inner = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        std::fs::write(path, inner.local_addr()?.to_string())?;
+        Ok(IpcListener { inner })
+    }
+}
+
+impl IpcListener {
+    pub async fn accept(&self) -> std::io::Result<(IpcRead, IpcWrite)> {
+        let (s, _) = self.inner.accept().await?;
+        let (r, w) = s.into_split();
+        Ok((Box::new(r), Box::new(w)))
+    }
+}
+
+/// 자식이 마스터에 붙기.
+pub async fn connect(path: &std::path::Path) -> std::io::Result<(IpcRead, IpcWrite)> {
+    #[cfg(unix)]
+    let s = tokio::net::UnixStream::connect(path).await?;
+    #[cfg(not(unix))]
+    let s = {
+        let addr = std::fs::read_to_string(path)?;
+        tokio::net::TcpStream::connect(addr.trim()).await?
+    };
+    let (r, w) = s.into_split();
+    Ok((Box::new(r), Box::new(w)))
+}
+
 pub async fn write_msg<W: AsyncWrite + Unpin>(w: &mut W, msg: &Msg) -> std::io::Result<()> {
     let body = msg.to_json();
     w.write_all(&(body.len() as u32).to_be_bytes()).await?;
