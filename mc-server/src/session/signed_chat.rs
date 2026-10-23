@@ -88,6 +88,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if self.server.config.chat_channels {
             return self.channel_chat(&clean).await;
         }
+        crate::plugins::chat::log::record(
+            "채팅",
+            &self.server.name,
+            &self.profile.name,
+            None,
+            None,
+            &clean,
+        );
         // :이모지:가 있으면 그림 글자로 바꿔 서명 없는 채팅으로 (서명은 원문에만 맞음)
         let shown = crate::plugins::contents::emojify(&clean);
         if shown != clean {

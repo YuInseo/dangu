@@ -711,6 +711,14 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
             vec![format!("접속자 {}명: {}", names.len(), names.join(", "))]
         }
         ("say", [_, ..]) => {
+            crate::plugins::chat::log::record(
+                "공지",
+                &server.name,
+                &actor.name,
+                None,
+                None,
+                &rest(0),
+            );
             server.publish_all(Event::System(text::colored(
                 &format!("[{}] {}", actor.name, rest(0)),
                 "light_purple",

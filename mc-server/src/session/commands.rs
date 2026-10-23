@@ -279,6 +279,14 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
     pub(crate) async fn command(&mut self, line: &str) -> Result<(), FrameError> {
+        crate::plugins::chat::log::record(
+            "명령어",
+            &self.server.name,
+            &self.profile.name,
+            None,
+            None,
+            &format!("/{line}"),
+        );
         let (name, rest) = line.split_once(' ').unwrap_or((line, ""));
         let rest = rest.trim();
         let args: Vec<&str> = rest.split_whitespace().collect();
@@ -444,6 +452,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             "me" => {
                 let action = sanitize(rest);
                 if !action.is_empty() {
+                    crate::plugins::chat::log::record(
+                        "행동",
+                        &self.server.name,
+                        &self.profile.name,
+                        None,
+                        None,
+                        &action,
+                    );
                     self.server.publish(Event::Chat {
                         kind: ChatKind::Emote,
                         sender: self.profile.name.clone(),
@@ -702,6 +718,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             sender: self.profile.name.clone(),
             content: content.to_owned(),
         });
+        crate::plugins::chat::log::record(
+            "귓속말",
+            &self.server.name,
+            &self.profile.name,
+            Some(&to.name),
+            None,
+            content,
+        );
         // 자신에게 보낸 귓속말이면 받는 쪽 기록만으로 충분합니다.
         if to.uuid != self.profile.uuid {
             self.whisper_echo(&to.name, content).await?;

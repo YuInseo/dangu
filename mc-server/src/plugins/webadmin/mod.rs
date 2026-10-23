@@ -23,6 +23,7 @@
 //! | `GET /api/rules/default` | 기본값 |
 //! | `GET /api/menu` · `PUT` | 퀵메뉴 JSON (이동할 곳·워프·던전·링크·길라잡이) |
 //! | `GET /api/menu/default` | 기본값 |
+//! | `GET /api/chat?after=<자리>` | 채팅 기록의 새 줄 (처음엔 끝부분) — 화면이 1초마다 물음 |
 //! | `GET /api/players` · `POST` | 사람마다 등급·플라이(시·분·초)·자동심기 ([`players`]) |
 //!
 //! `/api/`는 모두 `Authorization: Bearer <토큰>`이 있어야 합니다. `PUT`에 `X-Dry-Run: 1`을 붙이면
@@ -122,12 +123,23 @@ async fn connection(mut s: TcpStream, token: &str) -> std::io::Result<()> {
 pub struct Request {
     pub method: String,
     pub path: String,
+    /// `?` 뒤 (없으면 빈 글).
+    pub query: String,
     /// 이름은 소문자.
     pub headers: Vec<(String, String)>,
     pub body: Vec<u8>,
 }
 
 impl Request {
+    /// `?a=1&b=2`의 값.
+    fn param(&self, name: &str) -> Option<&str> {
+        self.query
+            .split('&')
+            .filter_map(|kv| kv.split_once('='))
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v)
+    }
+
     fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()
@@ -182,6 +194,10 @@ async fn read_request(s: &mut TcpStream) -> std::io::Result<Option<Request>> {
     Ok(Some(Request {
         method: method.to_owned(),
         path: target.split(['?', '#']).next().unwrap_or("/").to_owned(),
+        query: target
+            .split_once('?')
+            .map(|(_, q)| q.split('#').next().unwrap_or("").to_owned())
+            .unwrap_or_default(),
         headers,
         body,
     }))
@@ -330,6 +346,17 @@ pub fn handle(req: &Request, token: &str) -> Response {
             rules::set(r.clone())?;
             Ok(rules::encode(&rules::get()))
         }),
+        ("GET", "chat") => {
+            let after = req.param("after").and_then(|a| a.parse::<u64>().ok());
+            let (lines, next) = crate::plugins::chat::log::read_since(after);
+            Response::json(
+                200,
+                &Json::Object(vec![
+                    ("next".into(), Json::Number(next as f64)),
+                    ("lines".into(), Json::Array(lines)),
+                ]),
+            )
+        }
         ("GET", "players") => Response::json(200, &players::list()),
         ("POST" | "PUT", "players") => {
             let parsed = std::str::from_utf8(&req.body)
@@ -406,9 +433,11 @@ mod tests {
         if let Some(t) = token {
             headers.push(("authorization".into(), format!("Bearer {t}")));
         }
+        let (path, query) = path.split_once('?').unwrap_or((path, ""));
         Request {
             method: method.into(),
             path: path.into(),
+            query: query.into(),
             headers,
             body: body.as_bytes().to_vec(),
         }

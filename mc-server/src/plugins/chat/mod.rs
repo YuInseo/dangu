@@ -16,6 +16,7 @@
 //! 채널 채팅은 서명 없는 시스템 메시지로 갑니다 (앞에 `[전체]` 같은 머리를 붙여야 해서).
 //! `MC_CHAT_CHANNELS=0`이면 채널 없이 바닐라 서명 채팅 그대로.
 
+pub mod log;
 pub mod session;
 
 use std::collections::{HashMap, HashSet};

@@ -247,8 +247,13 @@ DAMBI_HOME=dambi MC_BIND=0.0.0.0:25565 cargo run --release -- master
   밖에서 쓸 때는 SSH 터널(`ssh -L 25580:127.0.0.1:25580 서버`)을 권합니다 (HTTPS 아님).
 - 토큰: `MC_ADMIN_TOKEN`, 없으면 `world/admin_token.txt`(`MC_ADMIN_TOKEN_FILE`)에 만들어 둡니다.
   주소의 `#token=`은 서버로 가지 않고 브라우저 탭에만 남습니다. API는 `Authorization: Bearer`.
+- **플레이어** 탭: 사람마다 등급·플라이 남은 시간(실시간 시계)·자동심기를 보고 바로 바꿈 (위 "후원 등급").
+- **채팅** 탭: 모든 인스턴스의 채널 채팅·귓속말·`/me`·`/say`·명령어가 1초 안에 실시간으로 올라옴. 종류별
+  켜고 끄기(명령어는 기본으로 숨김), 이름·내용 찾기, 맨 아래 따라가기, 멈춤. 기록은 `world/chat.log`
+  (`MC_CHAT_LOG`, 한 줄에 JSON 하나, 20MB마다 `chat.log.1`로 넘김).
 - API: `GET/PUT /api/guild-config`, `/api/quests`, `/api/equipment`, `/api/ranks`, `/api/rules`,
-  `…/default`(기본값), `X-Dry-Run: 1`(확인만).
+  `/api/menu`, `…/default`(기본값), `X-Dry-Run: 1`(확인만), `GET/POST /api/players`,
+  `GET /api/chat?after=<자리>`.
 
 ## 장비 (`/장비` · `/강화` · `/대장간`)
 

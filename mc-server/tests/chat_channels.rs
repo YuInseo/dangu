@@ -79,3 +79,57 @@ async fn recv_until_text(s: &mut Client, needle: &str) -> (String, Vec<String>) 
         seen.push(t);
     }
 }
+
+/// 채팅·귓속말이 웹 관리 화면이 읽는 채팅 기록에 남음.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn chat_goes_to_the_log() {
+    use mc_server::json::Json;
+    use mc_server::plugins::chat::log;
+    let config = Config {
+        chat_channels: true,
+        ..Config::default()
+    };
+    let server = Arc::new(Server::new(test_info(), SEED).with_config(config));
+    let addr = start_server_with(Arc::clone(&server)).await;
+    let (_, before) = log::read_since(None);
+    let (mut alice, _) = join(addr, "LogAlice", 2).await;
+    let (mut bob, _) = join(addr, "LogBob", 2).await;
+    let tag = format!("기록-{}", std::process::id());
+    send_string(&mut alice, 0x09, &format!("!{tag}")).await;
+    chat_containing(&mut bob, &tag).await;
+    send_string(&mut alice, 0x07, &format!("msg LogBob 귓{tag}")).await;
+    // 귓속말은 다른 패킷으로 가니 기록에 생길 때까지 기다림
+    let mut lines = Vec::new();
+    for _ in 0..100 {
+        lines = log::read_since(Some(before)).0;
+        if lines.iter().any(|l| {
+            l.get("kind").and_then(Json::as_str) == Some("귓속말")
+                && l.get("text")
+                    .and_then(Json::as_str)
+                    .is_some_and(|t| t.contains(&tag))
+        }) {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    let mine: Vec<&Json> = lines
+        .iter()
+        .filter(|l| {
+            l.get("text")
+                .and_then(Json::as_str)
+                .is_some_and(|t| t.contains(&tag))
+        })
+        .collect();
+    let kinds: Vec<&str> = mine
+        .iter()
+        .filter_map(|l| l.get("kind")?.as_str())
+        .collect();
+    assert!(kinds.contains(&"전체"), "{kinds:?}");
+    assert!(kinds.contains(&"귓속말"), "{kinds:?}");
+    assert!(kinds.contains(&"명령어"), "{kinds:?}");
+    let w = mine
+        .iter()
+        .find(|l| l.get("kind").and_then(Json::as_str) == Some("귓속말"))
+        .unwrap();
+    assert_eq!(w.get("to").and_then(Json::as_str), Some("LogBob"));
+}

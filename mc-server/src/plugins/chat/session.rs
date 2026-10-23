@@ -106,6 +106,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             card: self.chat_card().await,
         };
         println!("[{}] <{}> {}", channel.name(), m.sender_name, m.content);
+        super::log::record(
+            channel.name(),
+            &m.instance,
+            &m.sender_name,
+            None,
+            m.guild.as_deref(),
+            content,
+        );
         super::send(self.server, m);
         Ok(())
     }
