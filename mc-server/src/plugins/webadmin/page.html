@@ -66,6 +66,7 @@ button.danger { color: var(--bad); }
     <button data-tab="quests">퀘스트</button>
     <button data-tab="equip">장비</button>
     <button data-tab="server">서버</button>
+    <button data-tab="players">플레이어</button>
     <button data-tab="raw">JSON</button>
   </nav>
   <span class="spacer"></span>
@@ -192,6 +193,18 @@ button.danger { color: var(--bad); }
       <textarea class="wide" id="banned" rows="12" spellcheck="false"></textarea>
     </section>
     <div class="row"><button class="btn" id="server-default">기본값으로 채우기 (저장 전)</button></div>
+  </div>
+
+  <div id="tab-players" hidden>
+    <section class="card">
+      <h2>플레이어 <span class="chip" id="n-players"></span></h2>
+      <p class="hint">한 번이라도 접속한 사람. 누르면 바로 저장됩니다 (위 "저장" 버튼과 상관없음).
+        시간: <code>1h30m20s</code> · <code>1시간30분20초</code> · <code>1:30:20</code> · <code>2d</code> · <code>3600</code>(초).
+        게임·콘솔에서는 <code>/플라이 확인|설정|추가|빼기 &lt;이름&gt; &lt;시간&gt;</code>, <code>/플라이 목록</code>.</p>
+      <div class="row"><input id="player-filter" placeholder="이름으로 찾기" style="max-width:240px">
+        <label class="row" style="gap:6px"><input type="checkbox" id="player-flying"> 플라이 남은 사람만</label></div>
+      <div class="scroll" style="margin-top:10px"><table id="players"></table></div>
+    </section>
   </div>
 
   <div id="tab-raw" hidden>
@@ -493,6 +506,58 @@ $("#server-default").onclick = async () => {
   markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다.");
 };
 
+// ---- 플레이어 ----
+let people = null, peopleAt = 0;
+const hms = s => { s = Math.max(0, Math.floor(s)); const d = Math.floor(s / 86400), h = Math.floor(s / 3600) % 24, m = Math.floor(s / 60) % 60, x = s % 60;
+  return (d ? d + "일 " : "") + String(h).padStart(2, "0") + ":" + String(m).padStart(2, "0") + ":" + String(x).padStart(2, "0"); };
+async function loadPlayers() { people = await api("GET", "players"); peopleAt = Date.now(); renderPlayers(); }
+async function act(target, action, value, extra = {}) {
+  try {
+    const r = await api("POST", "players", { target, action, value, ...extra });
+    status(r.message, "ok"); await loadPlayers();
+  } catch (e) { status(e.message, "bad"); }
+}
+function renderPlayers() {
+  if (!people) return;
+  const q = $("#player-filter").value.trim().toLowerCase(), onlyFly = $("#player-flying").checked;
+  const rows = people.players.filter(p => (!q || (p.name || p.uuid).toLowerCase().includes(q)) && (!onlyFly || p.fly_left > 0))
+    .sort((a, b) => b.fly_left - a.fly_left || (a.name || "").localeCompare(b.name || ""));
+  $("#n-players").textContent = people.players.length + "명";
+  const t = $("#players");
+  t.replaceChildren(el("tr", {}, ...["이름", "등급", "플라이 남은 시간", "플라이 바꾸기", "등급 주기", "자동심기"].map(h => el("th", {}, h))),
+    ...rows.map(p => {
+      const who = p.name || p.uuid;
+      const dur = el("input", { placeholder: "1h30m", style: "width:90px" });
+      const rankSel = el("select", {}, el("option", { value: "", textContent: "없음" }),
+        ...people.ranks.map(r => el("option", { value: r.id, textContent: r.name, selected: r.id === p.rank })));
+      const days = el("input", { type: "number", value: 30, min: 0, style: "width:64px", title: "일 (0 = 영구)" });
+      const ap = el("input", { type: "number", value: p.autoplant, min: 0, style: "width:96px" });
+      const left = el("span", { className: "fly", textContent: p.fly_left > 0 ? hms(p.fly_left) : "없음" });
+      left.dataset.left = p.fly_left;
+      const btn = (label, action) => el("button", { className: "btn small", textContent: label,
+        on: { click: () => dur.value.trim() ? act(who, action, dur.value.trim()) : status("시간을 넣으세요", "bad") } });
+      const until = p.rank ? (p.until > 0 ? " · " + new Date(p.until * 1000).toLocaleDateString() + "까지" : " · 영구") : "";
+      return el("tr", {},
+        el("td", {}, el("b", { textContent: p.name || "(이름 모름)" }), el("div", { className: "hint", textContent: p.uuid.slice(0, 8) + "… · 홈 " + p.homes })),
+        el("td", {}, (p.rank_name || "—") + until),
+        el("td", {}, left),
+        el("td", {}, el("div", { className: "row" }, dur, btn("설정", "fly_set"), btn("+ 추가", "fly_add"), btn("− 빼기", "fly_sub"))),
+        el("td", {}, el("div", { className: "row" }, rankSel, days, el("button", { className: "btn small", textContent: "적용",
+          on: { click: () => act(who, "rank", rankSel.value, { days: parseInt(days.value) || 0 }) } }))),
+        el("td", {}, el("div", { className: "row" }, ap, el("button", { className: "btn small", textContent: "적용",
+          on: { click: () => act(who, "autoplant", ap.value) } }))));
+    }));
+}
+$("#player-filter").oninput = renderPlayers;
+$("#player-flying").onchange = renderPlayers;
+// 남은 시간은 1초마다 줄여 보이고, 10초마다 서버에서 다시
+setInterval(() => {
+  if (tab !== "players" || !people) return;
+  const gone = (Date.now() - peopleAt) / 1000;
+  $$("#players .fly").forEach(s => { const l = s.dataset.left - gone; s.textContent = l > 0 ? hms(l) : "없음"; });
+}, 1000);
+setInterval(() => { if (tab === "players" && token) loadPlayers().catch(() => {}); }, 10000);
+
 // ---- JSON / 탭 ----
 function renderRaw() {
   $("#raw-guild").value = JSON.stringify(guild, null, 2);
@@ -521,9 +586,10 @@ function renderAll() { renderGuild(); renderQuests(); renderEquip(); renderServe
 function show(t) {
   if (tab === "raw" && t !== "raw") { try { readRaw(); renderGuild(); renderQuests(); renderEquip(); renderServer(); } catch (e) { status(e.message, "bad"); return; } }
   if (t === "raw") renderRaw();
+  if (t === "players") loadPlayers().catch(e => status(e.message, "bad"));
   tab = t;
   $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
-  for (const k of ["guild", "quests", "equip", "server", "raw"]) $("#tab-" + k).hidden = k !== t;
+  for (const k of ["guild", "quests", "equip", "server", "players", "raw"]) $("#tab-" + k).hidden = k !== t;
 }
 $$("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
 
@@ -561,7 +627,7 @@ $("#save").onclick = async () => {
 };
 window.addEventListener("beforeunload", e => { if (dirty) e.preventDefault(); });
 
-function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "equip", "server", "raw"]) $("#tab-" + k).hidden = true; }
+function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "equip", "server", "players", "raw"]) $("#tab-" + k).hidden = true; }
 $("#login-go").onclick = () => {
   token = $("#token").value.trim();
   try { sessionStorage.setItem("dangu-token", token); } catch {}

@@ -177,12 +177,21 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
         "메뉴" | "내정보" | "직업" | "모험가" | "쓰레기통" => {
             t.literal(ROOT, name, true);
         }
-        "강화" | "ec" | "제작대" | "수리" | "홈목록" | "갑옷숨기기" | "플라이" => {
+        "강화" | "ec" | "제작대" | "수리" | "홈목록" | "갑옷숨기기" => {
             t.literal(ROOT, name, true);
         }
         "셋홈" | "홈" | "홈삭제" => {
             let c = t.literal(ROOT, name, kind != "홈삭제");
             t.argument_with(c, "name", STRING, WORD, true);
+        }
+        "플라이" => {
+            let c = t.literal(ROOT, name, true);
+            t.literal(c, "목록", true);
+            for sub in ["확인", "설정", "추가", "빼기"] {
+                let s = t.literal(c, sub, false);
+                let who = t.argument(s, "target", GAME_PROFILE, sub == "확인");
+                t.argument_with(who, "time", STRING, GREEDY, true);
+            }
         }
         "등급" => {
             let c = t.literal(ROOT, name, true);

@@ -23,9 +23,12 @@
 //! | `GET /api/rules/default` | 기본값 |
 //! | `GET /api/menu` · `PUT` | 퀵메뉴 JSON (이동할 곳·워프·던전·링크·길라잡이) |
 //! | `GET /api/menu/default` | 기본값 |
+//! | `GET /api/players` · `POST` | 사람마다 등급·플라이(시·분·초)·자동심기 ([`players`]) |
 //!
 //! `/api/`는 모두 `Authorization: Bearer <토큰>`이 있어야 합니다. `PUT`에 `X-Dry-Run: 1`을 붙이면
 //! 확인만 하고 저장하지 않습니다.
+
+mod players;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -327,6 +330,23 @@ pub fn handle(req: &Request, token: &str) -> Response {
             rules::set(r.clone())?;
             Ok(rules::encode(&rules::get()))
         }),
+        ("GET", "players") => Response::json(200, &players::list()),
+        ("POST" | "PUT", "players") => {
+            let parsed = std::str::from_utf8(&req.body)
+                .ok()
+                .and_then(|t| json::parse(t).ok());
+            match parsed.map(|j| players::act(&j)) {
+                Some(Ok(msg)) => Response::json(
+                    200,
+                    &Json::Object(vec![
+                        ("ok".into(), Json::Bool(true)),
+                        ("message".into(), Json::String(msg)),
+                    ]),
+                ),
+                Some(Err(e)) => Response::error(400, &e),
+                None => Response::error(400, "JSON이 아닙니다"),
+            }
+        }
         ("GET", "menu") => Response::json(200, &menu::encode(&menu::get())),
         ("GET", "menu/default") => Response::json(200, &menu::encode(&menu::MenuConfig::default())),
         ("PUT" | "POST", "menu") => save(&req.body, menu::decode, |c| {

@@ -386,7 +386,7 @@ pub const COMMANDS: &[Spec] = &[
         name: "플라이",
         aliases: &["fly"],
         level: 0,
-        usage: "/플라이 — 남은 플라이 시간",
+        usage: "/플라이 — 남은 플라이 시간 · (OP) /플라이 확인|설정|추가|빼기 <이름> [1h30m20s] · /플라이 목록",
     },
     Spec {
         name: "이동",
@@ -441,6 +441,96 @@ pub fn resolve(server: &Server, name: &str) -> Option<(u128, String)> {
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     (!server.config.online_mode && valid)
         .then(|| (crate::uuid::offline_uuid(name), name.to_owned()))
+}
+
+/// `/플라이 확인|설정|추가|빼기 <이름> [시간]`, `/플라이 목록`. 시간은 `1h30m20s`·`1시간30분`·
+/// `1:30:20`·`3600`(초).
+fn fly_admin(server: &Server, actor: &Actor, sub: &str, rest: &[&str]) -> Vec<String> {
+    use crate::plugins::rank::{self, duration_text, parse_duration};
+    if actor.level(server) < 4 {
+        return vec!["플라이를 보고 바꾸는 것은 OP 4만 할 수 있습니다.".into()];
+    }
+    let usage = || {
+        vec![
+            "사용법: /플라이 확인 <이름> · 설정|추가|빼기 <이름> <시간> · 목록".to_owned(),
+            "시간: 1h30m20s · 1시간30분20초 · 1:30:20 · 2d · 3600(초)".to_owned(),
+        ]
+    };
+    if matches!(sub, "목록" | "list") {
+        let t = rank::now();
+        let mut rows: Vec<(String, i64)> = rank::members().read(|d| {
+            d.players
+                .iter()
+                .filter(|(_, m)| m.fly_until > t)
+                .map(|(u, m)| {
+                    let name = if m.name.is_empty() {
+                        format!("{u:032x}")
+                    } else {
+                        m.name.clone()
+                    };
+                    (name, m.fly_until - t)
+                })
+                .collect()
+        });
+        rows.sort_by_key(|r| -r.1);
+        if rows.is_empty() {
+            return vec!["플라이 시간이 남은 사람이 없습니다.".into()];
+        }
+        return rows
+            .into_iter()
+            .map(|(n, s)| format!("{n} — {}", duration_text(s)))
+            .collect();
+    }
+    let Some(target) = rest.first() else {
+        return usage();
+    };
+    let Some((uuid, name)) = rank::uuid_by_name(target).or_else(|| resolve(server, target)) else {
+        return vec![format!("{target}님을 찾을 수 없습니다.")];
+    };
+    let amount = || {
+        rest.get(1..)
+            .map(|r| r.join(""))
+            .and_then(|t| parse_duration(&t))
+    };
+    let (left, what) = match sub {
+        "확인" | "info" => {
+            return vec![format!(
+                "{name}님의 플라이: {} 남음",
+                duration_text(rank::fly_left(uuid))
+            )];
+        }
+        "설정" | "set" => match amount() {
+            Some(s) => (
+                rank::set_fly_secs(uuid, s),
+                format!("{}로 설정", duration_text(s)),
+            ),
+            None => return usage(),
+        },
+        "추가" | "add" => match amount() {
+            Some(s) => (
+                rank::add_fly_secs(uuid, s),
+                format!("{} 추가", duration_text(s)),
+            ),
+            None => return usage(),
+        },
+        "빼기" | "remove" | "take" => match amount() {
+            Some(s) => (
+                rank::add_fly_secs(uuid, -s),
+                format!("{} 뺌", duration_text(s)),
+            ),
+            None => return usage(),
+        },
+        _ => return usage(),
+    };
+    server.publish_all(Event::Whisper {
+        to: uuid,
+        sender: actor.name.clone(),
+        content: format!("플라이 {what} → {} 남음", duration_text(left)),
+    });
+    vec![format!(
+        "{name}님의 플라이 {what}: 이제 {} 남음",
+        duration_text(left)
+    )]
 }
 
 /// `/등급 목록|설정|플라이|자동심기`.
@@ -540,6 +630,7 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
     ) || (spec.name == "gamemode" && args.len() >= 2)
         || (spec.name == "복권" && !args.is_empty())
         || (spec.name == "등급" && !args.is_empty())
+        || (spec.name == "플라이" && !args.is_empty())
         || spec.name == "iareload";
     if !handled {
         return None;
@@ -600,6 +691,7 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
             }
         }
         ("등급", [sub, rest @ ..]) => rank_admin(server, actor, sub, rest),
+        ("플라이", [sub, rest @ ..]) => fly_admin(server, actor, sub, rest),
         ("list", _) => {
             let mut lines = Vec::new();
             for inst in server.instances() {

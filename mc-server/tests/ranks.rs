@@ -134,6 +134,16 @@ async fn supporter_perks() {
     chat(&mut s, "플라이 30분").await;
     send_string(&mut s, 0x07, "플라이").await;
     chat(&mut s, "남음").await;
+    // 관리: 시·분·초까지
+    send_string(&mut s, 0x07, "플라이 설정 Donor 1h2m3s").await;
+    chat(&mut s, "이제 1시간 2분").await;
+    send_string(&mut s, 0x07, "플라이 빼기 Donor 1시간").await;
+    chat(&mut s, "이제 2분").await;
+    send_string(&mut s, 0x07, "플라이 추가 Donor 0:00:30").await;
+    // 초가 하나 지나갔을 수도 있으니 앞자리만
+    chat(&mut s, "이제 2분 3").await;
+    send_string(&mut s, 0x07, "플라이 목록").await;
+    chat(&mut s, "Donor — 2분").await;
 
     // 채팅 머리말에 등급
     send_string(&mut s, 0x07, "등급 목록").await;

@@ -62,15 +62,7 @@ impl RankState {
     }
 }
 
-/// "1시간 2분" 꼴.
-fn duration_text(secs: i64) -> String {
-    let (h, m, s) = (secs / 3600, secs / 60 % 60, secs % 60);
-    match (h, m) {
-        (0, 0) => format!("{s}초"),
-        (0, _) => format!("{m}분 {s}초"),
-        _ => format!("{h}시간 {m}분"),
-    }
-}
+use super::duration_text;
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
     // ---- 1초마다 ----
@@ -89,6 +81,11 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         } else {
             members().read(|d| d.member(me))
         };
+        // 이름으로 찾을 수 있게 (처음이거나 이름이 바뀌었을 때만 씀)
+        if m.name != self.profile.name {
+            let name = self.profile.name.clone();
+            members().write(|d| d.member_mut(me).name = name);
+        }
         self.rank.autoplant_left = m.autoplant;
         let rank = config(|c| active_rank(&m, c, t));
         let perks = rank.as_ref().map_or_else(no_perks, |r| r.perks.clone());

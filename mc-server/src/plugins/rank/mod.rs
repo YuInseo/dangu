@@ -247,6 +247,8 @@ pub struct Home {
 /// 한 사람의 등급과 특혜 상태.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Member {
+    /// 마지막으로 본 이름 (웹 관리 화면·이름으로 찾기)
+    pub name: String,
     pub rank: Option<String>,
     /// 끝나는 때 (유닉스 초, 0이면 영구)
     pub until: i64,
@@ -346,11 +348,114 @@ pub fn add_autoplant(uuid: u128, n: u64) {
 
 /// 플라이 시간 더하기 (분; 남은 시간에 이어서).
 pub fn add_fly_minutes(uuid: u128, minutes: i64) {
+    add_fly_secs(uuid, minutes * 60);
+}
+
+/// 남은 플라이 (초, 없으면 0).
+pub fn fly_left(uuid: u128) -> i64 {
+    (members().read(|d| d.member(uuid).fly_until) - now()).max(0)
+}
+
+/// 플라이를 더하거나(음수면 빼기) 바꾼 뒤 남은 초. 0 아래로는 안 내려감.
+pub fn add_fly_secs(uuid: u128, delta: i64) -> i64 {
     let t = now();
     members().write(|d| {
         let m = d.member_mut(uuid);
-        m.fly_until = m.fly_until.max(t) + minutes * 60;
-    });
+        let left = (m.fly_until - t).max(0).saturating_add(delta).max(0);
+        m.fly_until = if left > 0 { t + left } else { 0 };
+        left
+    })
+}
+
+/// 플라이를 꼭 이만큼으로 (초).
+pub fn set_fly_secs(uuid: u128, secs: i64) -> i64 {
+    let t = now();
+    let secs = secs.max(0);
+    members().write(|d| d.member_mut(uuid).fly_until = if secs > 0 { t + secs } else { 0 });
+    secs
+}
+
+/// 이름으로 찾기 (한 번이라도 접속한 사람, 대소문자 무시).
+pub fn uuid_by_name(name: &str) -> Option<(u128, String)> {
+    members().read(|d| {
+        d.players
+            .iter()
+            .find(|(_, m)| m.name.eq_ignore_ascii_case(name))
+            .map(|(u, m)| (*u, m.name.clone()))
+    })
+}
+
+/// 시간 글 → 초. `1h30m20s` `1시간 30분 20초` `2d` `90m` `1:30:20`(시:분:초) `45:00`(분:초)
+/// `3600`(단위 없으면 초).
+pub fn parse_duration(text: &str) -> Option<i64> {
+    let t: String = text.chars().filter(|c| !c.is_whitespace()).collect();
+    if t.is_empty() {
+        return None;
+    }
+    if t.contains(':') {
+        let parts: Vec<i64> = t
+            .split(':')
+            .map(|p| p.parse::<i64>().ok().filter(|v| *v >= 0))
+            .collect::<Option<_>>()?;
+        return match parts[..] {
+            [m, s] => Some(m * 60 + s),
+            [h, m, s] => Some(h * 3600 + m * 60 + s),
+            [d, h, m, s] => Some(d * 86_400 + h * 3600 + m * 60 + s),
+            _ => None,
+        };
+    }
+    if let Ok(v) = t.parse::<i64>() {
+        return (v >= 0).then_some(v);
+    }
+    let mut total: i64 = 0;
+    let mut num = String::new();
+    let mut any = false;
+    let mut chars = t.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c.is_ascii_digit() {
+            num.push(c);
+            continue;
+        }
+        // 단위: 영어 한 글자, 한글 (일·시간·분·초)
+        let unit = match c {
+            'd' | 'D' | '일' => 86_400,
+            'h' | 'H' => 3600,
+            '시' => {
+                if chars.peek() == Some(&'간') {
+                    chars.next();
+                }
+                3600
+            }
+            'm' | 'M' | '분' => 60,
+            's' | 'S' | '초' => 1,
+            _ => return None,
+        };
+        let v: i64 = num.parse().ok()?;
+        num.clear();
+        total = total.checked_add(v.checked_mul(unit)?)?;
+        any = true;
+    }
+    if !num.is_empty() {
+        return None;
+    }
+    any.then_some(total)
+}
+
+/// 초 → `1일 2시간 3분 4초` (0인 칸은 뺌, 0이면 `0초`).
+pub fn duration_text(secs: i64) -> String {
+    let secs = secs.max(0);
+    let (d, h, m, s) = (secs / 86_400, secs / 3600 % 24, secs / 60 % 60, secs % 60);
+    let mut parts = Vec::new();
+    for (v, u) in [(d, "일"), (h, "시간"), (m, "분"), (s, "초")] {
+        if v > 0 {
+            parts.push(format!("{v}{u}"));
+        }
+    }
+    if parts.is_empty() {
+        "0초".into()
+    } else {
+        parts.join(" ")
+    }
 }
 
 // ---- JSON ----
@@ -518,6 +623,9 @@ fn encode_members(d: &Members) -> Json {
                         ),
                     ));
                 }
+                if !m.name.is_empty() {
+                    f.insert(0, ("name".into(), Json::String(m.name.clone())));
+                }
                 if m.autoplant > 0 {
                     f.push(("autoplant".into(), n(m.autoplant as f64)));
                 }
@@ -587,6 +695,11 @@ fn decode_members(j: &Json) -> Option<Members> {
                         })
                     })
                     .collect(),
+                name: m
+                    .get("name")
+                    .and_then(Json::as_str)
+                    .unwrap_or("")
+                    .to_owned(),
                 autoplant: nu("autoplant") as u64,
                 fly_until: nu("fly_until") as i64,
                 hide_armor: m.get("hide_armor").and_then(Json::as_bool).unwrap_or(false),
@@ -677,5 +790,22 @@ mod tests {
         // 끝난 등급은 없는 것
         assert!(active_rank(&d.member(7), &c, 50).is_some());
         assert!(active_rank(&d.member(7), &c, 100).is_none());
+    }
+
+    #[test]
+    fn durations_parse_and_print() {
+        assert_eq!(parse_duration("1h30m20s"), Some(5420));
+        assert_eq!(parse_duration("1시간 30분 20초"), Some(5420));
+        assert_eq!(parse_duration("2d"), Some(172_800));
+        assert_eq!(parse_duration("90m"), Some(5400));
+        assert_eq!(parse_duration("1:30:20"), Some(5420));
+        assert_eq!(parse_duration("45:00"), Some(2700));
+        assert_eq!(parse_duration("3600"), Some(3600));
+        assert_eq!(parse_duration("1x"), None);
+        assert_eq!(parse_duration("h"), None);
+        assert_eq!(parse_duration("10m5"), None);
+        assert_eq!(duration_text(5420), "1시간 30분 20초");
+        assert_eq!(duration_text(90_061), "1일 1시간 1분 1초");
+        assert_eq!(duration_text(0), "0초");
     }
 }
