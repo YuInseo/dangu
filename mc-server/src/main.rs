@@ -28,6 +28,7 @@ async fn main() -> std::io::Result<()> {
     // 금지 아이템 (제작·드랍 막기)
     mc_server::plugins::rules::open_global();
     mc_server::plugins::rank::open_global();
+    mc_server::plugins::menu::open_global();
     mc_server::plugins::guild::store::open_global(
         std::env::var_os("MC_GUILDS")
             .map(std::path::PathBuf::from)

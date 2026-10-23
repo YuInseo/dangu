@@ -270,6 +270,8 @@ pub(crate) struct Session<'a, W> {
     pub(crate) guild: crate::plugins::guild::GuildState,
     /// 후원 등급: 특혜, 날기·더블점프, 잠수, 자동심기.
     pub(crate) rank: crate::plugins::rank::session::RankState,
+    /// 퀵메뉴: 쓰레기통 칸, 열 때 받아 둔 재화.
+    pub(crate) menu: crate::plugins::menu::gui::MenuState,
 }
 
 impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
@@ -328,6 +330,7 @@ impl<'a, W: AsyncWrite + Unpin> Session<'a, W> {
             mana: Default::default(),
             guild: Default::default(),
             rank: Default::default(),
+            menu: Default::default(),
             loaded: HashSet::new(),
             center: (0, 0),
             next_teleport_id: 1,

@@ -21,6 +21,8 @@
 //! | `GET /api/ranks/default` | 기본값 |
 //! | `GET /api/rules` · `PUT` | 서버 규칙 JSON (금지 아이템) |
 //! | `GET /api/rules/default` | 기본값 |
+//! | `GET /api/menu` · `PUT` | 퀵메뉴 JSON (이동할 곳·워프·던전·링크·길라잡이) |
+//! | `GET /api/menu/default` | 기본값 |
 //!
 //! `/api/`는 모두 `Authorization: Bearer <토큰>`이 있어야 합니다. `PUT`에 `X-Dry-Run: 1`을 붙이면
 //! 확인만 하고 저장하지 않습니다.
@@ -37,7 +39,7 @@ use crate::plugins::equip::config as equip_config;
 use crate::plugins::guild::config as guild_config;
 use crate::plugins::quest::config as quest_config;
 use crate::plugins::store::data_path;
-use crate::plugins::{rank, rules};
+use crate::plugins::{menu, rank, rules};
 
 const PAGE: &str = include_str!("page.html");
 const MAX_HEAD: usize = 16 * 1024;
@@ -325,9 +327,21 @@ pub fn handle(req: &Request, token: &str) -> Response {
             rules::set(r.clone())?;
             Ok(rules::encode(&rules::get()))
         }),
+        ("GET", "menu") => Response::json(200, &menu::encode(&menu::get())),
+        ("GET", "menu/default") => Response::json(200, &menu::encode(&menu::MenuConfig::default())),
+        ("PUT" | "POST", "menu") => save(&req.body, menu::decode, |c| {
+            if dry {
+                c.validate()?;
+                return Ok(menu::encode(c));
+            }
+            menu::set(c.clone())?;
+            Ok(menu::encode(&menu::get()))
+        }),
         (
             _,
-            "ranks"
+            "menu"
+            | "menu/default"
+            | "ranks"
             | "ranks/default"
             | "rules"
             | "rules/default"

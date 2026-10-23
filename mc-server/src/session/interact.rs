@@ -38,6 +38,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             PlayerAction::Other(4) => self.drop_held(true).await?,
             PlayerAction::Other(5) => self.drop_held(false).await?,
             PlayerAction::Other(6) => self.stop_using_item(),
+            // Shift+F: 퀵메뉴 (손은 바꾸지 않음)
+            PlayerAction::Other(7) if self.vitals.sneaking => {
+                self.open_quick_menu(crate::plugins::menu::gui::Page::Main)
+                    .await?;
+                let main = 36 + self.held;
+                self.sync_slot(main).await?;
+                self.sync_slot(45).await?;
+            }
             PlayerAction::Other(7) => self.swap_hands().await?,
             _ => {}
         }

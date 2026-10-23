@@ -47,6 +47,10 @@ pub enum WindowKind {
     Rank,
     /// `/ec` 개인 엔더상자 27칸.
     Ender,
+    /// 퀵메뉴 (메뉴).
+    Menu(crate::plugins::menu::gui::Page),
+    /// 쓰레기통: 넣고 닫으면 사라짐.
+    Trash,
     /// 길드 창고 한 페이지: 위 45칸은 진짜 칸, 아래 줄은 버튼.
     GuildStorage {
         guild: u32,
@@ -291,6 +295,12 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             WindowKind::Equip(page) => self.equip_slots(page),
             WindowKind::Rank => self.rank_slots(),
             WindowKind::Ender => self.ender_slots(),
+            WindowKind::Menu(page) => self.menu_slots(*page),
+            WindowKind::Trash => {
+                let mut v = self.menu.trash.clone();
+                v.resize(crate::plugins::menu::gui::TRASH_SLOTS, None);
+                v
+            }
             WindowKind::GuildStorage { guild, page } => {
                 let mut v = crate::plugins::guild::guilds().read(|d| {
                     d.guild(*guild)
@@ -336,9 +346,13 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         | WindowKind::Quest(_)
                         | WindowKind::Equip(_)
                         | WindowKind::Rank
+                        | WindowKind::Menu(_)
                         | WindowKind::GuildStorage { .. }
                 ) {
                     self.lottery_closed();
+                }
+                if w.kind == WindowKind::Trash {
+                    self.trash_closed();
                 }
                 if !by_client {
                     self.send(0x11, &{
@@ -379,6 +393,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 WindowKind::Quest(_) | WindowKind::Equip(_) => 54,
                 WindowKind::GuildStorage { .. } => 54,
                 WindowKind::Rank | WindowKind::Ender => 27,
+                WindowKind::Menu(page) => page.size(),
+                WindowKind::Trash => crate::plugins::menu::gui::TRASH_SLOTS,
             },
         }
     }
@@ -406,7 +422,16 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                         | WindowKind::Guild(_)
                         | WindowKind::Quest(_)
                         | WindowKind::Equip(_)
-                        | WindowKind::Rank => None,
+                        | WindowKind::Rank
+                        | WindowKind::Menu(_) => None,
+                        WindowKind::Trash => {
+                            if self.menu.trash.len() < crate::plugins::menu::gui::TRASH_SLOTS {
+                                self.menu
+                                    .trash
+                                    .resize(crate::plugins::menu::gui::TRASH_SLOTS, None);
+                            }
+                            Some(SlotRef::Inventory(&mut self.menu.trash[slot]))
+                        }
                         WindowKind::Ender => Some(SlotRef::Ender(slot)),
                         WindowKind::GuildStorage { guild, page } => (slot
                             < crate::plugins::guild::PAGE_SLOTS)
@@ -448,7 +473,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             | WindowKind::Guild(_)
             | WindowKind::Quest(_)
             | WindowKind::Equip(_)
-            | WindowKind::Rank,
+            | WindowKind::Rank
+            | WindowKind::Menu(_),
         ) = menu
         {
             // 메뉴: 무엇을 집든 되돌리고, 누른 칸만 버튼으로
@@ -465,6 +491,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                     self.equip_click(page, c.slot, c.button, c.mode).await?
                 }
                 Some(WindowKind::Rank) => self.rank_click(c.slot).await?,
+                Some(WindowKind::Menu(page)) => self.menu_click(page, c.slot, c.mode).await?,
                 _ => {}
             }
             if self.window.as_ref().is_some_and(|w| w.id == window_id) {

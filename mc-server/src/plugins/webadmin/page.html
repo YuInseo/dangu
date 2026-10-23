@@ -218,6 +218,13 @@ button.danger { color: var(--bad); }
       <h2>서버 규칙 JSON <span class="chip">world/rules.json</span></h2>
       <textarea class="code" id="raw-rules" spellcheck="false"></textarea>
     </section>
+    <section class="card">
+      <h2>퀵메뉴 JSON <span class="chip">world/menu.json</span></h2>
+      <p class="hint">main(광장·마을·야생·던전·레이드) · dungeons · warps(광장 Shift+클릭): <code>instance</code>에 인스턴스 이름을 넣으면 그리로 이동
+        (비우면 "준비 중"), 같은 인스턴스면 <code>pos</code> [x,y,z]로. <code>command</code>를 넣으면 이동 대신 그 명령어 (<code>@warps</code> <code>@dungeons</code>는 그 메뉴).
+        wiki·discord·minelist 주소, guide는 길라잡이 줄들.</p>
+      <textarea class="code" id="raw-menu" spellcheck="false"></textarea>
+    </section>
   </div>
 </main>
 
@@ -226,7 +233,7 @@ button.danger { color: var(--bad); }
 const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 let token = "";
-let guild = null, quests = null, equipment = null, ranks = null, rules = null;
+let guild = null, quests = null, equipment = null, ranks = null, rules = null, menuCfg = null;
 let tab = "guild";
 let dirty = false;
 
@@ -493,12 +500,14 @@ function renderRaw() {
   $("#raw-equip").value = JSON.stringify(equipment, null, 2);
   $("#raw-ranks").value = JSON.stringify(ranks, null, 2);
   $("#raw-rules").value = JSON.stringify(rules, null, 2);
+  $("#raw-menu").value = JSON.stringify(menuCfg, null, 2);
 }
 $("#raw-guild").oninput = markDirty;
 $("#raw-quests").oninput = markDirty;
 $("#raw-equip").oninput = markDirty;
 $("#raw-ranks").oninput = markDirty;
 $("#raw-rules").oninput = markDirty;
+$("#raw-menu").oninput = markDirty;
 function readRaw() {
   // JSON 탭에서 고친 것을 폼에 반영 (망가졌으면 알림)
   try { guild = JSON.parse($("#raw-guild").value); } catch (e) { throw new Error("길드 JSON: " + e.message); }
@@ -506,6 +515,7 @@ function readRaw() {
   try { equipment = JSON.parse($("#raw-equip").value); } catch (e) { throw new Error("장비 JSON: " + e.message); }
   try { ranks = JSON.parse($("#raw-ranks").value); } catch (e) { throw new Error("등급 JSON: " + e.message); }
   try { rules = JSON.parse($("#raw-rules").value); } catch (e) { throw new Error("규칙 JSON: " + e.message); }
+  try { menuCfg = JSON.parse($("#raw-menu").value); } catch (e) { throw new Error("퀵메뉴 JSON: " + e.message); }
 }
 function renderAll() { renderGuild(); renderQuests(); renderEquip(); renderServer(); renderRaw(); }
 function show(t) {
@@ -521,6 +531,7 @@ async function load() {
   status("불러오는 중…");
   [guild, quests, equipment, ranks, rules] = await Promise.all([api("GET", "guild-config"), api("GET", "quests"), api("GET", "equipment"),
     api("GET", "ranks"), api("GET", "rules")]);
+  menuCfg = await api("GET", "menu");
   renderAll(); clean(); show(tab);
   status("불러왔습니다", "ok");
 }
@@ -535,12 +546,14 @@ $("#save").onclick = async () => {
     await api("PUT", "equipment", equipment, true).catch(e => { throw new Error("장비: " + e.message); });
     await api("PUT", "ranks", ranks, true).catch(e => { throw new Error("등급: " + e.message); });
     await api("PUT", "rules", rules, true).catch(e => { throw new Error("금지 아이템: " + e.message); });
+    await api("PUT", "menu", menuCfg, true).catch(e => { throw new Error("퀵메뉴: " + e.message); });
     status("저장하는 중…");
     const g = await api("PUT", "guild-config", guild);
     const q = await api("PUT", "quests", quests);
     const eq = await api("PUT", "equipment", equipment);
     const rk = await api("PUT", "ranks", ranks);
     const ru = await api("PUT", "rules", rules);
+    menuCfg = (await api("PUT", "menu", menuCfg)).saved;
     guild = g.saved; quests = q.saved; equipment = eq.saved; ranks = rk.saved; rules = ru.saved;
     renderAll(); clean();
     status("저장했습니다 — 모든 인스턴스에 곧바로 적용", "ok");

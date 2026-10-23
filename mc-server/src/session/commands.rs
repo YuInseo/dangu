@@ -174,6 +174,9 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
             let id = t.argument_ask_server(g, "id", STRING, WORD, true);
             t.argument_with(id, "count", INTEGER, &[0], true);
         }
+        "메뉴" | "내정보" | "직업" | "모험가" | "쓰레기통" => {
+            t.literal(ROOT, name, true);
+        }
         "강화" | "ec" | "제작대" | "수리" | "홈목록" | "갑옷숨기기" | "플라이" => {
             t.literal(ROOT, name, true);
         }
@@ -310,6 +313,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
             "ia" | "iaget" | "iaimage" => self.ia_command(spec.name, &args).await,
             "재화" => self.money_command(&args).await,
+            "메뉴" | "내정보" | "직업" | "모험가" | "쓰레기통" => {
+                self.menu_command(spec.name).await
+            }
             "등급" | "ec" | "제작대" | "수리" | "셋홈" | "홈" | "홈목록" | "홈삭제"
             | "갑옷숨기기" | "플라이" => self.rank_command(spec.name, &args).await,
             "locate" => self.locate(&args).await,

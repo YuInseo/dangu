@@ -305,6 +305,36 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/등급 — 후원 등급과 특혜 · /등급 목록 · (OP) /등급 설정 <이름> <등급|없음> [일] · /등급 플라이 <이름> <분> · /등급 자동심기 <이름> <개수>",
     },
     Spec {
+        name: "메뉴",
+        aliases: &["menu", "퀵메뉴"],
+        level: 0,
+        usage: "/메뉴 — 퀵메뉴 (Shift+F): 서버 이동·내 정보·설정·쓰레기통",
+    },
+    Spec {
+        name: "내정보",
+        aliases: &["info", "정보"],
+        level: 0,
+        usage: "/내정보 — 이름·등급·길드·재화, 생활·모험가 스탯",
+    },
+    Spec {
+        name: "직업",
+        aliases: &["jobs"],
+        level: 0,
+        usage: "/직업 — 생활 스탯 (광부·농부·나무꾼·대장장이)",
+    },
+    Spec {
+        name: "모험가",
+        aliases: &["adventurer", "스탯"],
+        level: 0,
+        usage: "/모험가 — 모험가 스탯 (공격력·마법력·방어력·치명타)",
+    },
+    Spec {
+        name: "쓰레기통",
+        aliases: &["trash", "disposal"],
+        level: 0,
+        usage: "/쓰레기통 — 넣고 닫으면 사라짐",
+    },
+    Spec {
         name: "ec",
         aliases: &["엔더상자", "enderchest"],
         level: 0,

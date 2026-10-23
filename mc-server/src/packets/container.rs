@@ -26,6 +26,8 @@ pub const SB_SELECT_TRADE_ID: i32 = 0x34;
 pub const OUTSIDE: i16 = -999;
 /// `Container Click` 모드 0 = 보통 클릭 (집기·놓기).
 pub const MODE_PICKUP: i32 = 0;
+/// Shift+클릭.
+pub const MODE_QUICK_MOVE: i32 = 1;
 /// `Container Click` 모드 4 = 던지기 (Q).
 pub const MODE_THROW: i32 = 4;
 

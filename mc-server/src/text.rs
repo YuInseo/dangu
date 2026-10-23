@@ -96,6 +96,23 @@ pub fn with_hover(tag: Tag, hover: Option<Tag>, suggest: Option<&str>) -> Tag {
     Tag::Compound(fields)
 }
 
+/// 누르면 주소를 여는 조각.
+pub fn open_url(tag: Tag, url: &str) -> Tag {
+    let mut fields = match tag {
+        Tag::Compound(f) => f,
+        Tag::String(s) => vec![("text".into(), Tag::String(s))],
+        other => return other,
+    };
+    fields.push((
+        "click_event".into(),
+        Tag::Compound(vec![
+            ("action".into(), Tag::String("open_url".into())),
+            ("url".into(), Tag::String(url.to_owned())),
+        ]),
+    ));
+    Tag::Compound(fields)
+}
+
 /// 텍스트 컴포넌트의 글만 이어 붙입니다 (설명·꾸밈 빼고; 로그·테스트용).
 pub fn plain_text(tag: &Tag) -> String {
     match tag {
