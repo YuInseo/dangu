@@ -11,8 +11,18 @@ use tokio::net::TcpListener;
 
 const AUTOSAVE_INTERVAL: Duration = Duration::from_secs(30);
 
-#[tokio::main]
-async fn main() -> std::io::Result<()> {
+fn main() -> std::io::Result<()> {
+    // server.env → 환경 변수 (스레드를 띄우기 전에; 담비 자식은 마스터 것을 물려받음)
+    if std::env::args().nth(1).as_deref() != Some("child") {
+        mc_server::envfile::load();
+    }
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(run())
+}
+
+async fn run() -> std::io::Result<()> {
     // `mc-server master`: 담비 마스터 노드 (프록시 + CLI, 인스턴스마다 자식 프로세스).
     // `mc-server child`: 마스터가 띄우는 인스턴스 (DAMBI_IPC로 마스터에 붙음).
     // 인자 없음: 혼자 도는 서버 (한 프로세스 안의 인스턴스들).
@@ -213,6 +223,15 @@ async fn main() -> std::io::Result<()> {
     println!(
         "{addr}에서 듣는 중 — Minecraft {VERSION_NAME} (프로토콜 {PROTOCOL_VERSION}), 시드 {seed}"
     );
+    if !mc_server::dambi::child::active() {
+        let port = addr.rsplit(':').next().unwrap_or("25565");
+        println!("────────────────────────────────────────────");
+        println!(" 접속: 마인크래프트 {VERSION_NAME} → 멀티플레이 → 서버 추가 → localhost:{port}");
+        println!("       (다른 컴퓨터에서는 이 컴퓨터의 IP:{port}, 공유기 포트 포워딩 필요)");
+        println!(" OP 주기: 이 창에 op <이름>   ·   끄기: stop   ·   명령어: help");
+        println!(" 설정: server.env   ·   콘텐츠: contents/ (고치면 저절로 다시 읽음)");
+        println!("────────────────────────────────────────────");
+    }
 
     let saver = Arc::clone(&net);
     tokio::spawn(async move {

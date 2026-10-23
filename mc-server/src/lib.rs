@@ -15,6 +15,7 @@ pub mod connection;
 pub mod crypto;
 pub mod dambi;
 pub mod data;
+pub mod envfile;
 pub mod game;
 pub mod json;
 pub mod network;
