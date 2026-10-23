@@ -133,3 +133,147 @@ pub fn plain_text(tag: &Tag) -> String {
         _ => String::new(),
     }
 }
+
+// ---- 아이템 설명(lore) 꾸미기 ----
+
+/// 설명 기본 글자색 (바닐라의 보라 기울임 대신 읽기 쉬운 밝은 회색).
+const LORE_BASE: &str = "#c9c9d6";
+const LORE_LABEL: &str = "#8c8c9a";
+const LORE_VALUE: &str = "#f2f3f8";
+
+fn part(text: &str, color: &str) -> Tag {
+    Tag::Compound(vec![
+        ("text".into(), Tag::String(text.to_owned())),
+        ("color".into(), Tag::String(color.to_owned())),
+        ("italic".into(), Tag::Byte(0)),
+    ])
+}
+
+fn bold(text: &str, color: &str) -> Tag {
+    let Tag::Compound(mut f) = part(text, color) else {
+        unreachable!()
+    };
+    f.push(("bold".into(), Tag::Byte(1)));
+    Tag::Compound(f)
+}
+
+/// 설명 한 줄을 모양에 따라 꾸밉니다. 모든 메뉴·아이템 설명이 여기를 거칩니다.
+///
+/// | 줄 | 모양 |
+/// |---|---|
+/// | `§` 코드가 있음 (`&a`도 됨) | 그대로 (클라이언트가 색을 입힘) |
+/// | `---` / `──` | 짙은 회색 가로줄 |
+/// | `▶ …` `▸ …` `좌클릭…` `우클릭…` `Shift…` `누르면…` `클릭…` | 금색 `▸` + 노란 글 (할 수 있는 것) |
+/// | `  …` (앞에 빈칸 둘) | 하늘색 `◆` + 흰 글 (보상·목록) |
+/// | `■□` 막대 | 찬 칸 초록, 빈 칸 짙은 회색 |
+/// | `이름표\t값`, `이름표  값` | 이름표 회색 + 값 흰색 |
+/// | `준비 중`, `(…)` | 짙은 회색 |
+/// | `보상` 같은 한 낱말 머리 | 금색 굵게 |
+pub fn lore_line(line: &str) -> Tag {
+    let line = &legacy_colors(line);
+    if line.contains('§') {
+        return part(line, LORE_BASE);
+    }
+    let t = line.trim();
+    if t.is_empty() {
+        return part("", LORE_BASE);
+    }
+    if t.chars().all(|c| matches!(c, '-' | '─' | '━' | '=')) && t.chars().count() >= 3 {
+        return part("──────────────", "#4a4a5a");
+    }
+    let action = ["좌클릭", "우클릭", "Shift", "누르면", "클릭", "휠클릭"];
+    if let Some(rest) = t
+        .strip_prefix('▶')
+        .or_else(|| t.strip_prefix('▸'))
+        .or_else(|| t.strip_prefix('>'))
+    {
+        return join(vec![part("▸ ", "gold"), part(rest.trim_start(), "yellow")]);
+    }
+    if action.iter().any(|a| t.starts_with(a)) {
+        return join(vec![part("▸ ", "gold"), part(t, "yellow")]);
+    }
+    if t == "준비 중" || (t.starts_with('(') && t.ends_with(')')) {
+        return part(t, "dark_gray");
+    }
+    if line.starts_with("  ") {
+        let (label, value) = split_label(t).unwrap_or(("", t));
+        let mut v = vec![part(" ◆ ", "aqua")];
+        if !label.is_empty() {
+            v.push(part(&format!("{label} "), LORE_BASE));
+        }
+        v.push(part(value, LORE_VALUE));
+        return join(v);
+    }
+    if t.contains('■') || t.contains('□') {
+        let mut v = Vec::new();
+        let mut cur = String::new();
+        let mut kind = 0; // 0 글, 1 찬, 2 빈
+        let flush = |v: &mut Vec<Tag>, cur: &mut String, kind: i32| {
+            if !cur.is_empty() {
+                let color = match kind {
+                    1 => "#7be07b",
+                    2 => "#3a3a48",
+                    _ => LORE_VALUE,
+                };
+                v.push(part(cur, color));
+                cur.clear();
+            }
+        };
+        for c in t.chars() {
+            let k = match c {
+                '■' => 1,
+                '□' => 2,
+                _ => 0,
+            };
+            if k != kind {
+                flush(&mut v, &mut cur, kind);
+                kind = k;
+            }
+            cur.push(c);
+        }
+        flush(&mut v, &mut cur, kind);
+        return join(v);
+    }
+    if let Some((label, value)) = split_label(t) {
+        return join(vec![
+            part(&format!("{label}  "), LORE_LABEL),
+            part(value, LORE_VALUE),
+        ]);
+    }
+    if !t.contains(' ')
+        && t.chars().count() <= 6
+        && ["보상", "효과", "능력치", "세트", "특혜", "설명", "가격"].contains(&t)
+    {
+        return bold(t, "gold");
+    }
+    part(t, LORE_BASE)
+}
+
+/// `이름표\t값` 또는 `이름표  값` (이름표가 짧을 때만).
+fn split_label(t: &str) -> Option<(&str, &str)> {
+    let (l, v) = t.split_once('\t').or_else(|| t.split_once("  "))?;
+    let (l, v) = (l.trim(), v.trim());
+    (!l.is_empty() && !v.is_empty() && l.chars().count() <= 10).then_some((l, v))
+}
+
+#[cfg(test)]
+mod lore_tests {
+    use super::*;
+
+    #[test]
+    fn lore_lines_get_shapes() {
+        let flat = |l: &str| plain_text(&lore_line(l));
+        assert_eq!(flat("▶ 클릭: 이동"), "▸ 클릭: 이동");
+        assert_eq!(flat("좌클릭: 구매"), "▸ 좌클릭: 구매");
+        assert_eq!(flat("  돈 1,000"), " ◆ 돈 1,000");
+        assert_eq!(flat("---"), "──────────────");
+        assert_eq!(flat("길드  달빛"), "길드  달빛");
+        assert_eq!(flat("■■□ 2/3"), "■■□ 2/3");
+        // 막대는 색이 셋 (찬·빈·글)
+        let bar = format!("{:?}", lore_line("■■□ 2/3"));
+        assert!(bar.contains("#7be07b") && bar.contains("#3a3a48"));
+        // § 코드는 그대로
+        assert_eq!(flat("&a초록"), "§a초록");
+        assert!(format!("{:?}", lore_line("보상")).contains("bold"));
+    }
+}

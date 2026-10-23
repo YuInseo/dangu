@@ -246,7 +246,7 @@ pub fn components_with(index: u16, serial: u32) -> Vec<(i32, Vec<u8>)> {
         let mut b = Vec::new();
         write_varint(&mut b, c.lore.len() as i32);
         for line in &c.lore {
-            text(line, "gray").write_root(&mut b);
+            crate::text::lore_line(line).write_root(&mut b);
         }
         out.push((component::LORE, b));
     }

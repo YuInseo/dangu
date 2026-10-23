@@ -553,15 +553,22 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         );
         for (k, r) in cfg.ranks.iter().take(CARDS.len()).enumerate() {
             let slot = CARDS[k];
-            let mut lore = vec![format!("{}원 (월)", crate::plugins::hud::number(r.price))];
+            let mut lore = vec![
+                format!("가격  {}원 / 월", crate::plugins::hud::number(r.price)),
+                "---".into(),
+                "특혜".into(),
+            ];
             if k > 0 {
-                lore.push(format!("{}의 모든 특혜 +", cfg.ranks[k - 1].name));
+                lore.push(format!("(+ {}의 모든 특혜)", cfg.ranks[k - 1].name));
             }
-            lore.extend(r.perks.lines().into_iter().map(|l| format!(" · {l}")));
+            lore.extend(r.perks.lines().into_iter().map(|l| format!("  {l}")));
+            lore.push("---".into());
             let on = mine.as_deref() == Some(r.id.as_str());
-            if on {
-                lore.push("지금 내 등급".into());
-            }
+            lore.push(if on {
+                "§a✔ 지금 내 등급".into()
+            } else {
+                "▶ 클릭: 후원 안내".into()
+            });
             slots[slot] = self.icon(slot, CARD_ICONS[k], &r.name, &r.color, lore, on);
         }
         let shop = if cfg.shop_url.is_empty() {
