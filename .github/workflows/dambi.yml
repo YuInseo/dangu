@@ -1,0 +1,92 @@
+name: dambi
+
+# 마인크래프트 서버(mc-server/)를 빌드해 릴리스로 내보낸다. 앱(release.yml)과는 따로다.
+#
+#   dambi 브랜치에 푸시 (mc-server/가 바뀌었을 때) → `dambi-latest` 프리릴리스를 새 파일로 교체
+#   태그 dambi-v1.2.3 푸시                       → 그 이름의 릴리스
+#
+# 앱의 업데이트 버튼은 `/releases/latest`만 본다. 서버 릴리스가 그 자리를 빼앗지 않도록
+# 언제나 프리릴리스, make_latest: false로 올린다.
+on:
+  push:
+    branches: [dambi]
+    paths:
+      - 'mc-server/**'
+      - '.github/workflows/dambi.yml'
+    tags:
+      - 'dambi-v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dambi-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mc-server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+
+      - name: 윈도우 링커
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq gcc-mingw-w64-x86-64 zip
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mc-server
+
+      - name: 시험
+        run: cargo test --release
+
+      - name: 리눅스 빌드
+        run: |
+          cargo build --release
+          mkdir -p dist/dangu-server-linux
+          cp target/release/mc-server start.sh dist/dangu-server-linux/
+          sed -i 's|^cargo build --release.*|# (미리 빌드된 판: 빌드 생략)|; s|^echo "빌드하는 중.*||; s|\./target/release/mc-server|./mc-server|' dist/dangu-server-linux/start.sh
+          sed -i '/command -v cargo/,/^fi$/d' dist/dangu-server-linux/start.sh
+          tar -C dist -czf dist/dangu-server-linux-x86_64.tar.gz dangu-server-linux
+
+      - name: 윈도우 빌드
+        run: ./tools/package_windows.sh
+
+      - name: 릴리스 이름
+        id: rel
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "tag=$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
+            echo "name=dambi 서버 ${GITHUB_REF_NAME#dambi-}" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=dambi-latest" >> "$GITHUB_OUTPUT"
+            echo "name=dambi 서버 (최신 빌드)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.rel.outputs.tag }}
+          name: ${{ steps.rel.outputs.name }}
+          prerelease: true
+          make_latest: false
+          body: |
+            마인크래프트 Java **26.3** (프로토콜 777) 서버 — `${{ github.sha }}`
+
+            **윈도우**: `mc-server.exe`를 빈 폴더에 넣고 더블클릭, 또는 `dangu-server-windows.zip`을 풀고
+            `서버 켜기.bat` (충돌하면 다시 켬). 처음 켜면 `server.env`가 생깁니다 — `MC_OPS=닉네임`,
+            정품 계정이 없으면 `MC_ONLINE_MODE=false`로 바꾸고 다시 켜세요.
+
+            **리눅스**: `dangu-server-linux-x86_64.tar.gz`를 풀고 `./start.sh`.
+
+            접속: 마인크래프트 26.3 → 멀티플레이 → `localhost`. 자세한 것은 `mc-server/README.md`.
+          files: |
+            mc-server/dist/mc-server.exe
+            mc-server/dist/dangu-server-windows.zip
+            mc-server/dist/dangu-server-linux-x86_64.tar.gz

@@ -36,4 +36,5 @@ printf '%s\r\n' \
   '' \
   '끄기: 서버 창에 stop' > "$out/읽어 주세요.txt"
 (cd dist && zip -qr dangu-server-windows.zip dangu-server)
-ls -la dist/dangu-server-windows.zip
+cp "$out/mc-server.exe" dist/mc-server.exe
+ls -la dist/dangu-server-windows.zip dist/mc-server.exe
