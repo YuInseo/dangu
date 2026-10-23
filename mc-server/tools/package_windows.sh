@@ -14,9 +14,11 @@ printf '%s\r\n' \
   'rem dangu 서버 켜기. 꺼지면(충돌) 5초 뒤 다시 켭니다. stop 으로 끄면 끝납니다.' \
   'chcp 65001 >nul' \
   'cd /d "%~dp0"' \
+  'set DANGU_LAUNCHER=bat' \
   ':loop' \
   'mc-server.exe %*' \
   'if %errorlevel%==0 goto end' \
+  'if %errorlevel%==75 goto loop' \
   'echo 서버가 비정상 종료했습니다. 5초 뒤 다시 켭니다 - 멈추려면 Ctrl+C' \
   'timeout /t 5 >nul' \
   'goto loop' \
@@ -34,7 +36,10 @@ printf '%s\r\n' \
   '4. 웹 관리 화면 주소(http://127.0.0.1:25580/#token=...)는 서버 창에 찍힙니다.' \
   '5. 친구가 들어오려면 이 컴퓨터의 IP, 공유기에서 25565·25566 포트 포워딩.' \
   '' \
-  '끄기: 서버 창에 stop' > "$out/읽어 주세요.txt"
+  '끄기: 서버 창에 stop' \
+  '' \
+  '자동 업데이트: 새 버전이 릴리스에 올라오면 켤 때(또는 30분마다, 아무도 없을 때)' \
+  '스스로 받아서 바꾸고 다시 켭니다. 끄려면 server.env 에 MC_AUTO_UPDATE=false' > "$out/읽어 주세요.txt"
 (cd dist && zip -qr dangu-server-windows.zip dangu-server)
 cp "$out/mc-server.exe" dist/mc-server.exe
 ls -la dist/dangu-server-windows.zip dist/mc-server.exe

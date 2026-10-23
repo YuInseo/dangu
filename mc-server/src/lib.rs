@@ -27,6 +27,7 @@ pub mod resource_pack;
 pub mod server;
 pub mod session;
 pub mod text;
+pub mod updater;
 pub mod uuid;
 pub mod world;
 pub mod yaml;

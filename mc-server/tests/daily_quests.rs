@@ -44,7 +44,17 @@ async fn daily_supply_pays_fly_and_autoplant() {
     send_string(&mut s, 0x07, "퀘스트 일일").await;
     let p = recv_where(&mut s, |p| p.id == OPEN_SCREEN).await;
     let w = read_varint(&mut p.body.as_slice()).unwrap();
-    let daily = quest::progress().read(|p| p.players[&me].daily.clone());
+    // 창 내용(= 오늘의 납품을 뽑는 때)은 창을 연 뒤에 오므로 생길 때까지
+    let mut daily = Vec::new();
+    for _ in 0..100 {
+        daily = quest::progress()
+            .read(|p| p.players.get(&me).map(|q| q.daily.clone()))
+            .unwrap_or_default();
+        if !daily.is_empty() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
     assert!((1..=3).contains(&daily.len()));
 
     for (i, slot) in daily.iter().enumerate() {

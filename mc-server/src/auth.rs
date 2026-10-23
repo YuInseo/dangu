@@ -139,7 +139,7 @@ pub fn parse_profile(body: &str) -> Result<GameProfile, String> {
     })
 }
 
-fn tls_config() -> Arc<rustls::ClientConfig> {
+pub(crate) fn tls_config() -> Arc<rustls::ClientConfig> {
     static CONFIG: OnceLock<Arc<rustls::ClientConfig>> = OnceLock::new();
     CONFIG
         .get_or_init(|| {

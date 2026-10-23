@@ -349,6 +349,24 @@ DAMBI_HOME=dambi MC_BIND=0.0.0.0:25565 cargo run --release -- master
 `MC_LORE_PREVIEW_JSON=/tmp/lore.json cargo test --lib lore_showcase -- --ignored` 뒤
 `python3 tools/lore_preview.py /tmp/lore.json <ascii.png> <unifont.hex> docs/lore_preview.png`.
 
+## 자동 업데이트
+
+GitHub 릴리스 `dambi-latest`에서 받은 실행 파일(`mc-server.exe`, `mc-server-linux`)은 스스로 새 버전으로
+바뀝니다.
+
+- **켤 때** 새 빌드가 있으면 받아서 바꾸고 곧바로 다시 켭니다.
+- **도는 중**에는 30분마다 확인해 받아 두고 알립니다. 접속자가 없으면 저장하고 다시 켜서 적용,
+  있으면 다음에 켤 때 적용합니다.
+- `/업데이트` (OP 4, 콘솔에서도): 지금 확인해서 있으면 10초 뒤 저장하고 다시 켭니다.
+- 버전은 CI가 실행 파일에 넣는 커밋 번호(`DAMBI_BUILD`)와 릴리스의 `dambi-build.txt`를 비교합니다.
+  직접 빌드한 판(번호 없음)은 업데이트하지 않습니다.
+- 바꿀 때 지금 파일은 `.old`로 비켜 두고(윈도우는 도는 실행 파일을 지울 수 없어서) 다음에 켤 때 지웁니다.
+  받은 파일이 실행 파일이 아니면(오류 페이지 등) 바꾸지 않습니다.
+- 시작 스크립트(`서버 켜기.bat`, `start.sh`) 안에서는 종료 코드 75로 끝내 스크립트가 다시 켜고, 그냥
+  더블클릭한 exe면 스스로 새 프로세스를 띄웁니다.
+- 끄기: `server.env`의 `MC_AUTO_UPDATE=false`. 다른 저장소·태그: `MC_UPDATE_REPO`, `MC_UPDATE_TAG`.
+- 담비 마스터는 켤 때만 확인합니다 (자식들은 마스터를 따라감).
+
 ## 핫 리로드
 
 서버를 다시 켜지 않고 반영됩니다.
@@ -610,6 +628,7 @@ OP 단계는 권한 규칙이 없을 때의 기본값입니다 (`/perm`으로 �
 | `/ec` `/제작대` `/수리` `/갑옷숨기기` | 후원 등급 특혜 | 0 |
 | `/메뉴` (Shift+F), `/내정보`, `/직업`, `/모험가`, `/쓰레기통` | 퀵메뉴 | 0 |
 | `/상점 [general\|cash\|afk]` | 돈·캐시·잠수 포인트 상점 | 0 |
+| `/업데이트` | 새 버전 받아서 다시 켜기 (릴리스 실행 파일) | 4 |
 | `/등급 설정\|자동심기 <이름> …` | 등급·자동심기 주기 | 4 |
 | `/플라이 확인\|설정\|추가\|빼기 <이름> [1h30m20s]`, `/플라이 목록` | 플라이 시간 관리 (초까지) | 4 |
 | `/instance list\|create <이름> [시드] [모드] [난이도] [hardcore]\|remove\|default` | | 4 |

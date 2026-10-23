@@ -335,6 +335,12 @@ pub const COMMANDS: &[Spec] = &[
         usage: "/쓰레기통 — 넣고 닫으면 사라짐",
     },
     Spec {
+        name: "업데이트",
+        aliases: &["update"],
+        level: 4,
+        usage: "/업데이트 — 새 버전이 있으면 받아서 저장하고 다시 켬 (릴리스 빌드만)",
+    },
+    Spec {
         name: "상점",
         aliases: &["shop", "샵"],
         level: 0,
@@ -637,7 +643,8 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
         || (spec.name == "복권" && !args.is_empty())
         || (spec.name == "등급" && !args.is_empty())
         || (spec.name == "플라이" && !args.is_empty())
-        || spec.name == "iareload";
+        || spec.name == "iareload"
+        || spec.name == "업데이트";
     if !handled {
         return None;
     }
@@ -650,6 +657,23 @@ pub fn run(server: &Server, actor: &Actor, name: &str, args: &[&str]) -> Option<
 
     Some(match (spec.name, args) {
         ("iareload", _) => crate::plugins::contents::apply(server),
+        ("업데이트", _) => {
+            if !crate::updater::enabled() {
+                vec![match crate::updater::BUILD {
+                    None => {
+                        "직접 빌드한 판이라 자동 업데이트를 하지 않습니다 (릴리스의 실행 파일만)."
+                            .into()
+                    }
+                    Some(_) => "자동 업데이트가 꺼져 있습니다 (MC_AUTO_UPDATE).".into(),
+                }]
+            } else {
+                crate::updater::request_check_now();
+                vec![format!(
+                    "새 버전을 확인합니다 (지금 {}). 있으면 저장하고 다시 켭니다.",
+                    crate::updater::short(crate::updater::BUILD.unwrap_or("?"))
+                )]
+            }
+        }
         ("복권", [sub, ..]) => {
             use crate::plugins::lottery::{self, format_short, numbers_text, won};
             let l = &server.lottery;

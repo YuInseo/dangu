@@ -16,8 +16,10 @@ if errorlevel 1 (
   exit /b 1
 )
 :loop
+set DANGU_LAUNCHER=start.bat
 target\release\mc-server.exe %*
 if %errorlevel%==0 goto end
+if %errorlevel%==75 goto loop
 echo 서버가 비정상 종료했습니다. 5초 뒤 다시 켭니다 - 멈추려면 Ctrl+C
 timeout /t 5 >nul
 goto loop

@@ -53,6 +53,11 @@ MC_ADMIN_BIND=127.0.0.1
 # 비우면 world/admin_token.txt 에 만들어 둠
 #MC_ADMIN_TOKEN=
 
+# ---- 자동 업데이트 ----
+# 릴리스(dambi-latest)에 새 버전이 올라오면 받아서 바꾸고 다시 켬 (켤 때, 30분마다 — 접속자가
+# 없을 때만). 게임·콘솔에서 /업데이트 로 바로. 직접 빌드한 판은 하지 않음.
+MC_AUTO_UPDATE=true
+
 # ---- 그 밖 ----
 # 압축 기준 (바이트, 음수 = 끔)
 MC_COMPRESSION=256

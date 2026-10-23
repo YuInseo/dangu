@@ -148,7 +148,7 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
             let c = t.literal(ROOT, name, true);
             t.argument_ask_server(c, "instance", STRING, WORD, true);
         }
-        "ia" | "iaimage" | "iareload" | "hud" => {
+        "ia" | "iaimage" | "iareload" | "hud" | "업데이트" => {
             t.literal(ROOT, name, true);
         }
         "iaget" => {

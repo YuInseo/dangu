@@ -27,6 +27,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # 실행 파일이 자기 버전을 아는 길 (자동 업데이트가 이것과 릴리스의 dambi-build.txt를 비교)
+      DAMBI_BUILD: ${{ github.sha }}
     defaults:
       run:
         working-directory: mc-server
@@ -55,9 +58,12 @@ jobs:
           sed -i 's|^cargo build --release.*|# (미리 빌드된 판: 빌드 생략)|; s|^echo "빌드하는 중.*||; s|\./target/release/mc-server|./mc-server|' dist/dangu-server-linux/start.sh
           sed -i '/command -v cargo/,/^fi$/d' dist/dangu-server-linux/start.sh
           tar -C dist -czf dist/dangu-server-linux-x86_64.tar.gz dangu-server-linux
+          cp target/release/mc-server dist/mc-server-linux
 
       - name: 윈도우 빌드
-        run: ./tools/package_windows.sh
+        run: |
+          ./tools/package_windows.sh
+          printf '%s\n' "$DAMBI_BUILD" > dist/dambi-build.txt
 
       - name: 릴리스 이름
         id: rel
@@ -86,7 +92,12 @@ jobs:
             **리눅스**: `dangu-server-linux-x86_64.tar.gz`를 풀고 `./start.sh`.
 
             접속: 마인크래프트 26.3 → 멀티플레이 → `localhost`. 자세한 것은 `mc-server/README.md`.
+
+            **자동 업데이트**: 한 번 받아 두면 이후 새 빌드는 서버가 스스로 받아 바꿉니다 (켤 때, 30분마다
+            접속자가 없을 때, `/업데이트`). `dambi-build.txt`와 `mc-server-linux`는 그 용도입니다.
           files: |
             mc-server/dist/mc-server.exe
             mc-server/dist/dangu-server-windows.zip
             mc-server/dist/dangu-server-linux-x86_64.tar.gz
+            mc-server/dist/mc-server-linux
+            mc-server/dist/dambi-build.txt

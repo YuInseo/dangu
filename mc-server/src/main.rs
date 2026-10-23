@@ -15,11 +15,24 @@ fn main() -> std::io::Result<()> {
     // server.env → 환경 변수 (스레드를 띄우기 전에; 담비 자식은 마스터 것을 물려받음)
     if std::env::args().nth(1).as_deref() != Some("child") {
         mc_server::envfile::load();
+        // 새 빌드가 있으면 받아서 바꾸고 다시 켬 (CI가 만든 실행 파일만)
+        mc_server::updater::on_startup();
     }
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()?
-        .block_on(run())
+        .block_on(run())?;
+    // 도는 중에 받은 업데이트: 저장까지 끝났으니 바꾸고 다시 켬
+    if mc_server::updater::restart_requested() {
+        match mc_server::updater::apply_staged() {
+            Ok(_) => {
+                println!("[업데이트] 새 버전으로 다시 켭니다…");
+                mc_server::updater::relaunch();
+            }
+            Err(e) => eprintln!("[업데이트] 바꾸지 못했습니다: {e}"),
+        }
+    }
+    Ok(())
 }
 
 async fn run() -> std::io::Result<()> {
@@ -247,6 +260,10 @@ async fn run() -> std::io::Result<()> {
             }
         });
     }
+    // 자동 업데이트: 30분마다 (또는 /업데이트) 확인해 받아 두고, 아무도 없으면 다시 켜서 적용
+    if !mc_server::dambi::child::active() && mc_server::updater::enabled() {
+        tokio::spawn(update_loop(Arc::clone(&net)));
+    }
     let saver = Arc::clone(&net);
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(AUTOSAVE_INTERVAL);
@@ -267,6 +284,63 @@ async fn run() -> std::io::Result<()> {
     // 세션들이 플레이어를 저장할 틈
     tokio::time::sleep(Duration::from_millis(300)).await;
     Ok(())
+}
+
+async fn update_loop(net: Arc<Network>) {
+    use mc_server::updater;
+    const EVERY: Duration = Duration::from_secs(30 * 60);
+    let announce = |net: &Network, msg: &str| {
+        println!("[업데이트] {msg}");
+        net.default_instance()
+            .publish_all(mc_server::server::Event::System(mc_server::text::colored(
+                &format!("[서버] {msg}"),
+                "aqua",
+            )));
+    };
+    let mut last = std::time::Instant::now();
+    let mut told = false;
+    let mut tick = tokio::time::interval(Duration::from_secs(5));
+    loop {
+        tick.tick().await;
+        let manual = updater::take_check_now();
+        if !manual && last.elapsed() < EVERY {
+            continue;
+        }
+        last = std::time::Instant::now();
+        let found = tokio::task::spawn_blocking(updater::fetch_if_newer)
+            .await
+            .unwrap_or_else(|e| Err(e.to_string()));
+        match found {
+            Ok(Some(build)) => {
+                let online: u32 = net.all().iter().map(|s| s.online()).sum();
+                if manual || online == 0 {
+                    announce(
+                        &net,
+                        &format!("새 버전({build})으로 바꾸려고 저장하고 다시 켭니다."),
+                    );
+                    tokio::time::sleep(Duration::from_secs(if online > 0 { 10 } else { 0 })).await;
+                    updater::request_restart();
+                    net.default_instance().shutdown.notify_one();
+                    return;
+                }
+                if !told {
+                    announce(
+                        &net,
+                        &format!(
+                            "새 버전({build})을 받아 두었습니다. 접속자가 없을 때 또는 다음에 켤 때 바뀝니다."
+                        ),
+                    );
+                    told = true;
+                }
+            }
+            Ok(None) => {
+                if manual {
+                    println!("[업데이트] 최신입니다.");
+                }
+            }
+            Err(e) => println!("[업데이트] 확인 실패: {e}"),
+        }
+    }
 }
 
 /// 표준 입력의 줄을 콘솔 명령어로 (`/`는 있어도 없어도 됨). 콘솔은 모든 권한을 가집니다.
