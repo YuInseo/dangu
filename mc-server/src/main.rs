@@ -233,6 +233,19 @@ async fn run() -> std::io::Result<()> {
         println!("────────────────────────────────────────────");
     }
 
+    // 핫 리로드 (담비 자식은 마스터가 알려 줌)
+    if !mc_server::dambi::child::active() {
+        let hot = Arc::clone(&net);
+        mc_server::plugins::hotreload::spawn(move || {
+            let l = mc_server::plugins::contents::reload_and_rebuild();
+            mc_server::plugins::contents::summary(&l)
+                .iter()
+                .for_each(|l| println!("{l}"));
+            for s in hot.all() {
+                s.publish(mc_server::server::Event::ResourcePackChanged);
+            }
+        });
+    }
     let saver = Arc::clone(&net);
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(AUTOSAVE_INTERVAL);

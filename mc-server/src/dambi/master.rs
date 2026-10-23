@@ -616,6 +616,18 @@ pub async fn run() -> std::io::Result<()> {
         }
     });
     tokio::spawn(housekeeping(Arc::clone(&master)));
+    // 핫 리로드: 마스터가 팩을 새로 만들고 모든 자식에게 알림
+    let hot = Arc::clone(&master);
+    crate::plugins::hotreload::spawn(move || {
+        let l = crate::plugins::contents::reload_and_rebuild();
+        crate::plugins::contents::summary(&l)
+            .iter()
+            .for_each(|l| println!("[마스터] {l}"));
+        hot.broadcast(Msg::Event {
+            channel: crate::plugins::contents::PACK_RELOAD.into(),
+            payload: String::new(),
+        });
+    });
     for c in master.configs().into_iter().filter(|c| c.autostart) {
         match master.start(&c.name) {
             Ok(pid) => println!("[마스터] {} 켬 (pid {pid}, 포트 {})", c.name, c.port),

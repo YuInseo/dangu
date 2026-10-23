@@ -228,7 +228,7 @@ pub const COMMANDS: &[Spec] = &[
     },
     Spec {
         name: "iareload",
-        aliases: &["iazip"],
+        aliases: &["iazip", "reload", "리로드"],
         level: 4,
         usage: "/iareload — contents 폴더를 다시 읽고 리소스 팩을 새로 만들어 보냄",
     },
