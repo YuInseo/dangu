@@ -41,6 +41,7 @@ button.btn:hover { border-color: var(--accent); }
 button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
 button.small { padding: 2px 8px; font-size: 12.5px; }
 button.danger { color: var(--bad); }
+button:disabled { opacity: .42; cursor: not-allowed; }
 .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px 16px; }
 .grid label { display: flex; flex-direction: column; gap: 2px; font-size: 12.5px; color: var(--muted); }
@@ -59,6 +60,20 @@ button.danger { color: var(--bad); }
 #chat-box .nm { color: #ffd866; font-weight: 600; }
 #chat-box .to { color: #c9b3ff; }
 #chat-box .tx { color: #f2f3f8; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 999px; font-weight: 600; font-size: 13px; background: var(--chip); }
+.pill::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: currentColor; }
+.pill.running { color: var(--ok); } .pill.stopped { color: var(--muted); } .pill.crashed, .pill.down { color: var(--bad); }
+.pill.starting, .pill.stopping { color: #d98b16; }
+.dash-cols { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 860px) { .dash-cols { grid-template-columns: 1fr; } }
+.stat { background: var(--chip); border-radius: 10px; padding: 10px 12px; }
+.stat b { display: block; font-size: 18px; margin-top: 2px; }
+.stat span { color: var(--muted); font-size: 12px; }
+#con-box { height: 52vh; overflow-y: auto; background: #0f1220; color: #dfe3f0; border-radius: 10px; padding: 10px 12px;
+  font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; word-break: break-word; }
+#con-box .cmd { color: #ffd866; } #con-box .warn { color: #ff8f8f; } #con-box .sys { color: #7be07b; }
+#who .p { display: flex; align-items: center; gap: 6px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+#who .p b { flex: 1; }
 .chip { background: var(--chip); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
 #status { font-size: 13px; }
 #status.ok { color: var(--ok); } #status.bad { color: var(--bad); }
@@ -71,7 +86,8 @@ button.danger { color: var(--bad); }
 <header>
   <h1>dangu 관리</h1>
   <nav>
-    <button data-tab="guild" class="on">길드</button>
+    <button data-tab="dash" class="on">대시보드</button>
+    <button data-tab="guild">길드</button>
     <button data-tab="quests">퀘스트</button>
     <button data-tab="equip">장비</button>
     <button data-tab="server">서버</button>
@@ -92,6 +108,47 @@ button.danger { color: var(--bad); }
     <p class="hint">서버를 켤 때 찍힌 주소(<code>#token=…</code>)로 들어오거나, <code>world/admin_token.txt</code>의 값을 넣으세요.</p>
     <div class="row"><input class="wide" id="token" autocomplete="off"><button class="btn primary" id="login-go">들어가기</button></div>
   </section>
+
+  <div id="tab-dash">
+    <section class="card">
+      <div class="row" style="gap:10px">
+        <span id="srv-pill" class="pill stopped">확인 중</span>
+        <b style="font-size:16px">dangu 서버</b>
+        <span class="chip" id="srv-uptime"></span>
+        <span class="spacer"></span>
+        <button class="btn primary" id="srv-start">▶ 켜기</button>
+        <button class="btn" id="srv-restart">↻ 다시 켜기</button>
+        <button class="btn danger" id="srv-stop">■ 끄기</button>
+        <button class="btn" id="srv-update">⬇ 업데이트 확인</button>
+      </div>
+      <div class="grid" id="srv-info" style="margin-top:12px"></div>
+      <p class="hint" id="srv-note" style="margin:10px 0 0"></p>
+    </section>
+    <div class="dash-cols">
+      <section class="card">
+        <h2>콘솔 <span class="chip" id="con-n"></span></h2>
+        <p class="hint">서버 창에 찍히는 것이 그대로 옵니다. 명령어는 / 없이 (예: <code>op 닉네임</code>, <code>say 공지</code>, <code>플라이 목록</code>, <code>help</code>).</p>
+        <div id="con-box"></div>
+        <div class="row" style="margin-top:8px">
+          <input id="con-input" class="wide" placeholder="명령어를 치고 Enter" autocomplete="off" style="flex:1">
+          <button class="btn primary" id="con-send">보내기</button>
+          <label class="row" style="gap:4px"><input type="checkbox" id="con-follow" checked> 따라가기</label>
+        </div>
+      </section>
+      <div>
+        <section class="card">
+          <h2>접속자 <span class="chip" id="who-n"></span></h2>
+          <div id="who"></div>
+        </section>
+        <section class="card">
+          <h2>설정 <span class="chip">server.env</span></h2>
+          <p class="hint">포트·정품 인증·OP·시드 등. 저장 뒤 "다시 켜기"로 적용됩니다.</p>
+          <textarea class="code" id="env-text" spellcheck="false" style="min-height:260px"></textarea>
+          <div class="row" style="margin-top:8px"><button class="btn primary" id="env-save">설정 저장</button></div>
+        </section>
+      </div>
+    </div>
+  </div>
 
   <div id="tab-guild" hidden>
     <section class="card">
@@ -286,7 +343,7 @@ const $ = (s, el = document) => el.querySelector(s);
 const $$ = (s, el = document) => [...el.querySelectorAll(s)];
 let token = "";
 let guild = null, quests = null, equipment = null, ranks = null, rules = null, menuCfg = null, shops = null;
-let tab = "guild";
+let tab = "dash";
 let dirty = false;
 
 const LEVEL_COLS = [
@@ -631,6 +688,97 @@ setInterval(() => {
 }, 1000);
 setInterval(() => { if (tab === "players" && token) loadPlayers().catch(() => {}); }, 10000);
 
+// ---- 대시보드 ----
+const STATE_NAMES = { running: "켜짐", stopped: "꺼짐", starting: "켜는 중…", stopping: "끄는 중…", crashed: "충돌 — 곧 다시 켬", down: "연결 끊김" };
+let srv = null, conLast = 0, conBusy = false, envLoaded = false;
+const conHistory = []; let conPos = 0;
+function dur(ms) { const s = Math.max(0, Math.floor(ms / 1000)); const d = Math.floor(s / 86400), h = Math.floor(s / 3600) % 24, m = Math.floor(s / 60) % 60;
+  return (d ? d + "일 " : "") + (h ? h + "시간 " : "") + m + "분"; }
+function renderDash() {
+  const st = srv ? srv.state : "down";
+  const launcher = st !== "no-launcher";
+  const pill = $("#srv-pill");
+  pill.className = "pill " + (launcher ? st : "running");
+  pill.textContent = launcher ? (STATE_NAMES[st] || st) : "켜짐";
+  $("#srv-uptime").textContent = srv && srv.since ? "켠 지 " + dur(srv.now - srv.since) : "";
+  for (const id of ["srv-start", "srv-restart", "srv-stop", "srv-update", "con-send"]) $("#" + id).disabled = !launcher;
+  $("#srv-start").disabled = !launcher || st === "running" || st === "starting";
+  $("#srv-stop").disabled = !launcher || st === "stopped";
+  $("#srv-note").textContent = !launcher
+    ? "이 서버는 프로그램 모드가 아니라서 여기서 켜고 끌 수 없습니다 (실행 파일을 인자 없이 켜면 프로그램 모드)."
+    : st === "stopped" ? "서버가 꺼져 있습니다. ▶ 켜기를 누르세요." : "";
+  const inst = (srv && srv.server && srv.server.instances) || [];
+  const online = inst.reduce((a, i) => a + (i.online || 0), 0);
+  const c = (srv && srv.connect) || {};
+  const box = (label, value, sub) => el("div", { className: "stat" }, el("span", { textContent: label }), el("b", { textContent: value }), ...(sub ? [el("span", { textContent: sub })] : []));
+  $("#srv-info").replaceChildren(
+    box("이 컴퓨터에서 접속", c.local || "-", "마인크래프트 26.3 → 멀티플레이"),
+    box("같은 와이파이·공유기", c.lan || "-", "다른 집에서는 공유기 포트 포워딩 " + (c.port || "25565")),
+    box("접속자", online + "명", inst.length > 1 ? inst.map(i => i.name + " " + i.online).join(" · ") : ""),
+    box("버전", srv && srv.build ? srv.build.slice(0, 7) : "직접 빌드", srv && srv.auto_update ? "자동 업데이트 켬" : "자동 업데이트 꺼짐"),
+    box("충돌", (srv ? srv.crashes : 0) + "번", "충돌하면 5초 뒤 저절로 다시 켬"));
+  const who = $("#who");
+  const players = inst.flatMap(i => (i.players || []).map(p => ({ name: p, inst: i.name })));
+  $("#who-n").textContent = players.length + "명";
+  const cmd = (line, ok) => async () => { try { await api("POST", "console", { command: line }); status(ok, "ok"); } catch (e) { status(e.message, "bad"); } };
+  who.replaceChildren(...(players.length ? players.map(p => el("div", { className: "p" },
+    el("b", { textContent: p.name }), el("span", { className: "chip", textContent: p.inst }),
+    el("button", { className: "btn small", textContent: "OP", on: { click: cmd("op " + p.name, p.name + " OP") } }),
+    el("button", { className: "btn small danger", textContent: "추방", on: { click: () => confirm(p.name + "님을 내보낼까요?") && cmd("kick " + p.name + " 관리자가 내보냈습니다", p.name + " 추방")() } })))
+    : [el("p", { className: "hint", textContent: st === "running" ? "아무도 없습니다." : "서버가 켜져 있지 않습니다." })]));
+}
+async function pollStatus() {
+  if (!token) return;
+  try { srv = await api("GET", "status"); } catch (e) { srv = { state: "down" }; }
+  if (tab === "dash") renderDash();
+}
+function conClass(t) { return t.startsWith("> ") ? "cmd" : /오류|실패|못했|비정상|error|panic/i.test(t) ? "warn" : t.startsWith("──") ? "sys" : ""; }
+async function pollConsole() {
+  if (conBusy || tab !== "dash" || !token || !srv || srv.state === "no-launcher") return;
+  conBusy = true;
+  try {
+    const r = await api("GET", "console?after=" + conLast);
+    if (r.last < conLast) conLast = 0;
+    if (r.lines.length) {
+      const box = $("#con-box");
+      box.append(...r.lines.map(t => el("div", { className: conClass(t), textContent: t })));
+      while (box.childElementCount > 3000) box.firstChild.remove();
+      $("#con-n").textContent = box.childElementCount + "줄";
+      if ($("#con-follow").checked) box.scrollTop = box.scrollHeight;
+    }
+    conLast = r.last;
+  } catch (e) {} finally { conBusy = false; }
+}
+async function sendConsole() {
+  const line = $("#con-input").value.trim();
+  if (!line) return;
+  conHistory.push(line); conPos = conHistory.length;
+  $("#con-input").value = "";
+  try { await api("POST", "console", { command: line }); pollConsole(); } catch (e) { status(e.message, "bad"); }
+}
+$("#con-send").onclick = sendConsole;
+$("#con-input").addEventListener("keydown", e => {
+  if (e.key === "Enter") sendConsole();
+  else if (e.key === "ArrowUp" && conPos > 0) { conPos--; e.target.value = conHistory[conPos]; e.preventDefault(); }
+  else if (e.key === "ArrowDown") { conPos = Math.min(conHistory.length, conPos + 1); e.target.value = conHistory[conPos] || ""; e.preventDefault(); }
+});
+const action = (a, ask) => async () => {
+  if (ask && !confirm(ask)) return;
+  try { const r = await api("POST", "server", { action: a }); status(r.message, "ok"); setTimeout(pollStatus, 400); } catch (e) { status(e.message, "bad"); }
+};
+$("#srv-start").onclick = action("start");
+$("#srv-stop").onclick = action("stop", "서버를 저장하고 끌까요? 접속자는 나가게 됩니다.");
+$("#srv-restart").onclick = action("restart", "서버를 다시 켤까요? 접속자는 잠깐 나가게 됩니다.");
+$("#srv-update").onclick = action("update");
+async function loadEnv() {
+  try { $("#env-text").value = (await api("GET", "settings")).text; envLoaded = true; } catch (e) { status(e.message, "bad"); }
+}
+$("#env-save").onclick = async () => {
+  try { const r = await api("PUT", "settings", { text: $("#env-text").value }); status(r.message, "ok"); } catch (e) { status(e.message, "bad"); }
+};
+setInterval(pollStatus, 2000);
+setInterval(pollConsole, 1000);
+
 // ---- 채팅 ----
 const KIND_COLORS = { "전체": "#ffd866", "채널": "#7be07b", "주변": "#9cf2c8", "거래": "#ff9f43", "길드": "#6fe3ff", "관리자": "#ff5a5a",
   "채팅": "#ffffff", "귓속말": "#c79bff", "행동": "#ff8fd0", "공지": "#ff5a5a", "명령어": "#8c8c9a" };
@@ -718,9 +866,10 @@ function show(t) {
   if (t === "raw") renderRaw();
   if (t === "players") loadPlayers().catch(e => status(e.message, "bad"));
   if (t === "chat") { renderChat(); pollChat(); }
+  if (t === "dash") { renderDash(); pollStatus(); pollConsole(); if (!envLoaded) loadEnv(); }
   tab = t;
   $$("nav button").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
-  for (const k of ["guild", "quests", "equip", "server", "shops", "players", "chat", "raw"]) $("#tab-" + k).hidden = k !== t;
+  for (const k of ["dash", "guild", "quests", "equip", "server", "shops", "players", "chat", "raw"]) $("#tab-" + k).hidden = k !== t;
 }
 $$("nav button").forEach(b => b.onclick = () => show(b.dataset.tab));
 
@@ -761,7 +910,7 @@ $("#save").onclick = async () => {
 };
 window.addEventListener("beforeunload", e => { if (dirty) e.preventDefault(); });
 
-function showLogin() { $("#login").hidden = false; for (const k of ["guild", "quests", "equip", "server", "shops", "players", "chat", "raw"]) $("#tab-" + k).hidden = true; }
+function showLogin() { $("#login").hidden = false; for (const k of ["dash", "guild", "quests", "equip", "server", "shops", "players", "chat", "raw"]) $("#tab-" + k).hidden = true; }
 $("#login-go").onclick = () => {
   token = $("#token").value.trim();
   try { sessionStorage.setItem("dangu-token", token); } catch {}

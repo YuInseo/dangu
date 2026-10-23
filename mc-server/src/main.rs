@@ -12,16 +12,29 @@ use tokio::net::TcpListener;
 const AUTOSAVE_INTERVAL: Duration = Duration::from_secs(30);
 
 fn main() -> std::io::Result<()> {
-    // server.env → 환경 변수 (스레드를 띄우기 전에; 담비 자식은 마스터 것을 물려받음)
-    if std::env::args().nth(1).as_deref() != Some("child") {
+    // 인자: 없음 = 프로그램(런처: 대시보드 + 서버를 자식으로), `serve` = 서버만 (런처가 띄움),
+    // `master` = 담비 마스터, `child` = 담비 자식.
+    let mode = std::env::args().nth(1).unwrap_or_default();
+    // server.env → 환경 변수 (스레드를 띄우기 전에; 자식들은 부모 것을 물려받음)
+    if mode != "child" {
         mc_server::envfile::load();
-        // 새 빌드가 있으면 받아서 바꾸고 다시 켬 (CI가 만든 실행 파일만)
+    }
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
+    let launcher = mode.is_empty() && mc_server::launcher::enabled();
+    if mode != "child" && mode != "serve" {
+        // 새 빌드가 있으면 받아서 바꾸고 다시 켬 (CI가 만든 실행 파일만). 런처 아래의 서버는
+        // 런처가 이미 확인함
         mc_server::updater::on_startup();
     }
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(run())?;
+    if launcher {
+        return runtime.block_on(mc_server::launcher::run());
+    }
+    let result = runtime.block_on(run());
+    // 콘솔 입력을 기다리는 스레드는 끝나지 않으므로 기다리지 않고 런타임을 닫음 (저장은 끝났음)
+    runtime.shutdown_timeout(Duration::from_secs(1));
+    result?;
     // 도는 중에 받은 업데이트: 저장까지 끝났으니 바꾸고 다시 켬
     if mc_server::updater::restart_requested() {
         match mc_server::updater::apply_staged() {
@@ -247,6 +260,10 @@ async fn run() -> std::io::Result<()> {
         println!("────────────────────────────────────────────");
     }
 
+    // 런처 대시보드가 읽는 접속자 상태
+    if !mc_server::dambi::child::active() {
+        tokio::spawn(mc_server::launcher::status_writer(Arc::clone(&net)));
+    }
     // 핫 리로드 (담비 자식은 마스터가 알려 줌)
     if !mc_server::dambi::child::active() {
         let hot = Arc::clone(&net);

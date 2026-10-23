@@ -26,6 +26,10 @@
 //! | `GET /api/chat?after=<자리>` | 채팅 기록의 새 줄 (처음엔 끝부분) — 화면이 1초마다 물음 |
 //! | `GET /api/shops` · `PUT` | 상점 JSON (재화·물건·살 값·팔 값) |
 //! | `GET /api/shops/default` | 기본값 |
+//! | `GET /api/status` | 프로그램(런처) 상태: 켜짐·꺼짐, 접속자, 버전, 접속 주소 |
+//! | `GET /api/console?after=<번호>` · `POST {"command"}` | 서버 콘솔 줄들 · 명령어 보내기 |
+//! | `POST /api/server {"action": start\|stop\|restart\|update}` | 서버 켜기·끄기·다시 켜기·업데이트 |
+//! | `GET /api/settings` · `PUT` | `server.env` 원문 (다시 켜야 적용) |
 //! | `GET /api/players` · `POST` | 사람마다 등급·플라이(시·분·초)·자동심기 ([`players`]) |
 //!
 //! `/api/`는 모두 `Authorization: Bearer <토큰>`이 있어야 합니다. `PUT`에 `X-Dry-Run: 1`을 붙이면
@@ -348,6 +352,112 @@ pub fn handle(req: &Request, token: &str) -> Response {
             rules::set(r.clone())?;
             Ok(rules::encode(&rules::get()))
         }),
+        ("GET", "status") => match crate::launcher::get() {
+            Some(l) => Response::json(200, &l.status_json()),
+            None => Response::json(
+                200,
+                &Json::Object(vec![("state".into(), Json::String("no-launcher".into()))]),
+            ),
+        },
+        ("GET", "console") => match crate::launcher::get() {
+            Some(l) => {
+                let after = req.param("after").and_then(|a| a.parse().ok()).unwrap_or(0);
+                let (lines, last) = l.lines_after(after);
+                Response::json(
+                    200,
+                    &Json::Object(vec![
+                        ("last".into(), Json::Number(last as f64)),
+                        (
+                            "lines".into(),
+                            Json::Array(lines.into_iter().map(|(_, t)| Json::String(t)).collect()),
+                        ),
+                    ]),
+                )
+            }
+            None => Response::error(404, "프로그램 모드가 아닙니다 (MC_LAUNCHER)"),
+        },
+        ("POST", "console") | ("POST", "server") => {
+            let Some(l) = crate::launcher::get() else {
+                return Response::error(404, "프로그램 모드가 아닙니다 (MC_LAUNCHER)");
+            };
+            let j = std::str::from_utf8(&req.body)
+                .ok()
+                .and_then(|t| json::parse(t).ok())
+                .unwrap_or(Json::Null);
+            let s = |k: &str| j.get(k).and_then(Json::as_str).unwrap_or("").to_owned();
+            let msg = if api == "console" {
+                if l.command(&s("command")) {
+                    "보냈습니다".to_owned()
+                } else {
+                    return Response::error(409, "서버가 꺼져 있습니다");
+                }
+            } else {
+                match s("action").as_str() {
+                    "start" => {
+                        l.start();
+                        "서버를 켭니다".into()
+                    }
+                    "stop" => {
+                        l.stop();
+                        "서버를 저장하고 끕니다".into()
+                    }
+                    "restart" => {
+                        l.restart();
+                        "서버를 다시 켭니다".into()
+                    }
+                    "update" => {
+                        if !crate::updater::enabled() {
+                            return Response::error(
+                                409,
+                                "직접 빌드한 판이거나 자동 업데이트가 꺼져 있습니다",
+                            );
+                        }
+                        if !l.command("업데이트") {
+                            return Response::error(409, "서버가 켜져 있어야 합니다");
+                        }
+                        "새 버전을 확인합니다 (있으면 저장하고 다시 켬)".into()
+                    }
+                    other => return Response::error(400, &format!("모르는 동작: {other}")),
+                }
+            };
+            Response::json(
+                200,
+                &Json::Object(vec![
+                    ("ok".into(), Json::Bool(true)),
+                    ("message".into(), Json::String(msg)),
+                ]),
+            )
+        }
+        ("GET", "settings") => Response::json(
+            200,
+            &Json::Object(vec![(
+                "text".into(),
+                Json::String(crate::launcher::read_settings()),
+            )]),
+        ),
+        ("PUT" | "POST", "settings") => {
+            let text = std::str::from_utf8(&req.body)
+                .ok()
+                .and_then(|t| json::parse(t).ok())
+                .and_then(|j| j.get("text").and_then(Json::as_str).map(str::to_owned));
+            match text.map(|t| crate::launcher::write_settings(&t)) {
+                Some(Ok(())) => Response::json(
+                    200,
+                    &Json::Object(vec![
+                        ("ok".into(), Json::Bool(true)),
+                        (
+                            "message".into(),
+                            Json::String(
+                                "저장했습니다 — 서버를 다시 켜면 적용됩니다 (대시보드 주소·포트는 프로그램을 다시 켜야)"
+                                    .into(),
+                            ),
+                        ),
+                    ]),
+                ),
+                Some(Err(e)) => Response::error(500, &e),
+                None => Response::error(400, "{\"text\": ...} 모양이어야 합니다"),
+            }
+        }
         ("GET", "chat") => {
             let after = req.param("after").and_then(|a| a.parse::<u64>().ok());
             let (lines, next) = crate::plugins::chat::log::read_since(after);

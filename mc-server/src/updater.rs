@@ -315,6 +315,8 @@ pub fn relaunch() -> ! {
     match exe().and_then(|e| {
         std::process::Command::new(e)
             .args(&args)
+            // 다시 켠 것: 브라우저를 또 열지 않음
+            .env("DANGU_RELAUNCHED", "1")
             .spawn()
             .map_err(|e| e.to_string())
     }) {

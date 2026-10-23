@@ -53,6 +53,11 @@ MC_ADMIN_BIND=127.0.0.1
 # 비우면 world/admin_token.txt 에 만들어 둠
 #MC_ADMIN_TOKEN=
 
+# ---- 프로그램(런처) ----
+# 켜면 브라우저에 대시보드를 엶 (켜기·끄기·콘솔·설정). false면 서버만 바로 켬
+MC_LAUNCHER=true
+MC_OPEN_BROWSER=true
+
 # ---- 자동 업데이트 ----
 # 릴리스(dambi-latest)에 새 버전이 올라오면 받아서 바꾸고 다시 켬 (켤 때, 30분마다 — 접속자가
 # 없을 때만). 게임·콘솔에서 /업데이트 로 바로. 직접 빌드한 판은 하지 않음.
@@ -87,9 +92,22 @@ pub fn parse(text: &str) -> Vec<(String, String)> {
         .collect()
 }
 
+/// 파일을 읽기 전부터 환경에 있던 이름들 (그것이 파일보다 이김).
+static GIVEN: std::sync::OnceLock<std::collections::HashSet<String>> = std::sync::OnceLock::new();
+
+/// 이 이름이 파일이 아니라 진짜 환경 변수로 주어졌나.
+pub fn given_by_environment(name: &str) -> bool {
+    GIVEN.get().is_some_and(|g| g.contains(name))
+}
+
 /// 파일을 읽어 아직 없는 환경 변수를 넣습니다. 처음이면 파일을 만듭니다.
 /// 스레드를 띄우기 전에 불러야 합니다 (`set_var`).
 pub fn load() {
+    let _ = GIVEN.set(
+        std::env::vars_os()
+            .filter_map(|(k, _)| k.into_string().ok())
+            .collect(),
+    );
     let path = std::env::var_os("MC_ENV_FILE").unwrap_or_else(|| "server.env".into());
     let path = Path::new(&path);
     let text = match std::fs::read_to_string(path) {

@@ -18,6 +18,7 @@ pub mod data;
 pub mod envfile;
 pub mod game;
 pub mod json;
+pub mod launcher;
 pub mod network;
 pub mod packets;
 pub mod perms;
