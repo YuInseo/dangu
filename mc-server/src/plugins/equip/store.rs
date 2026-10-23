@@ -22,6 +22,8 @@ pub struct Gear {
     pub tries_left: u8,
     /// 마지막으로 바른 주문서 등급 (하급·중급·상급)
     pub scroll: Option<String>,
+    /// 장인의 기운 (0..=1): 강화에 실패하면 쌓이고, 다 차면 다음 강화는 꼭 성공
+    pub artisan: f64,
 }
 
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -47,6 +49,7 @@ impl Data {
                 potential: Vec::new(),
                 tries_left: def.potential_tries,
                 scroll: None,
+                artisan: 0.0,
             },
         );
         serial
@@ -99,9 +102,64 @@ pub fn roll_potential(
     out
 }
 
-/// 강화 한 번: `roll`(0..1)이 확률보다 작으면 성공.
-pub fn enhance_succeeds(cfg: &EquipConfig, level: u8, roll: f64) -> bool {
-    level < MAX_ENHANCE && roll < cfg.enhance_chance(level)
+/// 강화 한 번: `roll`(0..1)이 확률보다 작으면, 또는 장인의 기운이 다 찼으면 성공.
+pub fn enhance_succeeds(cfg: &EquipConfig, level: u8, artisan: f64, roll: f64) -> bool {
+    level < MAX_ENHANCE && (artisan >= 1.0 - 1e-9 || roll < cfg.enhance_chance(level))
+}
+
+/// 실패했을 때 쌓이는 장인의 기운 (0..=1).
+pub fn artisan_gain(cfg: &EquipConfig, level: u8) -> f64 {
+    cfg.enhance_chance(level) * cfg.enhance.artisan
+}
+
+/// 조율: 잠재능력 줄의 능력치는 두고 수치만 다시 (그 줄 옵션 범위 × 주문서 배율).
+pub fn tune_potential(
+    cfg: &EquipConfig,
+    lines: &[(Stat, f64)],
+    scroll: Option<&str>,
+    mut rand: impl FnMut() -> u32,
+) -> Vec<(Stat, f64)> {
+    let mult = scroll
+        .and_then(|name| cfg.scrolls.iter().find(|s| s.name == name))
+        .map_or(1.0, |s| s.mult);
+    lines
+        .iter()
+        .map(
+            |&(stat, v)| match cfg.potentials.iter().find(|p| p.stat == stat) {
+                Some(p) => {
+                    let t = (rand() % 1001) as f64 / 1000.0;
+                    (
+                        stat,
+                        ((p.min + (p.max - p.min) * t) * mult).round().max(1.0),
+                    )
+                }
+                None => (stat, v),
+            },
+        )
+        .collect()
+}
+
+/// 분해하면 돌려받는 것: 만들 때 재료와 강화에 쓴 강화석의 `salvage`만큼 (적어도 1개씩).
+pub fn salvage(cfg: &EquipConfig, def: &GearDef, enhance: u8) -> Vec<(String, i32)> {
+    let rate = cfg.forge.salvage;
+    let mut out: Vec<(String, i32)> = Vec::new();
+    let mut add = |k: &str, n: i32| {
+        if n <= 0 {
+            return;
+        }
+        match out.iter_mut().find(|(o, _)| o == k) {
+            Some((_, m)) => *m += n,
+            None => out.push((k.to_owned(), n)),
+        }
+    };
+    if let Some(r) = cfg.recipes.iter().find(|r| r.result == def.id) {
+        for (k, n) in &r.inputs {
+            add(k, ((*n as f64 * rate).floor() as i32).max(1));
+        }
+    }
+    let stones: i32 = (0..enhance).map(|l| cfg.enhance_cost(l).1).sum();
+    add(&cfg.enhance.stone, (stones as f64 * rate).floor() as i32);
+    out
 }
 
 // ---- JSON ----
@@ -136,6 +194,9 @@ fn encode(d: &Data) -> Json {
                         }
                         if let Some(s) = &g.scroll {
                             f.push(("scroll".into(), Json::String(s.clone())));
+                        }
+                        if g.artisan > 0.0 {
+                            f.push(("artisan".into(), n(g.artisan)));
                         }
                         (serial.to_string(), Json::Object(f))
                     })
@@ -192,6 +253,7 @@ fn decode(j: &Json) -> Option<Data> {
                     potential,
                     tries_left: g.get("tries_left").and_then(Json::as_f64).unwrap_or(0.0) as u8,
                     scroll: g.get("scroll").and_then(Json::as_str).map(str::to_owned),
+                    artisan: g.get("artisan").and_then(Json::as_f64).unwrap_or(0.0),
                 },
             );
         }
@@ -270,8 +332,59 @@ mod tests {
                 }
             }
         }
-        assert!(enhance_succeeds(&cfg, 0, 0.5));
-        assert!(!enhance_succeeds(&cfg, 29, 0.5));
-        assert!(!enhance_succeeds(&cfg, 30, 0.0));
+        assert!(enhance_succeeds(&cfg, 0, 0.0, 0.5));
+        assert!(enhance_succeeds(&cfg, 29, 1.0, 0.99));
+        assert!(!enhance_succeeds(&cfg, 29, 0.0, 0.5));
+        assert!(!enhance_succeeds(&cfg, 30, 1.0, 0.0));
+        // 장인의 기운: 확률 × 0.465
+        assert!((artisan_gain(&cfg, 0) - 0.95 * 0.465).abs() < 1e-9);
+    }
+
+    #[test]
+    fn tune_keeps_stats_and_salvage_returns_part() {
+        let cfg = EquipConfig::default();
+        let lines = vec![(Stat::Str, 3.0), (Stat::CritDamage, 2.0)];
+        let mut r = rng(7);
+        for _ in 0..50 {
+            let out = tune_potential(&cfg, &lines, Some("상급"), &mut r);
+            assert_eq!(
+                out.iter().map(|l| l.0).collect::<Vec<_>>(),
+                [Stat::Str, Stat::CritDamage]
+            );
+            let mult = cfg.scrolls.iter().find(|s| s.name == "상급").unwrap().mult;
+            for (k, v) in &out {
+                let o = cfg.potentials.iter().find(|p| p.stat == *k).unwrap();
+                assert!(*v >= (o.min * mult).round().max(1.0) && *v <= (o.max * mult).round());
+            }
+        }
+        // 분해: 만든 재료의 반 + 강화석 (+9까지 쓴 것 1+1+1+2+2+2+3+3+3 = 18 → 9)
+        let def = cfg
+            .gear
+            .iter()
+            .find(|g| cfg.recipes.iter().any(|r| r.result == g.id))
+            .unwrap();
+        let back = salvage(&cfg, def, 9);
+        let stones = back
+            .iter()
+            .find(|(k, _)| *k == cfg.enhance.stone)
+            .map(|x| x.1);
+        let recipe = cfg.recipes.iter().find(|r| r.result == def.id).unwrap();
+        let from_recipe = recipe
+            .inputs
+            .iter()
+            .find(|(k, _)| *k == cfg.enhance.stone)
+            .map_or(0, |(_, n)| ((*n as f64 * 0.5).floor() as i32).max(1));
+        assert_eq!(stones, Some(9 + from_recipe));
+        for (k, n) in &recipe.inputs {
+            if *k != cfg.enhance.stone {
+                let got = back.iter().find(|(o, _)| o == k).unwrap().1;
+                assert_eq!(got, ((*n as f64 * 0.5).floor() as i32).max(1));
+            }
+        }
+        assert!(
+            salvage(&cfg, def, 0)
+                .iter()
+                .all(|(k, _)| *k != cfg.enhance.stone || from_recipe > 0)
+        );
     }
 }

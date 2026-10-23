@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! /장비                    장비 창 (악세서리 칸 · 능력치 · 세트 효과)
-//! /강화                    강화 창
+//! /강화 [강화|연마|조율|전승|분해]   장비 손질 창
 //! /대장간                  제련 · 장비 · 악세서리 · 재료 · 상점
 //! /장비 지급 <id> [개수]    (OP) 장비·재료 받기
 //! /보스 소환 <id>           (OP) 보스를 앞에 소환 · /보스 목록
@@ -400,7 +400,15 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 }
             }
             ("장비", _) => Ok(self.open_equip(Page::Gear).await?),
-            ("강화", _) => Ok(self.open_equip(Page::Enhance { serial: None }).await?),
+            ("강화", args) => {
+                let tab = args
+                    .first()
+                    .and_then(|t| super::forge::Tab::parse(t))
+                    .unwrap_or(super::forge::Tab::Enhance);
+                Ok(self
+                    .open_equip(Page::Forge(super::forge::Forge::new(tab)))
+                    .await?)
+            }
             ("대장간", [tab, ..]) => {
                 let tab = super::gui::TABS.iter().position(|t| t == tab).unwrap_or(0);
                 Ok(self.open_equip(Page::Smith { tab, page: 0 }).await?)

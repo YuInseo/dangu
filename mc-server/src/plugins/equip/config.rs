@@ -129,6 +129,21 @@ pub struct EnhanceRule {
     pub money: i64,
     /// 강화석: `1 + n/3`개
     pub stone: String,
+    /// 장인의 기운: 실패할 때마다 (그 단계 성공 확률 × 이 값)만큼 쌓이고, 100%면 다음 강화는 꼭 성공.
+    pub artisan: f64,
+}
+
+/// 장비 손질 창의 연마 밖 일들: 조율·전승·분해.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ForgeRule {
+    /// 조율 (잠재능력 줄은 두고 수치만 다시): 돈과 재료
+    pub tune_money: i64,
+    pub tune_item: String,
+    pub tune_count: i32,
+    /// 전승 (강화 단계를 다른 장비로): 돈 `inherit_money × 단계²`
+    pub inherit_money: i64,
+    /// 분해: 만들 때 재료와 강화에 쓴 강화석의 이만큼 (0..=1)
+    pub salvage: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -165,6 +180,7 @@ pub struct EquipConfig {
     pub ores: Vec<OreDef>,
     pub bosses: Vec<BossDef>,
     pub enhance: EnhanceRule,
+    pub forge: ForgeRule,
     pub scrolls: Vec<ScrollDef>,
     pub potentials: Vec<PotentialOption>,
     pub shop: Vec<ShopEntry>,
@@ -245,6 +261,12 @@ impl EquipConfig {
                 "enhance.chances는 {}개(+0→+1 … +29→+30)여야 합니다",
                 super::MAX_ENHANCE
             ));
+        }
+        if !(0.0..=1.0).contains(&self.forge.salvage) {
+            return Err("forge.salvage는 0~1이어야 합니다".into());
+        }
+        if !(0.0..=10.0).contains(&self.enhance.artisan) {
+            return Err("enhance.artisan은 0~10이어야 합니다".into());
         }
         if self.potentials.iter().all(|p| p.weight == 0) {
             return Err("잠재능력 옵션이 하나는 있어야 합니다".into());
@@ -839,6 +861,14 @@ impl Default for EquipConfig {
                 milestone: 0.10,
                 money: 1_000,
                 stone: "hoya:enhance_stone".into(),
+                artisan: 0.465,
+            },
+            forge: ForgeRule {
+                tune_money: 5_000,
+                tune_item: "hoya:magic_stone".into(),
+                tune_count: 2,
+                inherit_money: 2_000,
+                salvage: 0.5,
             },
             scrolls: vec![
                 ScrollDef {
@@ -950,6 +980,17 @@ pub fn encode(c: &EquipConfig) -> Json {
                 ("milestone", n(c.enhance.milestone)),
                 ("money", n(c.enhance.money as f64)),
                 ("stone", s(&c.enhance.stone)),
+                ("artisan", n(c.enhance.artisan)),
+            ]),
+        ),
+        (
+            "forge",
+            obj(vec![
+                ("tune_money", n(c.forge.tune_money as f64)),
+                ("tune_item", s(&c.forge.tune_item)),
+                ("tune_count", n(c.forge.tune_count as f64)),
+                ("inherit_money", n(c.forge.inherit_money as f64)),
+                ("salvage", n(c.forge.salvage)),
             ]),
         ),
         (
@@ -1113,8 +1154,22 @@ pub fn decode(j: &Json) -> Option<EquipConfig> {
                 .get("stone")
                 .and_then(Json::as_str)
                 .map_or(d.enhance.stone.clone(), str::to_owned),
+            artisan: num(e, "artisan", d.enhance.artisan),
         },
         None => d.enhance.clone(),
+    };
+    let forge = match j.get("forge") {
+        Some(f) => ForgeRule {
+            tune_money: num(f, "tune_money", d.forge.tune_money as f64) as i64,
+            tune_item: f
+                .get("tune_item")
+                .and_then(Json::as_str)
+                .map_or(d.forge.tune_item.clone(), str::to_owned),
+            tune_count: num(f, "tune_count", d.forge.tune_count as f64) as i32,
+            inherit_money: num(f, "inherit_money", d.forge.inherit_money as f64) as i64,
+            salvage: num(f, "salvage", d.forge.salvage),
+        },
+        None => d.forge.clone(),
     };
     Some(EquipConfig {
         smith_job: j
@@ -1122,6 +1177,7 @@ pub fn decode(j: &Json) -> Option<EquipConfig> {
             .and_then(Json::as_str)
             .map_or(d.smith_job.clone(), str::to_owned),
         enhance,
+        forge,
         scrolls: list("scrolls").map_or(d.scrolls.clone(), |a| {
             a.iter()
                 .map(|x| ScrollDef {

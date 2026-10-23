@@ -183,7 +183,13 @@ fn build(t: &mut CommandTree, kind: &str, name: &'static str) {
                 t.literal(c, s.id, true);
             }
         }
-        "강화" | "ec" | "제작대" | "수리" | "홈목록" | "갑옷숨기기" => {
+        "강화" => {
+            let c = t.literal(ROOT, name, true);
+            for tab in crate::plugins::equip::forge::Tab::ALL {
+                t.literal(c, tab.name(), true);
+            }
+        }
+        "ec" | "제작대" | "수리" | "홈목록" | "갑옷숨기기" => {
             t.literal(ROOT, name, true);
         }
         "셋홈" | "홈" | "홈삭제" => {

@@ -22,6 +22,8 @@
 
 pub mod art;
 pub mod config;
+pub mod forge;
+pub mod forge_art;
 pub mod gui;
 pub mod look;
 mod session;

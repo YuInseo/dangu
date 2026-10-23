@@ -8,6 +8,8 @@ pub fn packs() -> Vec<Pack> {
         crate::plugins::lottery::art::pack(),
         crate::plugins::guild::art::pack(),
         crate::plugins::equip::config::with(crate::plugins::equip::art::pack),
+        crate::plugins::gui::pack(),
+        crate::plugins::equip::forge_art::pack(),
     ];
     if crate::plugins::hud::enabled() {
         packs.push(crate::plugins::hud::art::pack());

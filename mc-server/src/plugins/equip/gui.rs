@@ -1,4 +1,5 @@
-//! 창: `/장비` (악세서리 칸·능력치·세트) · `/강화` · `/대장간` (제련·장비·악세서리·재료·상점).
+//! 창: `/장비` (악세서리 칸·능력치·세트) · `/강화` (장비 손질, [`super::forge`]) · `/대장간`
+//! (제련·장비·악세서리·재료·상점).
 //!
 //! 모두 메뉴 창이라 아이템을 직접 끌어 옮기지 않고, 칸을 누르면 그 일을 합니다.
 //! 아래 가방(창 칸 54..90)을 누르면: 장비 창은 그 악세서리를 끼고, 강화 창은 그 장비를 고릅니다.
@@ -16,10 +17,11 @@
 
 use tokio::io::AsyncWrite;
 
+use super::Part;
 use super::config::{self, Recipe, grade_color};
+use super::forge::{Forge, Tab};
 use super::session::{gear_of, item_of};
 use super::store::gears;
-use super::{MAX_ENHANCE, Part, enhance_multiplier};
 use crate::data::menu;
 use crate::game::custom_items::{self, Look};
 use crate::packets::container as pc;
@@ -27,7 +29,6 @@ use crate::packets::world::Item;
 use crate::plugins::hud::number;
 use crate::protocol::frame::FrameError;
 use crate::protocol::nbt::Tag;
-use crate::server::Event;
 use crate::session::play::Session;
 use crate::session::windows::{Window, WindowKind};
 use crate::text;
@@ -35,15 +36,19 @@ use crate::text;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Page {
     Gear,
-    Enhance { serial: Option<u32> },
-    Smith { tab: usize, page: usize },
+    /// 장비 손질 (강화·연마·조율·전승·분해)
+    Forge(Forge),
+    Smith {
+        tab: usize,
+        page: usize,
+    },
 }
 
 impl Page {
     fn title(&self) -> &'static str {
         match self {
             Page::Gear => "장비",
-            Page::Enhance { .. } => "장비 강화",
+            Page::Forge(_) => "장비 손질",
             Page::Smith { .. } => "대장간",
         }
     }
@@ -68,13 +73,6 @@ const SETS_SLOT: usize = 25;
 const POT_SLOT: usize = 34;
 const TO_ENHANCE: usize = 48;
 const TO_SMITH: usize = 50;
-
-// 강화 창
-const ENH_ITEM: usize = 13;
-const ENH_INFO: usize = 29;
-const ENH_BUTTON: usize = 31;
-const ENH_NEXT: usize = 33;
-const BACK: usize = 49;
 
 // 대장간
 const LIST_FIRST: usize = 9;
@@ -101,7 +99,7 @@ fn span(t: &str, color: &str) -> Tag {
 }
 
 /// 조합법에 쓰는 바닐라 재료의 한글 이름.
-fn vanilla_name(k: &str) -> String {
+pub(crate) fn vanilla_name(k: &str) -> String {
     match k {
         "stick" => "막대기",
         "amethyst_shard" => "자수정 조각",
@@ -126,11 +124,21 @@ fn recipes_of(tab: usize) -> Vec<Recipe> {
 }
 
 impl<W: AsyncWrite + Unpin> Session<'_, W> {
+    /// 장비 창을 엶. 이미 장비 창이면 닫지 않고 그 자리에 다시 엶 (제목은 열 때만 보낼 수 있고,
+    /// 닫았다 열면 마우스가 화면 가운데로 감).
     pub(crate) async fn open_equip(&mut self, page: Page) -> std::io::Result<()> {
-        self.close_window(false).await?;
+        if !matches!(
+            self.window.as_ref().map(|w| &w.kind),
+            Some(WindowKind::Equip(_))
+        ) {
+            self.close_window(false).await?;
+        }
         self.next_window = self.next_window % 100 + 1;
         let id = self.next_window;
-        let title = page.title();
+        let title = match &page {
+            Page::Forge(f) => self.forge_title(f).await,
+            p => text::plain(p.title()),
+        };
         self.window = Some(Window {
             id,
             kind: WindowKind::Equip(page),
@@ -138,7 +146,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         });
         self.send(
             pc::OPEN_SCREEN_ID,
-            &pc::encode_open_screen(id, menu::GENERIC_9X6, &text::plain(title)),
+            &pc::encode_open_screen(id, menu::GENERIC_9X6, &title),
         )
         .await?;
         self.send_window().await
@@ -176,10 +184,13 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
     }
 
     pub(crate) fn equip_slots(&self, page: &Page) -> Vec<Option<Item>> {
+        if let Page::Forge(f) = page {
+            return self.forge_slots(f);
+        }
         let mut slots: Vec<Option<Item>> = (0..54).map(|s| self.pane(s)).collect();
         match page {
             Page::Gear => self.gear_page(&mut slots),
-            Page::Enhance { serial } => self.enhance_page(&mut slots, *serial),
+            Page::Forge(_) => {}
             Page::Smith { tab, page } => self.smith_page(&mut slots, *tab, *page),
         }
         slots
@@ -337,9 +348,9 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         slots[TO_ENHANCE] = self.icon(
             TO_ENHANCE,
             "anvil",
-            "강화",
+            "장비 손질",
             "gold",
-            vec!["장비를 +30까지".into()],
+            vec!["강화 · 연마 · 조율 · 전승 · 분해".into()],
             false,
         );
         slots[TO_SMITH] = self.icon(
@@ -358,112 +369,6 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         let mut it = item_of(&def, 1)?;
         it.serial = serial;
         Some(it)
-    }
-
-    fn enhance_page(&self, slots: &mut [Option<Item>], serial: Option<u32>) {
-        slots[BACK] = self.icon(BACK, "arrow", "장비 창으로", "white", Vec::new(), false);
-        let found = serial
-            .and_then(|s| (9..46).find(|&i| self.inventory[i].is_some_and(|it| it.serial == s)));
-        let Some(slot) = found else {
-            slots[ENH_ITEM] = self.icon(
-                ENH_ITEM,
-                "light_gray_stained_glass_pane",
-                "강화할 장비를 고르세요",
-                "gray",
-                vec!["아래 가방의 장비를 누르세요 (악세서리는 강화 없음)".into()],
-                false,
-            );
-            return;
-        };
-        let item = self.inventory[slot].unwrap();
-        slots[ENH_ITEM] = Some(item);
-        let Some((def, gear)) = config::with(|c| gear_of(&item, c)) else {
-            return;
-        };
-        let level = gear.as_ref().map_or(0, |g| g.enhance);
-        let (chance, (money, stones), stone, per, mile) = config::with(|c| {
-            (
-                c.enhance_chance(level),
-                c.enhance_cost(level),
-                c.enhance.stone.clone(),
-                c.enhance.per_level,
-                c.enhance.milestone,
-            )
-        });
-        let have = self.count_key(&stone);
-        let maxed = level >= MAX_ENHANCE;
-        let info = vec![
-            span(
-                &format!("+{level} → +{}", (level + 1).min(MAX_ENHANCE)),
-                "#ffd866",
-            ),
-            span(&format!("성공 확률  {:.0}%", chance * 100.0), "white"),
-            span(&format!("돈  {}원", number(money)), "white"),
-            span(
-                &format!("강화석  {have} / {stones}"),
-                if have >= stones { "#7be07b" } else { "#ff5a5a" },
-            ),
-            span("실패해도 단계는 내려가지 않습니다", "dark_gray"),
-        ];
-        slots[ENH_INFO] = self.item_icon(
-            ENH_INFO,
-            Item::new(crate::data::items::by_name("paper").unwrap_or(1), 1),
-            span("강화 정보", "gold"),
-            info,
-            false,
-        );
-        let now = enhance_multiplier(level, per, mile);
-        let next = enhance_multiplier((level + 1).min(MAX_ENHANCE), per, mile);
-        let preview: Vec<Tag> = def
-            .stats
-            .entries()
-            .into_iter()
-            .filter(|(k, _)| k.is_main())
-            .map(|(k, v)| {
-                span(
-                    &format!("{}  {:.0} → {:.0}", k.name(), v * now, v * next),
-                    "#7be07b",
-                )
-            })
-            .collect();
-        slots[ENH_NEXT] = self.item_icon(
-            ENH_NEXT,
-            Item::new(
-                crate::data::items::by_name("experience_bottle").unwrap_or(1),
-                1,
-            ),
-            span("성공하면", "green"),
-            preview,
-            false,
-        );
-        slots[ENH_BUTTON] = if maxed {
-            self.icon(
-                ENH_BUTTON,
-                "nether_star",
-                "최대 강화 (+30)",
-                "gold",
-                Vec::new(),
-                true,
-            )
-        } else if def.part.is_accessory() {
-            self.icon(
-                ENH_BUTTON,
-                "barrier",
-                "악세서리는 강화할 수 없습니다",
-                "red",
-                Vec::new(),
-                false,
-            )
-        } else {
-            self.icon(
-                ENH_BUTTON,
-                "anvil",
-                &format!("강화하기 ({:.0}%)", chance * 100.0),
-                "gold",
-                vec![format!("{}원 · 강화석 {stones}개", number(money))],
-                true,
-            )
-        };
     }
 
     fn smith_page(&self, slots: &mut [Option<Item>], tab: usize, page: usize) {
@@ -595,65 +500,52 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         let Ok(slot) = usize::try_from(slot) else {
             return Ok(());
         };
-        let set = |s: &mut Self, p: Page| {
-            if let Some(w) = &mut s.window {
-                w.kind = WindowKind::Equip(p);
-            }
-        };
-        match page {
+        let next = match page {
             Page::Gear => match slot {
-                TO_ENHANCE => set(self, Page::Enhance { serial: None }),
-                TO_SMITH => set(self, Page::Smith { tab: 0, page: 0 }),
+                TO_ENHANCE => Some(Page::Forge(Forge::new(Tab::Enhance))),
+                TO_SMITH => Some(Page::Smith { tab: 0, page: 0 }),
                 s if ACC_SLOTS.contains(&s) => {
                     let i = ACC_SLOTS.iter().position(|x| *x == s).unwrap();
                     self.unequip_accessory(i).await?;
+                    None
                 }
                 s => {
                     if let Some(inv) = inventory_slot(s) {
                         self.equip_accessory(inv).await?;
                     }
+                    None
                 }
             },
-            Page::Enhance { serial } => match slot {
-                BACK => set(self, Page::Gear),
-                ENH_BUTTON => {
-                    if let Some(s) = serial {
-                        self.enhance(s).await?;
-                    }
-                }
-                s => {
-                    if let Some(inv) = inventory_slot(s)
-                        && let Some(item) = self.inventory[inv]
-                        && config::with(|c| gear_of(&item, c)).is_some()
-                    {
-                        // 일련번호가 없으면 붙여서 고름
-                        let serial = self.ensure_serial(inv);
-                        set(self, Page::Enhance { serial });
-                    }
-                }
-            },
+            Page::Forge(f) => Some(self.forge_click(f, slot).await?),
             Page::Smith { tab, page: p } => {
                 if let Some(t) = TAB_SLOTS.iter().position(|x| *x == slot) {
-                    set(self, Page::Smith { tab: t, page: 0 });
+                    Some(Page::Smith { tab: t, page: 0 })
                 } else if slot == PREV && p > 0 {
-                    set(self, Page::Smith { tab, page: p - 1 });
+                    Some(Page::Smith { tab, page: p - 1 })
                 } else if slot == NEXT {
-                    set(self, Page::Smith { tab, page: p + 1 });
-                } else if (LIST_FIRST..LIST_FIRST + LIST_PER_PAGE).contains(&slot) {
-                    let index = p * LIST_PER_PAGE + slot - LIST_FIRST;
-                    if TABS[tab] == "상점" {
-                        self.buy(index, if mode == 1 { 10 } else { 1 }).await?;
-                    } else if let Some(r) = recipes_of(tab).get(index).cloned() {
-                        self.craft(&r).await?;
+                    Some(Page::Smith { tab, page: p + 1 })
+                } else {
+                    if (LIST_FIRST..LIST_FIRST + LIST_PER_PAGE).contains(&slot) {
+                        let index = p * LIST_PER_PAGE + slot - LIST_FIRST;
+                        if TABS[tab] == "상점" {
+                            self.buy(index, if mode == 1 { 10 } else { 1 }).await?;
+                        } else if let Some(r) = recipes_of(tab).get(index).cloned() {
+                            self.craft(&r).await?;
+                        }
                     }
+                    None
                 }
             }
+        };
+        // 창 제목이 바뀔 수 있으니 다시 엶 (같은 자리, 마우스 그대로)
+        if let Some(next) = next {
+            self.open_equip(next).await?;
         }
         Ok(())
     }
 
     /// 가방 칸의 장비에 일련번호가 없으면 붙임.
-    fn ensure_serial(&mut self, inv: usize) -> Option<u32> {
+    pub(crate) fn ensure_serial(&mut self, inv: usize) -> Option<u32> {
         let item = self.inventory[inv]?;
         if super::store::is_gear_serial(item.serial) {
             return Some(item.serial);
@@ -712,71 +604,6 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
             }
         });
         self.give(item).await?;
-        Ok(())
-    }
-
-    async fn enhance(&mut self, serial: u32) -> Result<(), FrameError> {
-        let Some(slot) = (9..46).find(|&i| self.inventory[i].is_some_and(|it| it.serial == serial))
-        else {
-            return self.error("그 장비가 가방에 없습니다.").await;
-        };
-        let item = self.inventory[slot].unwrap();
-        let Some((def, Some(gear))) = config::with(|c| gear_of(&item, c)) else {
-            return Ok(());
-        };
-        if def.part.is_accessory() {
-            return self.error("악세서리는 강화할 수 없습니다.").await;
-        }
-        let level = gear.enhance;
-        if level >= MAX_ENHANCE {
-            return self.error("이미 최대 강화(+30)입니다.").await;
-        }
-        let ((money, stones), stone) =
-            config::with(|c| (c.enhance_cost(level), c.enhance.stone.clone()));
-        if self.count_key(&stone) < stones {
-            return self
-                .error(&format!("강화석이 모자랍니다 ({stones}개 필요)"))
-                .await;
-        }
-        if !self.pay(money).await {
-            return Ok(());
-        }
-        self.take_key(&stone, stones).await?;
-        let roll = (crate::game::rand_u32() % 1_000_000) as f64 / 1_000_000.0;
-        let ok = config::with(|c| super::store::enhance_succeeds(c, level, roll));
-        if ok {
-            gears().write(|d| {
-                if let Some(g) = d.gears.get_mut(&serial) {
-                    g.enhance = level + 1;
-                }
-            });
-            self.sync_slot(slot).await?;
-            self.play_sound("block.anvil.use");
-            self.play_sound("entity.player.levelup");
-            self.message(&text::colored(
-                &format!("강화 성공! +{} {}", level + 1, def.name),
-                "gold",
-            ))
-            .await?;
-            if level + 1 >= 15 && (level + 1) % 5 == 0 {
-                self.server.publish(Event::System(text::colored(
-                    &format!(
-                        "{}님이 {}을(를) +{} 강화에 성공했습니다!",
-                        self.profile.name,
-                        def.name,
-                        level + 1
-                    ),
-                    "gold",
-                )));
-            }
-        } else {
-            self.play_sound("block.anvil.land");
-            self.message(&text::colored(
-                &format!("강화 실패… (+{level} 유지)"),
-                "red",
-            ))
-            .await?;
-        }
         Ok(())
     }
 

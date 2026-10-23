@@ -211,6 +211,7 @@ mod tests {
             potential: Vec::new(),
             tries_left: 0,
             scroll: None,
+            artisan: 0.0,
         };
         let look = build(helm, &g, &cfg);
         let (name, lore) = look.rich.unwrap();
@@ -227,6 +228,7 @@ mod tests {
             potential: vec![(Stat::Str, 9.0), (Stat::CritDamage, 12.0)],
             tries_left: 4,
             scroll: Some("중급".into()),
+            artisan: 0.0,
         };
         let text = format!("{:?}", build(ring, &g, &cfg).rich.unwrap().1);
         assert!(text.contains("잠재능력") && text.contains("힘 +9") && text.contains("4 / 5"));

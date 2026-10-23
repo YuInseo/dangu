@@ -77,6 +77,26 @@ pub const PALETTE: [u32; 16] = [
     0xC79BFF, 0xFF9F43, 0x5AA0FF, 0xFF8FD0, 0x9CF2C8, 0xFFF2D6, 0x000000,
 ];
 
+/// [`Pal`]을 번호 순서대로.
+pub const PALS: [Pal; 16] = [
+    Pal::White,
+    Pal::Light,
+    Pal::Gray,
+    Pal::Dark,
+    Pal::Gold,
+    Pal::Yellow,
+    Pal::Green,
+    Pal::Aqua,
+    Pal::Red,
+    Pal::Purple,
+    Pal::Orange,
+    Pal::Blue,
+    Pal::Pink,
+    Pal::Mint,
+    Pal::Cream,
+    Pal::Black,
+];
+
 /// 기준점 + 색.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Tint {
@@ -113,25 +133,10 @@ impl Tint {
             _ => return None,
         };
         let i = (v & 0xff).checked_sub(0xF0)? as usize;
-        let pal = [
-            Pal::White,
-            Pal::Light,
-            Pal::Gray,
-            Pal::Dark,
-            Pal::Gold,
-            Pal::Yellow,
-            Pal::Green,
-            Pal::Aqua,
-            Pal::Red,
-            Pal::Purple,
-            Pal::Orange,
-            Pal::Blue,
-            Pal::Pink,
-            Pal::Mint,
-            Pal::Cream,
-            Pal::Black,
-        ][i];
-        Some(Tint { anchor, pal })
+        Some(Tint {
+            anchor,
+            pal: *PALS.get(i)?,
+        })
     }
 }
 
@@ -319,7 +324,7 @@ impl Image {
     pub fn get(&self, x: usize, y: usize) -> u32 {
         self.px[y * self.w + x]
     }
-    fn blit(&mut self, src: &Image, ox: usize, oy: usize) {
+    pub fn blit(&mut self, src: &Image, ox: usize, oy: usize) {
         for y in 0..src.h {
             for x in 0..src.w {
                 self.set(ox + x, oy + y, src.get(x, y));
@@ -330,7 +335,7 @@ impl Image {
         self.px.iter().flat_map(|p| p.to_be_bytes()).collect()
     }
     /// 바닐라 폰트가 재는 글자 폭: 오른쪽에서부터 처음 불투명한 열 + 1.
-    fn ink_width(&self) -> i32 {
+    pub fn ink_width(&self) -> i32 {
         (0..self.w)
             .rev()
             .find(|&x| (0..self.h).any(|y| self.get(x, y) & 0xff != 0))
@@ -524,7 +529,7 @@ impl Sheet {
     }
 }
 
-fn json_chars(s: &str) -> String {
+pub fn json_chars(s: &str) -> String {
     s.chars()
         .map(|c| match c {
             '"' => "\\\"".to_owned(),
@@ -635,7 +640,7 @@ pub fn advance(c: char) -> i32 {
     t.get(&c).copied().unwrap_or(0)
 }
 
-fn space_provider() -> String {
+pub fn space_provider() -> String {
     let mut spaces = Vec::new();
     for k in 0..=10u32 {
         for neg in [false, true] {
@@ -694,8 +699,9 @@ fn palette_glsl() -> String {
     )
 }
 
-/// 바닐라 26.3 `core/text.vsh`에 표시 색 처리를 더한 것.
-fn text_vsh() -> String {
+/// 바닐라 26.3 `core/text.vsh`에 표시 색 처리를 더한 것 (HUD와 [`crate::plugins::gui`] 창이 같이 씀;
+/// HUD를 꺼도 창을 위해 늘 리소스 팩에 들어감).
+pub fn text_vsh() -> String {
     TEXT_VSH.replace("//PALETTE//", &palette_glsl())
 }
 
@@ -752,6 +758,10 @@ void main() {
         }
         vec3 hoya_p = HOYA_PALETTE[hoya_c.b - 240];
         vertexColor = vec4(hoya_c.r == 252 ? hoya_p * 0.25 : hoya_p, Color.a);
+    } else if (hoya_c.r == 250 && hoya_c.b >= 240) {
+        // hoya 창 (plugins::gui): #FA gg bb = (gg - 32)px 아래로, bb - 240: 색 번호.
+        gl_Position += ProjMat * ModelViewMat * vec4(0.0, float(hoya_c.g - 32), 0.0, 0.0);
+        vertexColor = vec4(HOYA_PALETTE[hoya_c.b - 240], Color.a);
     } else if (hoya_c.r == 63 && hoya_c.g >= 2 && hoya_c.g <= 4 && hoya_c.b >= 60) {
         // 바닐라가 만든 표시 색의 그림자 (색 × 1/4)
         vertexColor = vec4(0.0);
@@ -836,10 +846,6 @@ pub fn pack() -> Pack {
         "assets/hoya/textures/font/hud/label_LICENSE.txt".into(),
         b"label.png glyphs: GNU Unifont 17.0.01, SIL Open Font License 1.1 (https://openfontlicense.org)\n"
             .to_vec(),
-    ));
-    files.push((
-        "assets/minecraft/shaders/core/text.vsh".into(),
-        text_vsh().into_bytes(),
     ));
     let clear = |w: u32, h: u32| png(w, h, &vec![0; (w * h * 4) as usize]);
     for h in HEARTS {
@@ -953,12 +959,8 @@ mod tests {
                 .iter()
                 .any(|(n, _)| n == "assets/hoya/font/hud/text.json")
         );
-        let vsh = p
-            .files
-            .iter()
-            .find(|(n, _)| n == "assets/minecraft/shaders/core/text.vsh")
-            .unwrap();
-        let vsh = String::from_utf8_lossy(&vsh.1);
+        let vsh = text_vsh();
+        assert!(vsh.contains("hoya_c.r == 250"));
         assert!(vsh.contains("HOYA_PALETTE[16] = vec3[16]("));
         assert!(!vsh.contains("//PALETTE//"));
         assert!(

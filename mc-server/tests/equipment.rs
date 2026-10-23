@@ -129,11 +129,12 @@ async fn gear_life() {
         .unwrap();
     send_string(&mut s, 0x07, "강화").await;
     let w = opened(&mut s).await;
-    // 반지를 꼈으니 투구는 핫바 0 (창 칸 81)
+    // 반지를 꼈으니 투구는 핫바 0 (창 칸 81). 무엇을 누르든 창은 새 번호로 다시 열림
     send(&mut s, 0x12, &click(w, 81, &[], None)).await;
+    let mut w = opened(&mut s).await;
     let mut done = false;
     for _ in 0..6 {
-        send(&mut s, 0x12, &click(w, 31, &[], None)).await;
+        send(&mut s, 0x12, &click(w, 49, &[], None)).await;
         let m = text_of(
             &recv_where(&mut s, |p| {
                 p.id == SYSTEM_CHAT
@@ -141,6 +142,7 @@ async fn gear_life() {
             })
             .await,
         );
+        w = opened(&mut s).await;
         if m.contains("강화 성공") {
             done = true;
             break;

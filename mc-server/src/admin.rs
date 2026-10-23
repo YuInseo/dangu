@@ -258,9 +258,9 @@ pub const COMMANDS: &[Spec] = &[
     },
     Spec {
         name: "강화",
-        aliases: &["enhance"],
+        aliases: &["enhance", "손질", "장비손질", "forge"],
         level: 0,
-        usage: "/강화 — 장비 강화 (+30까지)",
+        usage: "/강화 [강화|연마|조율|전승|분해] — 장비 손질 창 (강화 +30·장인의 기운, 잠재능력 연마·조율, 전승, 분해)",
     },
     Spec {
         name: "대장간",
