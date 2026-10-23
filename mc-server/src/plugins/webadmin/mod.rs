@@ -35,6 +35,7 @@
 //! `/api/`는 모두 `Authorization: Bearer <토큰>`이 있어야 합니다. `PUT`에 `X-Dry-Run: 1`을 붙이면
 //! 확인만 하고 저장하지 않습니다.
 
+mod gear;
 mod players;
 
 use std::path::PathBuf;
@@ -246,7 +247,7 @@ impl Response {
              Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n\
              X-Frame-Options: DENY\r\nReferrer-Policy: no-referrer\r\n\
              Content-Security-Policy: default-src 'none'; script-src 'unsafe-inline'; \
-             style-src 'unsafe-inline'; connect-src 'self'\r\nConnection: close\r\n\r\n",
+             style-src 'unsafe-inline'; connect-src 'self'; img-src blob:\r\nConnection: close\r\n\r\n",
             self.status,
             self.kind,
             self.body.len()
@@ -469,6 +470,40 @@ pub fn handle(req: &Request, token: &str) -> Response {
                 ]),
             )
         }
+        ("GET", "gear") => {
+            let q = req.param("q").map(percent_decode);
+            let limit = req
+                .param("limit")
+                .and_then(|l| l.parse().ok())
+                .unwrap_or(200usize)
+                .min(2000);
+            Response::json(200, &gear::list(q.as_deref(), limit))
+        }
+        ("POST" | "PUT", "gear") => {
+            let parsed = std::str::from_utf8(&req.body)
+                .ok()
+                .and_then(|t| json::parse(t).ok());
+            match parsed.map(|j| gear::act(&j)) {
+                Some(Ok(msg)) => Response::json(
+                    200,
+                    &Json::Object(vec![
+                        ("ok".into(), Json::Bool(true)),
+                        ("message".into(), Json::String(msg)),
+                    ]),
+                ),
+                Some(Err(e)) => Response::error(400, &e),
+                None => Response::error(400, "JSON이 아닙니다"),
+            }
+        }
+        // 장비 손질 창 바탕 그림 (2배 해상도)
+        ("GET", "forge.png") => {
+            let g = crate::plugins::equip::forge_art::glyph(crate::plugins::equip::forge_art::BG);
+            Response {
+                status: 200,
+                kind: "image/png",
+                body: crate::resource_pack::png(g.img.w as u32, g.img.h as u32, &g.img.rgba()),
+            }
+        }
         ("GET", "players") => Response::json(200, &players::list()),
         ("POST" | "PUT", "players") => {
             let parsed = std::str::from_utf8(&req.body)
@@ -529,6 +564,29 @@ pub fn handle(req: &Request, token: &str) -> Response {
     }
 }
 
+/// 주소 쿼리의 `%XX`·`+` 풀기.
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        let hex = (b[i] == b'%' && i + 2 < b.len())
+            .then(|| std::str::from_utf8(&b[i + 1..i + 3]).ok())
+            .flatten()
+            .and_then(|h| u8::from_str_radix(h, 16).ok());
+        match (b[i], hex) {
+            (b'%', Some(v)) => {
+                out.push(v);
+                i += 2;
+            }
+            (b'+', _) => out.push(b' '),
+            (c, _) => out.push(c),
+        }
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
 fn save<T>(
     body: &[u8],
     decode: fn(&Json) -> Option<T>,
@@ -553,6 +611,15 @@ fn save<T>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn query_is_decoded() {
+        assert_eq!(
+            percent_decode("%EB%AF%B8%EC%8A%A4%EB%A6%B4+%EB%B0%98"),
+            "미스릴 반"
+        );
+        assert_eq!(percent_decode("a%2"), "a%2");
+    }
 
     fn req(method: &str, path: &str, token: Option<&str>, body: &str) -> Request {
         let mut headers = Vec::new();

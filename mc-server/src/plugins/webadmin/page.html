@@ -212,6 +212,22 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 
   <div id="tab-equip" hidden>
     <section class="card">
+      <h2>장비 손질 창 <span class="chip">/강화 · /손질</span></h2>
+      <p class="hint">게임 안 장비 손질 창(강화·연마·조율·전승·분해)의 수치. 아래 저장 버튼으로 적용됩니다.
+        장인의 기운: 강화에 실패할 때마다 (그 단계 성공 확률 × 비율)만큼 쌓이고, 100%면 다음 강화는 꼭 성공.</p>
+      <div class="grid" id="forge-misc"></div>
+      <details style="margin-top:10px"><summary>창 바탕 그림 보기 (리소스 팩에 들어가는 그림, 2배 크기)</summary>
+        <img id="forge-art" alt="장비 손질 창 바탕" style="max-width:100%;image-rendering:pixelated;margin-top:8px;border-radius:6px"></details>
+    </section>
+    <section class="card">
+      <h2>장비 목록 <span class="chip" id="gear-count"></span></h2>
+      <p class="hint">장비 한 개 한 개(일련번호)의 강화 단계 · 장인의 기운 · 잠재능력. 여기서 고치면 <b>바로</b> 저장되고,
+        가진 사람에게는 가방이 다시 그려질 때 보입니다. 착용자는 낀 장신구만 압니다.</p>
+      <div class="row"><input id="gear-q" placeholder="이름 · 일련번호 · 착용자" style="min-width:220px">
+        <button class="btn small" id="gear-load">찾기</button></div>
+      <div class="scroll" style="margin-top:8px"><table id="gear-list"></table></div>
+    </section>
+    <section class="card">
       <h2>강화 (+30까지)</h2>
       <p class="hint">+n → +n+1 성공 확률(%). 단계마다 기본 능력치가 "단계마다 +" 만큼, +10·+20·+30에서 "10단계마다 +" 만큼 더 오릅니다.
         비용: 돈 × (n+1)², 강화석 1 + n/3개. 실패해도 단계는 내려가지 않습니다. 악세서리는 강화 없음.</p>
@@ -533,6 +549,14 @@ function table(id, cols, rows, onDelete) {
 }
 function renderEquip() {
   const e = equipment.enhance;
+  const f = equipment.forge || (equipment.forge = { tune_money: 5000, tune_item: "hoya:magic_stone", tune_count: 2, inherit_money: 2000, salvage: 0.5 });
+  $("#forge-misc").replaceChildren(
+    el("label", {}, "장인의 기운 비율 (0.465)", num(e.artisan ?? 0.465, 0.005, v => e.artisan = v)),
+    el("label", {}, "조율: 돈", num(f.tune_money, 100, v => f.tune_money = Math.round(v))),
+    el("label", {}, "조율: 재료 아이템", text(f.tune_item, v => f.tune_item = v.trim())),
+    el("label", {}, "조율: 재료 개수", num(f.tune_count, 1, v => f.tune_count = Math.max(0, Math.round(v)))),
+    el("label", {}, "전승: 돈 × 단계²", num(f.inherit_money, 100, v => f.inherit_money = Math.round(v))),
+    el("label", {}, "분해: 돌려받는 비율 (0~1)", num(f.salvage, 0.05, v => f.salvage = Math.min(1, Math.max(0, v)))));
   $("#enhance-misc").replaceChildren(
     el("label", {}, "단계마다 + (0.05 = 5%)", num(e.per_level, 0.01, v => e.per_level = v)),
     el("label", {}, "10단계마다 +", num(e.milestone, 0.01, v => e.milestone = v)),
@@ -552,6 +576,44 @@ function renderEquip() {
   table("bosses", [["name", "이름", "text"], ["mob", "바탕 몹", "text"], ["health", "체력", 10], ["damage", "공격 배율", 0.1], ["spawn_chance", "자연 스폰 확률", 0.001], ["raid", "레이드", "bool"]], equipment.bosses);
   table("shop", [["item", "아이템", "text"], ["price", "값", 100]], equipment.shop);
 }
+// 장비 한 개 한 개 (바로 저장)
+async function loadGear() {
+  const q = $("#gear-q").value.trim();
+  const r = await api("GET", "gear?limit=300" + (q ? "&q=" + encodeURIComponent(q) : ""));
+  $("#gear-count").textContent = `${r.gear.length} / ${r.total}개`;
+  const t = $("#gear-list");
+  t.replaceChildren(el("tr", {}, ...["번호", "장비", "강화", "장인의 기운 %", "잠재능력", "남은 횟수", "착용자", ""].map(h => el("th", {}, h))),
+    ...r.gear.map(g => {
+      const enh = el("input", { type: "number", min: 0, max: 30, value: g.enhance, style: "width:56px", disabled: g.accessory });
+      const art = el("input", { type: "number", min: 0, max: 100, step: 0.5, value: Math.round(g.artisan * 1000) / 10, style: "width:64px", disabled: g.accessory });
+      const tries = el("input", { type: "number", min: 0, value: g.tries_left, style: "width:56px", disabled: !g.accessory });
+      const send = async body => {
+        try { const res = await api("POST", "gear", { serial: g.serial, ...body }); status(res.message, "ok"); await loadGear(); }
+        catch (e) { status(e.message, "bad"); }
+      };
+      return el("tr", {},
+        el("td", {}, String(g.serial)),
+        el("td", {}, el("b", { textContent: (g.accessory ? "" : `+${g.enhance} `) + g.name }), el("div", { className: "hint", textContent: `${g.part} · ${g.grade}` })),
+        el("td", {}, enh), el("td", {}, art),
+        el("td", {}, g.potential || "—", g.scroll ? el("div", { className: "hint", textContent: g.scroll + " 주문서" }) : ""),
+        el("td", {}, tries, g.accessory ? ` / ${g.max_tries}` : ""),
+        el("td", {}, g.wearer || "—"),
+        el("td", {}, el("div", { className: "row" },
+          el("button", { className: "btn small", textContent: "저장", on: { click: () => send(g.accessory
+            ? { tries_left: parseInt(tries.value) || 0 }
+            : { enhance: parseInt(enh.value) || 0, artisan: (parseFloat(art.value) || 0) / 100 }) } }),
+          g.accessory && g.potential ? el("button", { className: "btn small danger", textContent: "잠재 지우기",
+            on: { click: () => confirm(`${g.serial}번 ${g.name}의 잠재능력을 지울까요?`) && send({ clear_potential: true }) } }) : "")));
+    }));
+}
+async function loadForgeArt() {
+  const img = $("#forge-art");
+  if (img.src) return;
+  const r = await fetch("/api/forge.png", { headers: { "Authorization": "Bearer " + token } });
+  if (r.ok) img.src = URL.createObjectURL(await r.blob());
+}
+$("#gear-load").onclick = () => loadGear().catch(e => status(e.message, "bad"));
+$("#gear-q").onkeydown = e => { if (e.key === "Enter") $("#gear-load").click(); };
 $("#add-potential").onclick = () => { equipment.potentials.push({ stat: "str", weight: 5, min: 1, max: 3 }); markDirty(); renderEquip(); };
 $("#equip-default").onclick = async () => { equipment = await api("GET", "equipment/default"); markDirty(); renderAll(); status("기본값을 채웠습니다. 저장해야 적용됩니다."); };
 
@@ -865,6 +927,7 @@ function show(t) {
   if (tab === "raw" && t !== "raw") { try { readRaw(); renderGuild(); renderQuests(); renderEquip(); renderServer(); renderShops(); } catch (e) { status(e.message, "bad"); return; } }
   if (t === "raw") renderRaw();
   if (t === "players") loadPlayers().catch(e => status(e.message, "bad"));
+  if (t === "equip") { loadGear().catch(e => status(e.message, "bad")); loadForgeArt().catch(() => {}); }
   if (t === "chat") { renderChat(); pollChat(); }
   if (t === "dash") { renderDash(); pollStatus(); pollConsole(); if (!envLoaded) loadEnv(); }
   tab = t;
