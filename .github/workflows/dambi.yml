@@ -30,6 +30,8 @@ jobs:
     env:
       # 실행 파일이 자기 버전을 아는 길 (자동 업데이트가 이것과 릴리스의 dambi-build.txt를 비교)
       DAMBI_BUILD: ${{ github.sha }}
+      # 늘기만 하는 빌드 차례: 이보다 큰 릴리스만 "새 버전"
+      DAMBI_BUILD_NUM: ${{ github.run_number }}
     defaults:
       run:
         working-directory: mc-server
@@ -48,6 +50,9 @@ jobs:
           workspaces: mc-server
 
       - name: 시험
+        # 시험 중에 켜지는 서버가 릴리스에서 옛 빌드를 받아 자기를 덮지 않게
+        env:
+          MC_AUTO_UPDATE: "false"
         run: cargo test --release
 
       - name: 리눅스 빌드
@@ -63,7 +68,7 @@ jobs:
       - name: 윈도우 빌드
         run: |
           ./tools/package_windows.sh
-          printf '%s\n' "$DAMBI_BUILD" > dist/dambi-build.txt
+          printf '%s %s\n' "$DAMBI_BUILD_NUM" "$DAMBI_BUILD" > dist/dambi-build.txt
 
       - name: 릴리스 이름
         id: rel

@@ -3,7 +3,9 @@
 //!
 //! - 이 빌드가 누구인지는 CI가 넣는 커밋 번호(`DAMBI_BUILD`)로 압니다. 직접 빌드한 것(번호 없음)은
 //!   업데이트하지 않습니다 — 개발 중인 코드를 릴리스로 덮으면 안 되니까.
-//! - 릴리스에는 `dambi-build.txt`(커밋 번호)와 실행 파일(`mc-server.exe` / `mc-server-linux`)이 있습니다.
+//! - 릴리스에는 `dambi-build.txt`(`<빌드 차례> <커밋 번호>`)와 실행 파일(`mc-server.exe` / `mc-server-linux`)이 있습니다.
+//! - 차례(`DAMBI_BUILD_NUM`, CI의 실행 번호)가 이 빌드보다 큰 것만 받습니다 — 커밋만 다르다고
+//!   받으면 아직 릴리스를 올리기 전인 새 빌드가 옛 릴리스로 내려갑니다.
 //! - 켤 때: 새 빌드가 있으면 받아서 바꾸고 곧바로 다시 켬 (아직 아무도 없으니).
 //! - 도는 중 (30분마다): 받아 두고(`<실행 파일>.new`) 알림. 접속자가 없으면 저장하고 다시 켜서
 //!   적용, 있으면 다음에 켤 때 적용. `/업데이트` (OP 4, 콘솔)는 지금 저장하고 다시 켬.
@@ -20,6 +22,9 @@ use std::time::Duration;
 
 /// CI가 넣는 이 빌드의 커밋 번호.
 pub const BUILD: Option<&str> = option_env!("DAMBI_BUILD");
+
+/// CI가 넣는 이 빌드의 차례 (워크플로 실행 번호, 늘기만 함).
+pub const BUILD_NUM: Option<&str> = option_env!("DAMBI_BUILD_NUM");
 
 /// 시작 스크립트(`서버 켜기.bat`, `start.sh`)가 "다시 켜 달라"로 알아듣는 종료 코드.
 pub const RESTART_EXIT_CODE: i32 = 75;
@@ -202,7 +207,21 @@ pub fn assets(release: &crate::json::Json) -> Option<(String, String)> {
     Some((url(BUILD_ASSET)?, url(asset_name())?))
 }
 
-/// 릴리스에 이 빌드와 다른 것이 있나 (블로킹).
+/// `dambi-build.txt`(`<차례> <커밋>`)가 이 빌드(`mine`, `mine_num`)보다 새 것이면 그 커밋.
+/// 차례가 없는 옛 형식은 차례를 쓰기 전의 빌드라 더 새 것일 수 없습니다.
+fn newer(mine: &str, mine_num: Option<u64>, remote: &str) -> Option<String> {
+    let mut words = remote.split_whitespace();
+    let (num, build) = match (words.next(), words.next()) {
+        (Some(n), Some(b)) => (n.parse::<u64>().ok()?, b),
+        _ => return None,
+    };
+    if build == mine || mine_num.is_some_and(|m| num <= m) {
+        return None;
+    }
+    Some(build.to_owned())
+}
+
+/// 릴리스에 이 빌드보다 새 것이 있나 (블로킹).
 pub fn check() -> Result<Option<Available>, String> {
     let Some(mine) = BUILD else {
         return Ok(None);
@@ -218,12 +237,11 @@ pub fn check() -> Result<Option<Available>, String> {
     let Some((build_url, exe_url)) = assets(&release) else {
         return Ok(None);
     };
-    let build = String::from_utf8_lossy(&get(&build_url, "*/*")?)
-        .trim()
-        .to_owned();
-    if build.is_empty() || build == mine {
+    let remote = String::from_utf8_lossy(&get(&build_url, "*/*")?).into_owned();
+    let mine_num = BUILD_NUM.and_then(|n| n.trim().parse().ok());
+    let Some(build) = newer(mine, mine_num, &remote) else {
         return Ok(None);
-    }
+    };
     Ok(Some(Available {
         build,
         url: exe_url,
@@ -389,6 +407,19 @@ mod tests {
             split_url("https://api.github.com/repos/a/b"),
             Some(("api.github.com".into(), "/repos/a/b".into()))
         );
+    }
+
+    #[test]
+    fn only_later_builds_count_as_newer() {
+        assert_eq!(newer("aaa", Some(4), "5 bbb\n"), Some("bbb".into()));
+        // 릴리스가 아직 옛 빌드 (CI가 시험하는 중인 새 빌드) → 내려가지 않음
+        assert_eq!(newer("bbb", Some(5), "4 aaa\n"), None);
+        assert_eq!(newer("aaa", Some(4), "4 aaa"), None);
+        // 차례가 없는 옛 형식은 늘 더 옛 것
+        assert_eq!(newer("bbb", Some(5), "917f7f0f"), None);
+        assert_eq!(newer("aaa", None, ""), None);
+        // 차례를 모르는 빌드는 커밋만 다르면 받음
+        assert_eq!(newer("aaa", None, "7 bbb"), Some("bbb".into()));
     }
 
     #[test]
