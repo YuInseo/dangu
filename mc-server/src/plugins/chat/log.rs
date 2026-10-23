@@ -115,7 +115,7 @@ mod tests {
 
     #[test]
     fn appends_and_reads_new_lines_only() {
-        let dir = std::env::temp_dir().join(format!("dangu-chatlog-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-chatlog-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let p = dir.join("chat.log");

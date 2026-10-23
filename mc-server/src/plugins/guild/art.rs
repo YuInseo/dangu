@@ -1,4 +1,4 @@
-//! 작물 성장 촉진제 아이템: 직접 찍은 도트와 ItemsAdder 모양 설정 (내장 콘텐츠 팩 `dangu`).
+//! 작물 성장 촉진제 아이템: 직접 찍은 도트와 ItemsAdder 모양 설정 (내장 콘텐츠 팩 `hoya`).
 
 use crate::plugins::contents::source::Pack;
 use crate::resource_pack::{Sprite, png};
@@ -40,7 +40,7 @@ pub const CROP_BOOSTER: Sprite = Sprite {
 
 const YML: &str = r#"# 서버에 들어 있는 길드 아이템 (ItemsAdder 설정과 같은 모양)
 info:
-  namespace: dangu
+  namespace: hoya
 items:
   crop_booster:
     name: "<#7BD14F>작물 성장 촉진제"
@@ -56,10 +56,10 @@ items:
 
 pub fn pack() -> Pack {
     Pack {
-        name: "dangu".into(),
-        configs: vec![("(서버 내장) dangu/configs/guild.yml".into(), YML.into())],
+        name: "hoya".into(),
+        configs: vec![("(서버 내장) hoya/configs/guild.yml".into(), YML.into())],
         files: vec![(
-            "assets/dangu/textures/item/crop_booster.png".into(),
+            "assets/hoya/textures/item/crop_booster.png".into(),
             png(16, 16, &CROP_BOOSTER.rgba()),
         )],
     }

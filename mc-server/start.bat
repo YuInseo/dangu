@@ -1,5 +1,5 @@
 @echo off
-rem dangu 서버 켜기 (윈도우). start.bat master = 담비 마스터.
+rem hoya 서버 켜기 (윈도우). start.bat master = 담비 마스터.
 rem 꺼지면(충돌) 5초 뒤 다시 켭니다. stop 으로 끄면 그대로 끝납니다.
 chcp 65001 >nul
 cd /d "%~dp0"
@@ -16,7 +16,7 @@ if errorlevel 1 (
   exit /b 1
 )
 :loop
-set DANGU_LAUNCHER=start.bat
+set HOYA_LAUNCHER=start.bat
 target\release\mc-server.exe %*
 if %errorlevel%==0 goto end
 if %errorlevel%==75 goto loop

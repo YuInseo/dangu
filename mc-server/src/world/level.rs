@@ -166,7 +166,7 @@ pub fn write_level_dat(dir: &Path, level: &Level, state: &LevelState) -> std::io
         ),
         ("raining".into(), Tag::Byte(0)),
         ("thundering".into(), Tag::Byte(0)),
-        ("ServerBrands".into(), Tag::List(vec![s("dangu")])),
+        ("ServerBrands".into(), Tag::List(vec![s("hoya")])),
     ]);
     let mut raw = Vec::new();
     Tag::Compound(vec![("Data".into(), data)]).write_named("", &mut raw);
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn creates_once_and_keeps_seed() {
-        let dir = std::env::temp_dir().join(format!("dangu-level-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-level-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         assert!(ensure(&dir, "t", 42).unwrap());
         // level.dat은 gzip NBT이고 시드가 들어 있음

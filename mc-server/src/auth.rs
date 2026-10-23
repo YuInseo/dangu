@@ -167,7 +167,7 @@ async fn https_get(host: &'static str, path: String) -> Result<(u16, String), St
         tcp.set_write_timeout(Some(Duration::from_secs(10))).ok();
         let mut tls = rustls::StreamOwned::new(conn, tcp);
         let request = format!(
-            "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: dangu-mc\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
+            "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: hoya-mc\r\nAccept: application/json\r\nConnection: close\r\n\r\n"
         );
         tls.write_all(request.as_bytes()).map_err(|e| e.to_string())?;
         let mut response = Vec::new();

@@ -173,7 +173,7 @@ mod tests {
         assert_eq!(clean_host("play.example.com\0FML3\0"), "play.example.com");
         assert_eq!(clean_host("mc.example.com."), "mc.example.com");
         assert_eq!(clean_host(" localhost "), "localhost");
-        let r = legacy_ping_reply("Dangu", 3, 100);
+        let r = legacy_ping_reply("Hoya", 3, 100);
         assert_eq!(r[0], 0xFF);
         let n = u16::from_be_bytes([r[1], r[2]]) as usize;
         assert_eq!(r.len(), 3 + n * 2);

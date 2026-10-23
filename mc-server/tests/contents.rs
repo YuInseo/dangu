@@ -52,12 +52,12 @@ fn click(window: i32, slot: i16) -> Vec<u8> {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn itemsadder_style_contents() {
-    let dir = std::env::temp_dir().join(format!("dangu-contents-e2e-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("hoya-contents-e2e-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     copy_dir(Path::new("examples/contents"), &dir);
     let loaded = mc_server::plugins::contents::reload_from(&dir);
     assert!(loaded.errors.is_empty(), "{:?}", loaded.errors);
-    // 서버 내장 팩(dangu: 복권)을 빼면 예시 팩의 아이템 3개
+    // 서버 내장 팩(hoya: 복권)을 빼면 예시 팩의 아이템 3개
     let example: Vec<_> = loaded
         .items
         .iter()
@@ -72,7 +72,7 @@ async fn itemsadder_style_contents() {
         .find(|c| c.name == "새 방식")
         .unwrap();
     assert_eq!(modern.items.len(), 4, "{:?}", modern.items);
-    assert!(loaded.items.iter().any(|i| i == "dangu:lottery_ticket"));
+    assert!(loaded.items.iter().any(|i| i == "hoya:lottery_ticket"));
     // 리소스 팩에 그림·모델·블록 상태·폰트
     let pack = mc_server::resource_pack::rebuild();
     let zip = String::from_utf8_lossy(&pack.bytes);

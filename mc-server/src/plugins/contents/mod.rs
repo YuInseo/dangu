@@ -145,7 +145,7 @@ pub fn apply(server: &crate::Server) -> Vec<String> {
 }
 
 /// 전역 버스에서 팩을 다시 만들라는 채널.
-pub const PACK_RELOAD: &str = "dangu:pack_reload";
+pub const PACK_RELOAD: &str = "hoya:pack_reload";
 
 /// 콘텐츠를 다시 읽고 팩을 새로 만듭니다.
 pub fn reload_and_rebuild() -> Arc<Loaded> {
@@ -282,18 +282,14 @@ categories:
 
     #[test]
     fn loads_items_blocks_fonts_and_builds_pack_files() {
-        let dir = std::env::temp_dir().join(format!("dangu-contents-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-contents-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         sample(&dir);
         let l = load(&dir);
-        let mine: Vec<&String> = l
-            .items
-            .iter()
-            .filter(|i| !i.starts_with("dangu:"))
-            .collect();
+        let mine: Vec<&String> = l.items.iter().filter(|i| !i.starts_with("hoya:")).collect();
         assert_eq!(mine, vec!["myitems:ruby", "myitems:ruby_block"]);
         assert!(
-            l.items.contains(&"dangu:lottery_ticket".to_owned()),
+            l.items.contains(&"hoya:lottery_ticket".to_owned()),
             "built-in pack"
         );
         assert_eq!(l.errors.len(), 1, "{:?}", l.errors);

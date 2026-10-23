@@ -47,7 +47,7 @@ fn content(body: &[u8]) -> (i32, Vec<Option<(i32, i32)>>) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn chest_and_inventory_persist() {
-    let dir = std::env::temp_dir().join(format!("dangu-storage-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("hoya-storage-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let server = Arc::new(Server::open(test_info(), SEED, dir.clone()).unwrap());
     let addr = start_server_with(Arc::clone(&server)).await;

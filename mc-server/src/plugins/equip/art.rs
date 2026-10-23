@@ -904,15 +904,15 @@ fn yaml_str(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// 아이템 id의 짧은 이름 (`dangu:mithril_helmet` → `mithril_helmet`).
+/// 아이템 id의 짧은 이름 (`hoya:mithril_helmet` → `mithril_helmet`).
 fn short(id: &str) -> &str {
     id.split_once(':').map_or(id, |(_, n)| n)
 }
 
-/// 장비·재료·광석 아이템과 그림 (`dangu` 콘텐츠 팩).
+/// 장비·재료·광석 아이템과 그림 (`hoya` 콘텐츠 팩).
 pub fn pack(cfg: &EquipConfig) -> Pack {
     let mut yml = String::from(
-        "# 서버에 들어 있는 장비·재료 (설정: world/equipment.json)\ninfo:\n  namespace: dangu\nitems:\n",
+        "# 서버에 들어 있는 장비·재료 (설정: world/equipment.json)\ninfo:\n  namespace: hoya\nitems:\n",
     );
     let mut files = Vec::new();
     let mut equipments: Vec<String> = Vec::new();
@@ -951,15 +951,13 @@ pub fn pack(cfg: &EquipConfig) -> Pack {
         ));
         if let Some(slot) = slot {
             let eq = g.set.clone().unwrap_or_else(|| g.palette.clone());
-            yml.push_str(&format!(
-                "    equipment: {{id: dangu:{eq}, slot: {slot}}}\n"
-            ));
+            yml.push_str(&format!("    equipment: {{id: hoya:{eq}, slot: {slot}}}\n"));
             if !equipments.contains(&eq) {
                 equipments.push(eq);
             }
         }
         files.push((
-            format!("assets/dangu/textures/item/equip/{name}.png"),
+            format!("assets/hoya/textures/item/equip/{name}.png"),
             gear_icon(g).png(),
         ));
     }
@@ -990,7 +988,7 @@ pub fn pack(cfg: &EquipConfig) -> Pack {
         }
         yml.push_str(&format!("    graphics: {{texture: item/equip/{name}}}\n"));
         files.push((
-            format!("assets/dangu/textures/item/equip/{name}.png"),
+            format!("assets/hoya/textures/item/equip/{name}.png"),
             material_icon(m).png(),
         ));
     }
@@ -1013,7 +1011,7 @@ pub fn pack(cfg: &EquipConfig) -> Pack {
         ));
         yml.push_str("    specific_properties:\n      block:\n        placed_model: {type: REAL_NOTE}\n        drop_when_mined: false\n");
         files.push((
-            format!("assets/dangu/textures/block/{name}.png"),
+            format!("assets/hoya/textures/block/{name}.png"),
             ore_block(o).png(),
         ));
     }
@@ -1025,18 +1023,18 @@ pub fn pack(cfg: &EquipConfig) -> Pack {
             ));
             let (l1, l2) = armor_layers(eq);
             files.push((
-                format!("assets/dangu/textures/entity/{eq}_layer_1.png"),
+                format!("assets/hoya/textures/entity/{eq}_layer_1.png"),
                 l1.png(),
             ));
             files.push((
-                format!("assets/dangu/textures/entity/{eq}_layer_2.png"),
+                format!("assets/hoya/textures/entity/{eq}_layer_2.png"),
                 l2.png(),
             ));
         }
     }
     Pack {
-        name: "dangu".into(),
-        configs: vec![("(서버 내장) dangu/configs/equipment.yml".into(), yml)],
+        name: "hoya".into(),
+        configs: vec![("(서버 내장) hoya/configs/equipment.yml".into(), yml)],
         files,
     }
 }
@@ -1178,7 +1176,7 @@ mod tests {
         let yml = &p.configs[0].1;
         assert!(
             yml.contains("mithril_helmet:")
-                && yml.contains("equipment: {id: dangu:mithril, slot: head}")
+                && yml.contains("equipment: {id: hoya:mithril, slot: head}")
         );
         assert!(yml.contains("drop_when_mined: false"));
         assert!(

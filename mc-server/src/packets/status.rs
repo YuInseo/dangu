@@ -75,7 +75,7 @@ mod tests {
     #[test]
     fn json_has_the_expected_fields() {
         let json = ServerInfo {
-            name: "Dangu \"MC\"".into(),
+            name: "Hoya \"MC\"".into(),
             description: "순수 Rust 커스텀 서버입니다".into(),
             max_players: 100,
         }
@@ -83,7 +83,7 @@ mod tests {
 
         assert!(json.contains(r#""version":{"name":"26.3","protocol":777}"#));
         assert!(json.contains(r#""players":{"max":100,"online":0,"sample":[]}"#));
-        assert!(json.contains(r#""text":"Dangu \"MC\"""#));
+        assert!(json.contains(r#""text":"Hoya \"MC\"""#));
         assert!(json.contains("순수 Rust 커스텀 서버입니다"));
     }
 

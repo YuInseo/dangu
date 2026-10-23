@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn chest_contents_survive_restart() {
-        let dir = std::env::temp_dir().join(format!("dangu-chest-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-chest-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let c = Containers::open(Some(dir.clone())).unwrap();
         c.set_slot(Dimension::Nether, (1, 70, -2), 13, Some(Item::new(5, 32)));

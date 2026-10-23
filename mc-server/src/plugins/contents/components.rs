@@ -603,7 +603,7 @@ pub fn raw_component(b: &mut Built, name: &str, v: &Json) {
                     &mut body,
                     m.get("id")
                         .and_then(Json::as_str)
-                        .unwrap_or("dangu:modifier"),
+                        .unwrap_or("hoya:modifier"),
                 );
                 body.extend_from_slice(&amount.to_be_bytes());
                 let op = match m

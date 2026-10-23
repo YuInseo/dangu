@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>dangu 관리</title>
+<title>hoya 관리</title>
 <style>
 :root {
   --bg: #f4f5f8; --panel: #fff; --ink: #1d2030; --muted: #6b7088; --line: #dfe2ea;
@@ -84,7 +84,7 @@ button:disabled { opacity: .42; cursor: not-allowed; }
 </head>
 <body>
 <header>
-  <h1>dangu 관리</h1>
+  <h1>hoya 관리</h1>
   <nav>
     <button data-tab="dash" class="on">대시보드</button>
     <button data-tab="guild">길드</button>
@@ -113,7 +113,7 @@ button:disabled { opacity: .42; cursor: not-allowed; }
     <section class="card">
       <div class="row" style="gap:10px">
         <span id="srv-pill" class="pill stopped">확인 중</span>
-        <b style="font-size:16px">dangu 서버</b>
+        <b style="font-size:16px">hoya 서버</b>
         <span class="chip" id="srv-uptime"></span>
         <span class="spacer"></span>
         <button class="btn primary" id="srv-start">▶ 켜기</button>
@@ -194,7 +194,7 @@ button:disabled { opacity: .42; cursor: not-allowed; }
       <p class="hint">일일: 매일 0시(한국)에 사람마다 아래 자원 중 최소~최대 가지를 뽑음 (개수 = 일일 개수).
         주간: 월요일에 같은 방식으로, 개수 × 주간 배율. 길드: 매일 길드마다, 개수 × 길드 배율 (길드원이 함께 냄).
         뽑힌 것을 <b>모두</b> 내면 보상 한 번. 받는 아이템은 쉼표로 여럿 (<code>raw_iron, iron_ingot</code>, <code>*_planks</code>).
-        <code>dangu:</code> 아이템은 그 콘텐츠가 있을 때만 뽑힙니다 (지금 없는 물고기·특수 작물은 건너뜀).</p>
+        <code>hoya:</code> 아이템은 그 콘텐츠가 있을 때만 뽑힙니다 (지금 없는 물고기·특수 작물은 건너뜀).</p>
       <div class="grid" id="supply-misc"></div>
       <div class="scroll" style="margin-top:10px"><table id="supply"></table></div>
       <div class="row" style="margin-top:8px"><button class="btn small" id="add-resource">자원 추가</button></div>
@@ -267,7 +267,7 @@ button:disabled { opacity: .42; cursor: not-allowed; }
     <section class="card">
       <h2>상점</h2>
       <p class="hint">상점 하나 = 재화 하나(돈·캐시·잠수 포인트). 물건마다 한 묶음 개수와 살 값·팔 값 (0이면 그쪽은 안 됨).
-        물건: 바닐라 이름(<code>cobblestone</code>), 우리 아이템(<code>dangu:enhance_stone</code>), 특수 <code>@fly:초</code>(플라이) ·
+        물건: 바닐라 이름(<code>cobblestone</code>), 우리 아이템(<code>hoya:enhance_stone</code>), 특수 <code>@fly:초</code>(플라이) ·
         <code>@autoplant:블록</code>(자동심기). 팔 값이 살 값보다 크면 돈이 무한히 생기므로 저장되지 않습니다.
         게임: <code>/상점 [id]</code>, 퀵메뉴 광장 워프의 상점·캐시상점.</p>
       <div id="shops"></div>
@@ -448,7 +448,7 @@ function questCard(list, q, i) {
     el("label", {}, "거르기 (쉼표)", text(csv(q.objective.filter), v => q.objective.filter = uncsv(v), { placeholder: "비우면 아무거나" })),
     el("label", {}, "보상 돈", num(q.rewards.money, 1, v => q.rewards.money = v)),
     el("label", {}, "보상 캐시", num(q.rewards.cash, 1, v => q.rewards.cash = v)),
-    el("label", {}, "보상 아이템 (id:개수, …)", text(pairs(q.rewards.items, "item", "count"), v => q.rewards.items = unpairs(v, "item", "count"), { placeholder: "bread:8, dangu:crop_booster:1" })),
+    el("label", {}, "보상 아이템 (id:개수, …)", text(pairs(q.rewards.items, "item", "count"), v => q.rewards.items = unpairs(v, "item", "count"), { placeholder: "bread:8, hoya:crop_booster:1" })),
     el("label", {}, "직업 경험치 (직업:경험치, …)", text(pairs(q.rewards.job_xp, "job", "xp"), v => q.rewards.job_xp = unpairs(v, "job", "xp"), { placeholder: "광부:200" })),
   ];
   if (list === "guild_weekly") fields.push(el("label", {}, "길드 GP", num(q.rewards.gp, 1, v => q.rewards.gp = v)));
@@ -913,7 +913,7 @@ window.addEventListener("beforeunload", e => { if (dirty) e.preventDefault(); })
 function showLogin() { $("#login").hidden = false; for (const k of ["dash", "guild", "quests", "equip", "server", "shops", "players", "chat", "raw"]) $("#tab-" + k).hidden = true; }
 $("#login-go").onclick = () => {
   token = $("#token").value.trim();
-  try { sessionStorage.setItem("dangu-token", token); } catch {}
+  try { sessionStorage.setItem("hoya-token", token); } catch {}
   $("#login").hidden = true;
   load().catch(e => status(e.message, "bad"));
 };
@@ -922,10 +922,10 @@ $("#login-go").onclick = () => {
   const m = location.hash.match(/token=([^&]+)/);
   if (m) {
     token = decodeURIComponent(m[1]);
-    try { sessionStorage.setItem("dangu-token", token); } catch {}
+    try { sessionStorage.setItem("hoya-token", token); } catch {}
     history.replaceState(null, "", location.pathname);
   } else {
-    try { token = sessionStorage.getItem("dangu-token") || ""; } catch {}
+    try { token = sessionStorage.getItem("hoya-token") || ""; } catch {}
   }
   if (!token) return showLogin();
   load().catch(e => status(e.message, "bad"));

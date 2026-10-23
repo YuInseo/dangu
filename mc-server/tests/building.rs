@@ -25,7 +25,7 @@ fn block_update(body: &[u8]) -> ((i32, i32, i32), i32) {
 
 #[tokio::test]
 async fn place_and_break_are_shared_and_saved() {
-    let dir = std::env::temp_dir().join(format!("dangu-building-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("hoya-building-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let server = Arc::new(Server::open(test_info(), SEED, dir.clone()).unwrap());
     let addr = start_server_with(Arc::clone(&server)).await;

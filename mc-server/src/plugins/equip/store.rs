@@ -244,7 +244,7 @@ mod tests {
     fn gears_round_trip_and_potentials_roll() {
         let cfg = EquipConfig::default();
         let mut d = Data::default();
-        let ring = cfg.gear_def("dangu:mithril_ring").unwrap();
+        let ring = cfg.gear_def("hoya:mithril_ring").unwrap();
         let s = d.create(ring);
         assert_eq!(s, SERIAL_BASE);
         assert_eq!(d.create(ring), SERIAL_BASE + 1);

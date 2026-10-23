@@ -51,7 +51,7 @@ fn added(p: &mc_server::protocol::frame::RawPacket) -> (i32, i32) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn create_click_retype_and_persist() {
-    let dir = std::env::temp_dir().join(format!("dangu-npc-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("hoya-npc-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let server = Arc::new(Server::open(test_info(), SEED, dir.clone()).unwrap());
     let addr = start_server_with(Arc::clone(&server)).await;

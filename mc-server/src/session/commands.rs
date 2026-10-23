@@ -589,7 +589,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if name == here {
             return self.error(&format!("이미 {name}에 있습니다.")).await;
         }
-        let node = format!("dangu.server.{name}");
+        let node = format!("hoya.server.{name}");
         if !self.server.perms.has(self.profile.uuid, &node, 0) {
             return self
                 .error(&format!("{name}에 들어갈 권한이 없습니다."))
@@ -683,8 +683,8 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 self.error(&format!("이미 {name}에 있습니다.")).await
             }
             Some(to) => {
-                let node = format!("dangu.server.{name}");
-                // 인스턴스마다 막고 싶으면 `-dangu.server.<이름>` 권한으로
+                let node = format!("hoya.server.{name}");
+                // 인스턴스마다 막고 싶으면 `-hoya.server.<이름>` 권한으로
                 if !self.server.perms.has(self.profile.uuid, &node, 0) {
                     return self
                         .error(&format!("{name}에 들어갈 권한이 없습니다."))

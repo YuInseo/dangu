@@ -391,7 +391,7 @@ mod tests {
 
     #[test]
     fn changes_survive_a_restart_in_region_files() {
-        let dir = std::env::temp_dir().join(format!("dangu-store-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-store-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
 
         let store = WorldStore::open(5, Some(dir.clone())).unwrap();
@@ -425,7 +425,7 @@ mod tests {
 
     #[test]
     fn legacy_block_list_is_migrated() {
-        let dir = std::env::temp_dir().join(format!("dangu-legacy-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-legacy-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let mut bytes = LEGACY_MAGIC.to_vec();

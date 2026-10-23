@@ -21,7 +21,7 @@ use crate::server::Event;
 use crate::session::play::Session;
 use crate::text;
 
-/// 아이템 → 우리 것이면 `dangu:…`, 바닐라면 이름.
+/// 아이템 → 우리 것이면 `hoya:…`, 바닐라면 이름.
 pub fn item_key(item: &Item) -> String {
     match item.custom.and_then(custom_items::get) {
         Some(c) => c.id,
@@ -29,9 +29,9 @@ pub fn item_key(item: &Item) -> String {
     }
 }
 
-/// `dangu:…` 또는 바닐라 이름 → 아이템 하나 (일련번호 없음).
+/// `hoya:…` 또는 바닐라 이름 → 아이템 하나 (일련번호 없음).
 pub fn item_of(key: &str, count: i32) -> Option<Item> {
-    if key.starts_with("dangu:") {
+    if key.starts_with("hoya:") {
         let index = custom_items::index_of(key)?;
         let def = custom_items::get(index)?;
         Some(Item {
@@ -175,7 +175,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         Ok(Some(serial))
     }
 
-    /// `dangu:…`(장비면 하나씩 일련번호) 또는 바닐라 아이템 주기.
+    /// `hoya:…`(장비면 하나씩 일련번호) 또는 바닐라 아이템 주기.
     pub(crate) async fn give_key(&mut self, key: &str, count: i32) -> std::io::Result<bool> {
         if let Some(def) = config::with(|c| c.gear_def(key).cloned()) {
             for _ in 0..count.clamp(1, 36) {
@@ -358,7 +358,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         crate::plugins::rank::job_xp(self.profile.uuid, "광부", ore.xp).await;
         self.quest_happened(crate::plugins::quest::Happened {
             kind: "ores",
-            name: id.trim_start_matches("dangu:").to_owned(),
+            name: id.trim_start_matches("hoya:").to_owned(),
             amount: 1,
         })
         .await?;
@@ -378,14 +378,14 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
                 if !self
                     .server
                     .perms
-                    .has(self.profile.uuid, "dangu.command.equip.give", 2)
+                    .has(self.profile.uuid, "hoya.command.equip.give", 2)
                 {
                     return self.error("권한이 없습니다.").await;
                 }
                 let id = if id.contains(':') {
                     (*id).to_owned()
                 } else {
-                    format!("dangu:{id}")
+                    format!("hoya:{id}")
                 };
                 let n = rest.first().and_then(|s| s.parse().ok()).unwrap_or(1);
                 if self.give_key(&id, n).await? {
@@ -435,7 +435,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         if !self
             .server
             .perms
-            .has(self.profile.uuid, "dangu.command.boss", 2)
+            .has(self.profile.uuid, "hoya.command.boss", 2)
         {
             return self.error("권한이 없습니다.").await;
         }

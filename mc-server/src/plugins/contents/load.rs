@@ -722,12 +722,12 @@ pub fn load(base: &Path) -> Loaded {
                 .into_bytes(),
         );
     }
-    // 목록이 없으면 이름공간마다 하나씩 (서버 내장 dangu는 빼고)
+    // 목록이 없으면 이름공간마다 하나씩 (서버 내장 hoya는 빼고)
     if l.categories.is_empty() {
         let mut by_ns: BTreeMap<String, Vec<String>> = BTreeMap::new();
         for id in l.items.iter().filter(|i| !l.hidden.contains(i)) {
             let ns = id.split(':').next().unwrap_or("").to_owned();
-            if ns != "dangu" {
+            if ns != "hoya" {
                 by_ns.entry(ns).or_default().push(id.clone());
             }
         }

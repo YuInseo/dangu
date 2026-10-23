@@ -2,7 +2,7 @@
 //! 옮기고 색을 입히는 텍스트 셰이더.
 //!
 //! 마인크래프트는 보스바 제목과 액션바를 화면 가운데에 그립니다. 그래서
-//! - 줄(세로 위치)은 폰트마다 `ascent`를 달리 해서 정하고 (`dangu:hud/t0`, `b3`, …),
+//! - 줄(세로 위치)은 폰트마다 `ascent`를 달리 해서 정하고 (`hoya:hud/t0`, `b3`, …),
 //! - 가로 위치는 공백 글자(`space` 공급자)로 정하고,
 //! - 글자 색 `#FD gg bb`를 표시로 씁니다: `gg`가 기준점([`Anchor`]: 08 오른쪽 끝, 0C 가운데,
 //!   10 왼쪽 끝), `bb - 0xF0`이 [`PALETTE`]의 색 번호. 셰이더가 글자를 화면 반 폭만큼 옮기고
@@ -148,31 +148,31 @@ const fn row(id: &'static str, down: i32) -> RowFont {
 }
 
 /// 보스바 제목 줄 (화면 위에서 3, 22, 41, 60px — 줄마다 같은 폰트를 씀).
-pub const T0: RowFont = row("dangu:hud/t0", 0);
-pub const T1: RowFont = row("dangu:hud/t1", 12);
-pub const T2: RowFont = row("dangu:hud/t2", 24);
+pub const T0: RowFont = row("hoya:hud/t0", 0);
+pub const T1: RowFont = row("hoya:hud/t1", 12);
+pub const T2: RowFont = row("hoya:hud/t2", 24);
 /// 퀘스트 카드 바탕 (제목 줄보다 3px 위에서 17px).
-pub const TQ: RowFont = row("dangu:hud/tq", -3);
+pub const TQ: RowFont = row("hoya:hud/tq", -3);
 /// 퀘스트 진행 막대 (제목 글 아래).
-pub const TB: RowFont = row("dangu:hud/tb", 10);
+pub const TB: RowFont = row("hoya:hud/tb", 10);
 /// 액션바 글 줄 (화면 아래에서 72px): 오른쪽 아래 스탯 여섯 줄, 마지막 줄이 바닥 1px 위.
 pub const BOTTOM: [RowFont; 6] = [
-    row("dangu:hud/b0", 1),
-    row("dangu:hud/b1", 13),
-    row("dangu:hud/b2", 25),
-    row("dangu:hud/b3", 37),
-    row("dangu:hud/b4", 49),
-    row("dangu:hud/b5", 61),
+    row("hoya:hud/b0", 1),
+    row("hoya:hud/b1", 13),
+    row("hoya:hud/b2", 25),
+    row("hoya:hud/b3", 37),
+    row("hoya:hud/b4", 49),
+    row("hoya:hud/b5", 61),
 ];
 /// 바닐라 하트 자리 (화면 아래에서 39px, 핫바 왼쪽 위).
-pub const HP: RowFont = row("dangu:hud/hp", 33);
+pub const HP: RowFont = row("hoya:hud/hp", 33);
 /// 그 위 바닐라 갑옷 아이콘 자리.
-pub const MP: RowFont = row("dangu:hud/mp", 23);
+pub const MP: RowFont = row("hoya:hud/mp", 23);
 
 /// 바뀌는 글(퀘스트 이름 등)의 폰트: 바닐라 기본 폰트의 글자들을 그대로 참조하되, 바닐라와 달리
 /// "유니코드 글꼴 강제" 옵션(`uniform` 거르기)을 타지 않아 폭이 늘 [`default_advance`]와 같습니다.
 /// 줄의 원래 높이(위쪽 = 줄 위쪽)에 그려지고, HUD 공백 글자도 들어 있습니다.
-pub const TEXT_FONT: &str = "dangu:hud/text";
+pub const TEXT_FONT: &str = "hoya:hud/text";
 
 pub fn all_rows() -> Vec<&'static RowFont> {
     let mut v = vec![&T0, &T1, &T2, &TQ, &TB, &HP, &MP];
@@ -546,7 +546,7 @@ pub fn sheets() -> &'static [Sheet] {
             .collect();
         let mut out = vec![
             Sheet {
-                file: "dangu:font/hud/small.png",
+                file: "hoya:font/hud/small.png",
                 cell: (9, 9),
                 height: 9,
                 per_row: 16,
@@ -554,7 +554,7 @@ pub fn sheets() -> &'static [Sheet] {
                 glyphs: small,
             },
             Sheet {
-                file: "dangu:font/hud/label.png",
+                file: "hoya:font/hud/label.png",
                 cell: (16, 16),
                 height: 8,
                 per_row: 16,
@@ -578,11 +578,11 @@ pub fn sheets() -> &'static [Sheet] {
             }
             out.push(Sheet {
                 file: match s {
-                    Strip::Card11 => "dangu:font/hud/card11.png",
-                    Strip::Card17 => "dangu:font/hud/card17.png",
-                    Strip::Solid11 => "dangu:font/hud/solid11.png",
-                    Strip::Solid17 => "dangu:font/hud/solid17.png",
-                    Strip::Solid3 => "dangu:font/hud/solid3.png",
+                    Strip::Card11 => "hoya:font/hud/card11.png",
+                    Strip::Card17 => "hoya:font/hud/card17.png",
+                    Strip::Solid11 => "hoya:font/hud/solid11.png",
+                    Strip::Solid17 => "hoya:font/hud/solid17.png",
+                    Strip::Solid3 => "hoya:font/hud/solid3.png",
                 },
                 cell: (64, s.height()),
                 height: s.height(),
@@ -596,7 +596,7 @@ pub fn sheets() -> &'static [Sheet] {
             bar.push((bar_fill(k).unwrap(), bar_fill_image(k as usize)));
         }
         out.push(Sheet {
-            file: "dangu:font/hud/bar.png",
+            file: "hoya:font/hud/bar.png",
             cell: (BAR_W as usize, 9),
             height: 9,
             per_row: 10,
@@ -689,7 +689,7 @@ fn palette_glsl() -> String {
         })
         .collect();
     format!(
-        "const vec3 DANGU_PALETTE[16] = vec3[16](\n    {}\n);",
+        "const vec3 HOYA_PALETTE[16] = vec3[16](\n    {}\n);",
         colors.join(",\n    ")
     )
 }
@@ -740,19 +740,19 @@ void main() {
 #endif
     texCoord0 = UV0;
 
-    // dangu HUD: #FD gg bb = 글자, #FC gg bb = 그 그림자.
+    // hoya HUD: #FD gg bb = 글자, #FC gg bb = 그 그림자.
     // gg: 08 화면 오른쪽 끝으로, 0C 그대로, 10 왼쪽 끝으로. bb - 240: 색 번호.
-    ivec3 dangu_c = ivec3(round(Color.rgb * 255.0));
-    bool dangu_anchor = dangu_c.g == 8 || dangu_c.g == 12 || dangu_c.g == 16;
-    if ((dangu_c.r == 253 || dangu_c.r == 252) && dangu_anchor && dangu_c.b >= 240) {
-        if (dangu_c.g == 8) {
+    ivec3 hoya_c = ivec3(round(Color.rgb * 255.0));
+    bool hoya_anchor = hoya_c.g == 8 || hoya_c.g == 12 || hoya_c.g == 16;
+    if ((hoya_c.r == 253 || hoya_c.r == 252) && hoya_anchor && hoya_c.b >= 240) {
+        if (hoya_c.g == 8) {
             gl_Position.x += gl_Position.w;
-        } else if (dangu_c.g == 16) {
+        } else if (hoya_c.g == 16) {
             gl_Position.x -= gl_Position.w;
         }
-        vec3 dangu_p = DANGU_PALETTE[dangu_c.b - 240];
-        vertexColor = vec4(dangu_c.r == 252 ? dangu_p * 0.25 : dangu_p, Color.a);
-    } else if (dangu_c.r == 63 && dangu_c.g >= 2 && dangu_c.g <= 4 && dangu_c.b >= 60) {
+        vec3 hoya_p = HOYA_PALETTE[hoya_c.b - 240];
+        vertexColor = vec4(hoya_c.r == 252 ? hoya_p * 0.25 : hoya_p, Color.a);
+    } else if (hoya_c.r == 63 && hoya_c.g >= 2 && hoya_c.g <= 4 && hoya_c.b >= 60) {
         // 바닐라가 만든 표시 색의 그림자 (색 × 1/4)
         vertexColor = vec4(0.0);
     }
@@ -812,28 +812,28 @@ pub fn pack() -> Pack {
     let mut files = Vec::new();
     for s in sheets() {
         let img = s.image();
-        let path = s.file.trim_start_matches("dangu:");
+        let path = s.file.trim_start_matches("hoya:");
         files.push((
-            format!("assets/dangu/textures/{path}"),
+            format!("assets/hoya/textures/{path}"),
             png(img.w as u32, img.h as u32, &img.rgba()),
         ));
     }
     for row in all_rows() {
-        let name = row.id.trim_start_matches("dangu:");
+        let name = row.id.trim_start_matches("hoya:");
         files.push((
-            format!("assets/dangu/font/{name}.json"),
+            format!("assets/hoya/font/{name}.json"),
             font_json(row).into_bytes(),
         ));
     }
     files.push((
         format!(
-            "assets/dangu/font/{}.json",
-            TEXT_FONT.trim_start_matches("dangu:")
+            "assets/hoya/font/{}.json",
+            TEXT_FONT.trim_start_matches("hoya:")
         ),
         text_font_json().into_bytes(),
     ));
     files.push((
-        "assets/dangu/textures/font/hud/label_LICENSE.txt".into(),
+        "assets/hoya/textures/font/hud/label_LICENSE.txt".into(),
         b"label.png glyphs: GNU Unifont 17.0.01, SIL Open Font License 1.1 (https://openfontlicense.org)\n"
             .to_vec(),
     ));
@@ -861,7 +861,7 @@ pub fn pack() -> Pack {
         ));
     }
     Pack {
-        name: "dangu_hud".into(),
+        name: "hoya_hud".into(),
         configs: Vec::new(),
         files,
     }
@@ -951,7 +951,7 @@ mod tests {
         assert!(
             p.files
                 .iter()
-                .any(|(n, _)| n == "assets/dangu/font/hud/text.json")
+                .any(|(n, _)| n == "assets/hoya/font/hud/text.json")
         );
         let vsh = p
             .files
@@ -959,7 +959,7 @@ mod tests {
             .find(|(n, _)| n == "assets/minecraft/shaders/core/text.vsh")
             .unwrap();
         let vsh = String::from_utf8_lossy(&vsh.1);
-        assert!(vsh.contains("DANGU_PALETTE[16] = vec3[16]("));
+        assert!(vsh.contains("HOYA_PALETTE[16] = vec3[16]("));
         assert!(!vsh.contains("//PALETTE//"));
         assert!(
             p.files

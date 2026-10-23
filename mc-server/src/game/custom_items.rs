@@ -6,7 +6,7 @@
 //! - 새 *그림*(텍스처)은 리소스 팩 없이는 만들 수 없습니다. 모양은 바닐라 것을 조합합니다.
 //! - 능력(우클릭 번개 등)과 공격력은 서버가 처리하므로 클라이언트에 따로 줄 것이 없습니다.
 //!
-//! 어느 사용자 정의 아이템인지는 `custom_data {"dangu:item": "<id>"}`로 표시해 둡니다.
+//! 어느 사용자 정의 아이템인지는 `custom_data {"hoya:item": "<id>"}`로 표시해 둡니다.
 //! 정의는 `world/custom_items.json`에 있고, 없으면 예시를 써 둡니다.
 
 use std::collections::HashMap;
@@ -20,9 +20,11 @@ use crate::protocol::types::{write_bool, write_f32, write_string};
 use crate::protocol::varint::write_varint;
 
 /// `custom_data` 안의 표시 키.
-pub const TAG_KEY: &str = "dangu:item";
+pub const TAG_KEY: &str = "hoya:item";
 /// `custom_data` 안의 일련번호 키.
-pub const SERIAL_KEY: &str = "dangu:serial";
+pub const SERIAL_KEY: &str = "hoya:serial";
+/// 이름공간을 `hoya`로 바꾸기 전 저장에 남은 표시.
+pub const LEGACY_TAG_KEY: &str = "dangu:item";
 const FILE_NAME: &str = "custom_items.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -145,10 +147,12 @@ pub fn get(index: u16) -> Option<CustomItem> {
 pub fn index_of(id: &str) -> Option<u16> {
     // 예전 저장의 이름 (복권이 내장 콘텐츠로 옮기기 전)
     let id = match id {
-        "lottery_ticket" => "dangu:lottery_ticket",
-        "gui_icon" => "dangu:gui_icon",
+        "lottery_ticket" => "hoya:lottery_ticket",
+        "gui_icon" => "hoya:gui_icon",
         id => id,
     };
+    let renamed = id.strip_prefix("dangu:").map(|rest| format!("hoya:{rest}"));
+    let id = renamed.as_deref().unwrap_or(id);
     REGISTRY
         .read()
         .unwrap()

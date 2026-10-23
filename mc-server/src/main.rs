@@ -124,7 +124,7 @@ async fn run() -> std::io::Result<()> {
     let world_dir = PathBuf::from(std::env::var("MC_WORLD").unwrap_or_else(|_| "world".into()));
 
     let info = ServerInfo {
-        name: "Dangu MC".into(),
+        name: "Hoya MC".into(),
         description: "순수 Rust 커스텀 서버입니다".into(),
         max_players: 100,
     };

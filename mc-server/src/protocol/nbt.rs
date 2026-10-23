@@ -399,13 +399,13 @@ mod tests {
         let tag = Tag::Compound(vec![
             ("x".into(), Tag::Byte(1)),
             ("list".into(), Tag::List(vec![Tag::String("a".into())])),
-            ("dangu:item".into(), Tag::String("sword".into())),
+            ("hoya:item".into(), Tag::String("sword".into())),
         ]);
         let mut out = Vec::new();
         tag.write_root(&mut out);
-        assert_eq!(find_string(&out, "dangu:item").as_deref(), Some("sword"));
+        assert_eq!(find_string(&out, "hoya:item").as_deref(), Some("sword"));
         assert_eq!(find_string(&out, "nope"), None);
-        assert_eq!(find_string(&out[..5], "dangu:item"), None);
+        assert_eq!(find_string(&out[..5], "hoya:item"), None);
     }
 
     #[test]

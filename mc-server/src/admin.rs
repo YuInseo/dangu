@@ -21,9 +21,9 @@ pub struct Spec {
 }
 
 impl Spec {
-    /// 권한 노드: `dangu.command.<이름>`.
+    /// 권한 노드: `hoya.command.<이름>`.
     pub fn node(&self) -> String {
-        format!("dangu.command.{}", self.name)
+        format!("hoya.command.{}", self.name)
     }
 }
 
@@ -1131,7 +1131,7 @@ fn perm(server: &Server, args: &[&str]) -> Vec<String> {
         }
         ["check", name, node] => match resolve(server, name) {
             Some((uuid, name)) => {
-                let level = spec(node.trim_start_matches("dangu.command.")).map_or(4, |s| s.level);
+                let level = spec(node.trim_start_matches("hoya.command.")).map_or(4, |s| s.level);
                 let has = server.perms.has(uuid, node, level);
                 vec![format!(
                     "{name}: {node} = {}",
@@ -1244,7 +1244,7 @@ pub fn suggest(server: &Server, actor: &Actor, line: &str) -> (usize, Vec<String
             COMMANDS
                 .iter()
                 .map(Spec::node)
-                .chain(["dangu.command.*".to_owned(), "*".to_owned()])
+                .chain(["hoya.command.*".to_owned(), "*".to_owned()])
                 .collect()
         }
         _ => Vec::new(),

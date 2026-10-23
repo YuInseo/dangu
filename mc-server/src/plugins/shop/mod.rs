@@ -2,7 +2,7 @@
 //!
 //! - 상점 하나 = 재화 하나 + 물건 목록. 물건마다 한 묶음(`count`개)의 살 값(`buy`)·팔 값(`sell`),
 //!   0이면 그쪽은 안 됨.
-//! - 물건: 바닐라 이름(`bread`), 우리 아이템(`dangu:enhance_stone`), 또는 특수 —
+//! - 물건: 바닐라 이름(`bread`), 우리 아이템(`hoya:enhance_stone`), 또는 특수 —
 //!   `@fly:<초>`(플라이 시간), `@autoplant:<블록>`(자동심기).
 //! - 창: 좌클릭 1묶음 사기 · Shift+좌클릭 10묶음 · 우클릭 1묶음 팔기 · Shift+우클릭 가진 것 모두 팔기.
 //! - `world/shops.json` (`MC_SHOPS`), 웹 관리 화면 "상점" 탭. 고치면 곧바로.
@@ -71,7 +71,7 @@ impl Currency {
 /// 물건 하나.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry {
-    /// `bread`, `dangu:enhance_stone`, `@fly:3600`, `@autoplant:1000`
+    /// `bread`, `hoya:enhance_stone`, `@fly:3600`, `@autoplant:1000`
     pub item: String,
     /// 보일 이름 (비면 아이템 이름)
     pub name: String,
@@ -169,8 +169,8 @@ impl Default for ShopConfig {
                         e("cooked_beef", 16, 1_280, 0),
                         e("torch", 64, 320, 0),
                         e("golden_apple", 1, 5_000, 800),
-                        e("dangu:enhance_stone", 1, 2_000, 0),
-                        e("dangu:scroll_low", 1, 5_000, 0),
+                        e("hoya:enhance_stone", 1, 2_000, 0),
+                        e("hoya:scroll_low", 1, 5_000, 0),
                     ],
                 },
                 Shop {
@@ -184,8 +184,8 @@ impl Default for ShopConfig {
                         named("@fly:36000", "플라이 10시간", 1, 900, 0),
                         named("@autoplant:1000", "자동심기 1,000블록", 1, 50, 0),
                         named("@autoplant:10000", "자동심기 10,000블록", 1, 450, 0),
-                        e("dangu:enhance_stone", 10, 100, 0),
-                        e("dangu:scroll_low", 3, 150, 0),
+                        e("hoya:enhance_stone", 10, 100, 0),
+                        e("hoya:scroll_low", 3, 150, 0),
                     ],
                 },
                 Shop {
@@ -198,8 +198,8 @@ impl Default for ShopConfig {
                         named("@fly:600", "플라이 10분", 1, 30, 0),
                         named("@autoplant:100", "자동심기 100블록", 1, 20, 0),
                         e("experience_bottle", 8, 10, 0),
-                        e("dangu:enhance_stone", 1, 40, 0),
-                        e("dangu:scroll_low", 1, 120, 0),
+                        e("hoya:enhance_stone", 1, 40, 0),
+                        e("hoya:scroll_low", 1, 120, 0),
                     ],
                 },
             ],

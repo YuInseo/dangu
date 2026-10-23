@@ -383,7 +383,7 @@ mod tests {
 
     #[test]
     fn round_trip_through_file_and_another_process_view() {
-        let dir = std::env::temp_dir().join(format!("dangu-guilds-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-guilds-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("guilds.json");
         let a = Guilds::open(path.clone(), encode, decode);

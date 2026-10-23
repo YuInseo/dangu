@@ -149,7 +149,7 @@ pub(super) const MAP_SOUTH: usize = 50;
 pub(super) const MAP_EAST: usize = 51;
 pub(super) const MAP_INFO: usize = 53;
 /// 촉진제 아이템.
-pub const BOOSTER: &str = "dangu:crop_booster";
+pub const BOOSTER: &str = "hoya:crop_booster";
 const U_BEACON: usize = 40;
 const BEACON_SLOTS: [usize; 9] = [10, 11, 12, 13, 14, 15, 16, 21, 23];
 const EVENT_SLOTS: [usize; 2] = [20, 24];

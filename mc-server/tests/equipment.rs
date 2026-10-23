@@ -85,7 +85,7 @@ async fn gear_life() {
     let ring = gears().read(|d| {
         d.gears
             .iter()
-            .find(|(_, g)| g.def == "dangu:mithril_ring")
+            .find(|(_, g)| g.def == "hoya:mithril_ring")
             .map(|(k, _)| *k)
     });
     let ring = ring.expect("반지에 일련번호");
@@ -123,7 +123,7 @@ async fn gear_life() {
         .read(|d| {
             d.gears
                 .iter()
-                .find(|(_, g)| g.def == "dangu:mithril_helmet")
+                .find(|(_, g)| g.def == "hoya:mithril_helmet")
                 .map(|(k, _)| *k)
         })
         .unwrap();
@@ -162,6 +162,6 @@ async fn gear_life() {
     chat(&mut s, "나타났습니다").await;
 
     // 꼈던 반지의 잠재능력이 능력치에 들어감
-    let def = equip::config::with(|c| c.gear_def("dangu:mithril_ring").cloned()).unwrap();
+    let def = equip::config::with(|c| c.gear_def("hoya:mithril_ring").cloned()).unwrap();
     assert!(def.stats[equip::Stat::CritChance] > 0.0);
 }

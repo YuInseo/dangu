@@ -200,7 +200,7 @@ fn item_tag(slot: usize, item: Item) -> Tag {
             Tag::Compound(vec![(
                 "minecraft:custom_data".into(),
                 Tag::Compound(vec![(
-                    "dangu:item".into(),
+                    crate::game::custom_items::TAG_KEY.into(),
                     Tag::String(custom.id.to_string()),
                 )]),
             )]),
@@ -221,7 +221,10 @@ fn item_from_tag(t: &Tag) -> Option<(usize, Item)> {
     let custom = t
         .get("components")
         .and_then(|c| c.get("minecraft:custom_data"))
-        .and_then(|c| c.get("dangu:item"))
+        .and_then(|c| {
+            c.get(crate::game::custom_items::TAG_KEY)
+                .or_else(|| c.get(crate::game::custom_items::LEGACY_TAG_KEY))
+        })
         .and_then(Tag::as_str)
         .and_then(crate::game::custom_items::index_of);
     Some((
@@ -585,7 +588,7 @@ mod tests {
 
     #[test]
     fn chunks_survive_a_round_trip_through_region_files() {
-        let dir = std::env::temp_dir().join(format!("dangu-anvil-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-anvil-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         for (dim, cx, cz) in [
             (Dimension::Overworld, 0, 0),

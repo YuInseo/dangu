@@ -160,7 +160,7 @@ pub fn get(url: &str, accept: &str) -> Result<Vec<u8>, String> {
         tcp.set_write_timeout(Some(Duration::from_secs(30))).ok();
         let mut tls = rustls::StreamOwned::new(conn, tcp);
         let request = format!(
-            "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: dangu-mc-updater\r\nAccept: {accept}\r\nConnection: close\r\n\r\n"
+            "GET {path} HTTP/1.1\r\nHost: {host}\r\nUser-Agent: hoya-mc-updater\r\nAccept: {accept}\r\nConnection: close\r\n\r\n"
         );
         tls.write_all(request.as_bytes())
             .map_err(|e| e.to_string())?;
@@ -326,7 +326,7 @@ pub fn restart_requested() -> bool {
 /// 새 실행 파일로 다시 켜고 이 프로세스는 끝냄. 시작 스크립트 안이면 스크립트가 다시 켜도록
 /// 약속한 코드로 끝내기만 합니다.
 pub fn relaunch() -> ! {
-    if std::env::var_os("DANGU_LAUNCHER").is_some() {
+    if std::env::var_os("HOYA_LAUNCHER").is_some() {
         std::process::exit(RESTART_EXIT_CODE);
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -334,7 +334,7 @@ pub fn relaunch() -> ! {
         std::process::Command::new(e)
             .args(&args)
             // 다시 켠 것: 브라우저를 또 열지 않음
-            .env("DANGU_RELAUNCHED", "1")
+            .env("HOYA_RELAUNCHED", "1")
             .spawn()
             .map_err(|e| e.to_string())
     }) {

@@ -37,7 +37,7 @@ pub struct Resource {
     /// 묶음 (광물·물고기·농부·고기·나무)
     pub category: String,
     pub name: String,
-    /// 받는 아이템 이름들 (`raw_iron`, `dangu:carp`, `*_planks`)
+    /// 받는 아이템 이름들 (`raw_iron`, `hoya:carp`, `*_planks`)
     pub items: Vec<String>,
     /// 일일 기준 개수
     pub amount: u32,
@@ -84,15 +84,15 @@ impl Default for Supply {
                 r("광물", "gold", "금", &["raw_gold", "gold_ingot"], 4),
                 r("광물", "lapis", "청금석", &["lapis_lazuli"], 16),
                 r("광물", "redstone", "레드스톤", &["redstone"], 16),
-                r("물고기", "arowana", "아로와나", &["dangu:arowana"], 5),
-                r("물고기", "carp", "잉어", &["dangu:carp"], 5),
-                r("물고기", "minnow", "피라미", &["dangu:minnow"], 5),
+                r("물고기", "arowana", "아로와나", &["hoya:arowana"], 5),
+                r("물고기", "carp", "잉어", &["hoya:carp"], 5),
+                r("물고기", "minnow", "피라미", &["hoya:minnow"], 5),
                 r("농부", "potato", "감자", &["potato"], 3),
-                r("농부", "cabbage", "배추", &["dangu:cabbage"], 3),
-                r("농부", "rice", "쌀", &["dangu:rice"], 3),
-                r("농부", "asparagus", "아스파라거스", &["dangu:asparagus"], 3),
-                r("농부", "paprika", "파프리카", &["dangu:paprika"], 3),
-                r("농부", "wild_ginseng", "산삼", &["dangu:wild_ginseng"], 3),
+                r("농부", "cabbage", "배추", &["hoya:cabbage"], 3),
+                r("농부", "rice", "쌀", &["hoya:rice"], 3),
+                r("농부", "asparagus", "아스파라거스", &["hoya:asparagus"], 3),
+                r("농부", "paprika", "파프리카", &["hoya:paprika"], 3),
+                r("농부", "wild_ginseng", "산삼", &["hoya:wild_ginseng"], 3),
                 r("고기", "beef", "소고기", &["beef"], 3),
                 r("고기", "chicken", "닭고기", &["chicken"], 3),
                 r("고기", "mutton", "양고기", &["mutton"], 3),
@@ -102,14 +102,14 @@ impl Default for Supply {
                     "나무",
                     "wood_bundle_1",
                     "목재 묶음 1",
-                    &["dangu:wood_bundle_1"],
+                    &["hoya:wood_bundle_1"],
                     1,
                 ),
                 r(
                     "나무",
                     "wood_bundle_2",
                     "목재 묶음 2",
-                    &["dangu:wood_bundle_2"],
+                    &["hoya:wood_bundle_2"],
                     2,
                 ),
                 r("나무", "golden_apple", "황금사과", &["golden_apple"], 1),
@@ -325,7 +325,7 @@ impl Default for QuestConfig {
             500,
             money(15_000),
         );
-        weekly_crops.rewards.items = vec![("dangu:crop_booster".into(), 1)];
+        weekly_crops.rewards.items = vec![("hoya:crop_booster".into(), 1)];
         let weekly_kills = q(
             "weekly_kills",
             "마을 지킴이",
@@ -354,7 +354,7 @@ impl Default for QuestConfig {
                 target,
                 Rewards {
                     gp,
-                    items: vec![("dangu:crop_booster".into(), 1)],
+                    items: vec![("hoya:crop_booster".into(), 1)],
                     ..Rewards::default()
                 },
             );

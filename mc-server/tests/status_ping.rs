@@ -14,7 +14,7 @@ async fn start() -> std::net::SocketAddr {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let info = ServerInfo {
-        name: "Dangu MC".into(),
+        name: "Hoya MC".into(),
         description: "순수 Rust 커스텀 서버입니다".into(),
         max_players: 100,
     };

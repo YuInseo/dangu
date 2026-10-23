@@ -1,20 +1,20 @@
 #!/usr/bin/env sh
-# 윈도우용 받아서 바로 켜는 묶음 (dist/dangu-server-windows.zip).
+# 윈도우용 받아서 바로 켜는 묶음 (dist/hoya-server-windows.zip).
 # 필요: rustup target add x86_64-pc-windows-gnu, gcc-mingw-w64-x86-64, zip
 set -e
 cd "$(dirname "$0")/.."
 CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=x86_64-w64-mingw32-gcc \
   cargo build --release --target x86_64-pc-windows-gnu
-out=dist/dangu-server
-rm -rf "$out" dist/dangu-server-windows.zip
+out=dist/hoya-server
+rm -rf "$out" dist/hoya-server-windows.zip
 mkdir -p "$out"
 cp target/x86_64-pc-windows-gnu/release/mc-server.exe "$out/"
 printf '%s\r\n' \
   '@echo off' \
-  'rem dangu 서버 켜기. 꺼지면(충돌) 5초 뒤 다시 켭니다. stop 으로 끄면 끝납니다.' \
+  'rem hoya 서버 켜기. 꺼지면(충돌) 5초 뒤 다시 켭니다. stop 으로 끄면 끝납니다.' \
   'chcp 65001 >nul' \
   'cd /d "%~dp0"' \
-  'set DANGU_LAUNCHER=bat' \
+  'set HOYA_LAUNCHER=bat' \
   ':loop' \
   'mc-server.exe %*' \
   'if %errorlevel%==0 goto end' \
@@ -26,7 +26,7 @@ printf '%s\r\n' \
   'echo 서버를 껐습니다.' \
   'pause' > "$out/서버 켜기.bat"
 printf '%s\r\n' \
-  'dangu 서버 (Minecraft Java 26.3)' \
+  'hoya 서버 (Minecraft Java 26.3)' \
   '' \
   '1. "서버 켜기.bat" 또는 mc-server.exe 더블클릭 (윈도우 방화벽이 물으면 허용)' \
   '   → 브라우저에 대시보드가 열립니다: 켜기·끄기, 콘솔, 접속자, 설정, 업데이트' \
@@ -41,6 +41,6 @@ printf '%s\r\n' \
   '' \
   '자동 업데이트: 새 버전이 릴리스에 올라오면 켤 때(또는 30분마다, 아무도 없을 때)' \
   '스스로 받아서 바꾸고 다시 켭니다. 끄려면 server.env 에 MC_AUTO_UPDATE=false' > "$out/읽어 주세요.txt"
-(cd dist && zip -qr dangu-server-windows.zip dangu-server)
+(cd dist && zip -qr hoya-server-windows.zip hoya-server)
 cp "$out/mc-server.exe" dist/mc-server.exe
-ls -la dist/dangu-server-windows.zip dist/mc-server.exe
+ls -la dist/hoya-server-windows.zip dist/mc-server.exe

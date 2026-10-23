@@ -11,7 +11,7 @@
 //! | 주변   | 같은 차원 64칸 안 | 이 인스턴스 |
 //! | 거래   | 모두 (끈 사람 빼고) | 모든 인스턴스 |
 //! | 길드   | 같은 길드원 | 모든 인스턴스 |
-//! | 관리자 | `dangu.chat.staff` 권한(기본 OP 2) | 모든 인스턴스 |
+//! | 관리자 | `hoya.chat.staff` 권한(기본 OP 2) | 모든 인스턴스 |
 //!
 //! 채널 채팅은 서명 없는 시스템 메시지로 갑니다 (앞에 `[전체]` 같은 머리를 붙여야 해서).
 //! `MC_CHAT_CHANNELS=0`이면 채널 없이 바닐라 서명 채팅 그대로.
@@ -30,11 +30,11 @@ use crate::text;
 use crate::world::Dimension;
 
 /// 담비 전역 버스에서 채널 채팅이 오가는 이름.
-pub const BUS: &str = "dangu:chat";
+pub const BUS: &str = "hoya:chat";
 /// `주변` 채널이 닿는 거리 (블록).
 pub const NEAR_RANGE: f64 = 64.0;
 /// 관리자 채널 권한.
-pub const STAFF_NODE: &str = "dangu.chat.staff";
+pub const STAFF_NODE: &str = "hoya.chat.staff";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Channel {

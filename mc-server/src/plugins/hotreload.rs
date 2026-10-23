@@ -109,7 +109,7 @@ mod tests {
 
     #[test]
     fn fingerprint_follows_files_but_not_the_cache() {
-        let dir = std::env::temp_dir().join(format!("dangu-hot-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-hot-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("pack/configs")).unwrap();
         std::fs::create_dir_all(dir.join(".cache")).unwrap();

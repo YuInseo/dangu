@@ -3,7 +3,7 @@
 //! 그림은 아래 문자열 격자로 그려 두고, 켤 때 PNG(직접 인코딩: zlib + CRC32)로 굽고, 무압축
 //! ZIP으로 묶어 내장 HTTP 서버로 내려 줍니다. 클라이언트에게는 Configuration 단계에서
 //! `Add Resource Pack`(주소 + SHA-1)으로 알립니다. 아이템은 `item_model`이
-//! `dangu:<이름>`을 가리키면 이 팩의 그림으로 보입니다.
+//! `hoya:<이름>`을 가리키면 이 팩의 그림으로 보입니다.
 //!
 //! 팩 내용은 코드에서 정해지므로 어느 프로세스에서 만들어도 같은 바이트·같은 해시입니다
 //! (담비 마스터가 내려 주고, 자식 인스턴스는 주소만 알려 줘도 됨).
@@ -15,7 +15,7 @@ use crate::protocol::zlib;
 /// 26.3의 리소스 팩 판 (`version.json`의 `resource_pack_version` 97.1).
 pub const PACK_FORMAT: (u32, u32) = (97, 1);
 
-/// 그림 하나: 이름(`dangu:item/<이름>`), 16×16 격자, 팔레트.
+/// 그림 하나: 이름(`hoya:item/<이름>`), 16×16 격자, 팔레트.
 pub struct Sprite {
     pub name: &'static str,
     pub rows: [&'static str; 16],
@@ -215,7 +215,7 @@ pub fn offer(origin: &(String, u16)) -> Option<(u128, String, String, bool)> {
     let url = match &s.url {
         Some(u) => u.clone(),
         None => format!(
-            "http://{}:{port}/dangu-{}.zip",
+            "http://{}:{port}/hoya-{}.zip",
             url_host(&origin.0),
             &p.sha1_hex[..12]
         ),
@@ -295,10 +295,10 @@ mod tests {
 
     #[test]
     fn http_answers() {
-        let r = String::from_utf8_lossy(&http_reply("GET /dangu-abc.zip HTTP/1.1\r\n\r\n"))
-            .into_owned();
+        let r =
+            String::from_utf8_lossy(&http_reply("GET /hoya-abc.zip HTTP/1.1\r\n\r\n")).into_owned();
         assert!(r.starts_with("HTTP/1.1 200") && r.contains("application/zip"));
-        let h = http_reply("HEAD /dangu-abc.zip HTTP/1.1\r\n\r\n");
+        let h = http_reply("HEAD /hoya-abc.zip HTTP/1.1\r\n\r\n");
         assert!(h.ends_with(b"\r\n\r\n"), "HEAD에는 본문 없음");
         let n = String::from_utf8_lossy(&http_reply("GET / HTTP/1.1\r\n\r\n")).into_owned();
         assert!(n.starts_with("HTTP/1.1 404"));
@@ -328,17 +328,17 @@ mod tests {
             "pack.mcmeta",
             // 복권: 종이의 custom_model_data 10001 → 직접 만든 3D 모델
             "assets/minecraft/items/paper.json",
-            "assets/dangu/models/item/lottery_ticket.json",
-            "assets/dangu/textures/item/lottery_ticket.png",
-            "assets/dangu/textures/item/lottery_ticket_back.png",
+            "assets/hoya/models/item/lottery_ticket.json",
+            "assets/hoya/textures/item/lottery_ticket.png",
+            "assets/hoya/textures/item/lottery_ticket_back.png",
             // HUD: 줄 폰트, 바닐라 글자 폰트, 그림판, 셰이더, 숨긴 하트
-            "assets/dangu/font/hud/t0.json",
-            "assets/dangu/font/hud/mp.json",
-            "assets/dangu/font/hud/text.json",
-            "assets/dangu/textures/font/hud/bar.png",
-            "assets/dangu/textures/font/hud/label.png",
+            "assets/hoya/font/hud/t0.json",
+            "assets/hoya/font/hud/mp.json",
+            "assets/hoya/font/hud/text.json",
+            "assets/hoya/textures/font/hud/bar.png",
+            "assets/hoya/textures/font/hud/label.png",
             // 길드: 작물 성장 촉진제
-            "assets/dangu/textures/item/crop_booster.png",
+            "assets/hoya/textures/item/crop_booster.png",
             "assets/minecraft/shaders/core/text.vsh",
             "assets/minecraft/textures/gui/sprites/hud/heart/full.png",
         ] {
@@ -351,7 +351,7 @@ mod tests {
             .map(|(_, b)| String::from_utf8_lossy(b).into_owned())
             .unwrap();
         assert!(paper.contains("minecraft:custom_model_data"), "{paper}");
-        assert!(paper.contains("dangu:item/lottery_ticket"));
+        assert!(paper.contains("hoya:item/lottery_ticket"));
         assert!(paper.contains("minecraft:item/paper"), "vanilla fallback");
         assert_eq!(p.sha1_hex.len(), 40);
         assert_eq!(

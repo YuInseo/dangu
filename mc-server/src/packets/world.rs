@@ -293,7 +293,9 @@ pub fn decode_creative_slot(mut buf: &[u8]) -> Result<(i16, Option<Item>), Decod
         let (data, rest) = buf.split_at(len);
         buf = rest;
         if kind == crate::data::component::CUSTOM_DATA {
-            custom = crate::protocol::nbt::find_string(data, crate::game::custom_items::TAG_KEY)
+            use crate::game::custom_items::{LEGACY_TAG_KEY, TAG_KEY};
+            custom = crate::protocol::nbt::find_string(data, TAG_KEY)
+                .or_else(|| crate::protocol::nbt::find_string(data, LEGACY_TAG_KEY))
                 .and_then(|name| crate::game::custom_items::index_of(&name));
         }
     }

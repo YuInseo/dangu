@@ -29,7 +29,7 @@ use crate::session::windows::{Window, WindowKind};
 use crate::text;
 
 /// 담비 전역 버스에서 길드 알림이 오가는 이름.
-pub const BUS: &str = "dangu:notice";
+pub const BUS: &str = "hoya:notice";
 
 /// 세션마다 기억하는 길드 상태.
 #[derive(Debug, Default)]
@@ -649,7 +649,7 @@ impl<W: AsyncWrite + Unpin> Session<'_, W> {
         // 신속은 이동 속도 속성도 (효과의 속성은 서버가 보내야 함)
         if (self.guild.bonus.speed - self.guild.speed_sent).abs() > 1e-3 {
             let extra = (self.guild.bonus.speed - 1.0) as f64;
-            let modifier = (extra > 0.0).then_some(("dangu:guild_beacon", extra, 2u8));
+            let modifier = (extra > 0.0).then_some(("hoya:guild_beacon", extra, 2u8));
             let body =
                 fx::encode_attribute(self.entity_id, fx::ATTRIBUTE_MOVEMENT_SPEED, 0.1, modifier);
             self.send(fx::UPDATE_ATTRIBUTES_ID, &body).await?;

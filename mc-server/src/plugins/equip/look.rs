@@ -204,7 +204,7 @@ mod tests {
     #[test]
     fn tooltip_shows_enhance_set_and_potential() {
         let cfg = EquipConfig::default();
-        let helm = cfg.gear_def("dangu:mithril_helmet").unwrap();
+        let helm = cfg.gear_def("hoya:mithril_helmet").unwrap();
         let g = Gear {
             def: helm.id.clone(),
             enhance: 12,
@@ -220,7 +220,7 @@ mod tests {
         assert_eq!(enhance_bar(12), "■■■■□□□□□□");
         assert_eq!(enhance_bar(30), "■■■■■■■■■■");
 
-        let ring = cfg.gear_def("dangu:goblin_king_ring").unwrap();
+        let ring = cfg.gear_def("hoya:goblin_king_ring").unwrap();
         let g = Gear {
             def: ring.id.clone(),
             enhance: 0,

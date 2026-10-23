@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn two_handles_on_one_file_see_each_other() {
-        let dir = std::env::temp_dir().join(format!("dangu-jsonfile-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-jsonfile-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("x.json");
         let a = JsonFile::open(path.clone(), enc, dec);

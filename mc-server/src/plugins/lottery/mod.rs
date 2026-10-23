@@ -29,8 +29,8 @@ const DAY: i64 = 86_400;
 /// 받아 간 복권 기록은 이만큼 지난 회차부터 지웁니다.
 const KEEP_ROUNDS: u32 = 12;
 
-pub const TICKET_ITEM: &str = "dangu:lottery_ticket";
-pub const ICON_ITEM: &str = "dangu:gui_icon";
+pub const TICKET_ITEM: &str = "hoya:lottery_ticket";
+pub const ICON_ITEM: &str = "hoya:gui_icon";
 
 /// 복권 일련번호 (프로세스 안에서 겹치지 않게 — 채널이 여럿이어도).
 static NEXT_SERIAL: AtomicU32 = AtomicU32::new(1);
@@ -241,7 +241,7 @@ pub fn random_numbers(keep: &[u8]) -> [u8; PICK] {
 
 // ---- 아이템 ----
 
-/// 복권 아이템과 GUI 아이콘은 서버 내장 콘텐츠 팩(`dangu`)에 있습니다 — 읽혀 있게 합니다.
+/// 복권 아이템과 GUI 아이콘은 서버 내장 콘텐츠 팩(`hoya`)에 있습니다 — 읽혀 있게 합니다.
 pub fn register_items() {
     if custom_items::index_of(TICKET_ITEM).is_none() {
         crate::plugins::contents::current();
@@ -764,7 +764,7 @@ mod tests {
 
     #[test]
     fn ranks_jackpot_split_and_daily_limit() {
-        let dir = std::env::temp_dir().join(format!("dangu-lottery-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-lottery-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("lottery.json");
         let _ = std::fs::remove_file(&path);

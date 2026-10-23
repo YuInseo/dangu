@@ -7,7 +7,7 @@
 use std::path::Path;
 
 /// 처음 켤 때 만드는 파일.
-pub const TEMPLATE: &str = r#"# dangu 서버 설정 — 고치고 서버를 다시 켜면 적용됩니다.
+pub const TEMPLATE: &str = r#"# hoya 서버 설정 — 고치고 서버를 다시 켜면 적용됩니다.
 # 줄 앞 # 은 설명(꺼진 줄). 환경 변수로 같은 이름을 주면 그것이 이깁니다.
 
 # ---- 기본 ----

@@ -134,6 +134,6 @@ async fn custom_item_carries_components() {
     send_string(&mut alice, 0x07, "item thunder_staff").await;
     let p = recv_where(&mut alice, |p| p.id == 0x14 || p.id == 0x6E).await;
     let has = |needle: &[u8]| p.body.windows(needle.len()).any(|w| w == needle);
-    assert!(has(b"dangu:item"), "custom_data");
+    assert!(has(b"hoya:item"), "custom_data");
     assert!(has(b"thunder_staff"));
 }

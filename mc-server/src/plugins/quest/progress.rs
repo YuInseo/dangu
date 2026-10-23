@@ -129,7 +129,7 @@ pub fn pick(pool: &[QuestDef], n: usize, seed: i64) -> Vec<String> {
     out
 }
 
-/// 이 자원을 지금 받을 수 있나 (아이템이 서버에 있어야 — `dangu:` 물고기·작물은 콘텐츠가 있을 때만).
+/// 이 자원을 지금 받을 수 있나 (아이템이 서버에 있어야 — `hoya:` 물고기·작물은 콘텐츠가 있을 때만).
 fn available(r: &Resource) -> bool {
     r.items.iter().any(|i| {
         if i.contains('*') {

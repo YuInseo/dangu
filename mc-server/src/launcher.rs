@@ -257,7 +257,7 @@ pub fn write_settings(text: &str) -> Result<(), String> {
 /// 브라우저로 주소 열기 (실패해도 그만).
 pub fn open_browser(url: &str) {
     if std::env::var("MC_OPEN_BROWSER").is_ok_and(|v| matches!(v.as_str(), "0" | "false" | "off"))
-        || std::env::var_os("DANGU_RELAUNCHED").is_some()
+        || std::env::var_os("HOYA_RELAUNCHED").is_some()
     {
         return;
     }
@@ -400,7 +400,7 @@ async fn supervise(l: Arc<Launcher>) -> std::io::Result<()> {
         let mut child = match Command::new(&exe)
             .arg("serve")
             .envs(settings)
-            .env("DANGU_LAUNCHER", "launcher")
+            .env("HOYA_LAUNCHER", "launcher")
             .env("MC_ADMIN_PORT", "0")
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())

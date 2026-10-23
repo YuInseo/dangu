@@ -54,7 +54,7 @@ where
     S: AsyncRead + AsyncWrite + Unpin,
 {
     stream
-        .write_packet(cfg::CUSTOM_PAYLOAD_ID, &cfg::encode_brand("dangu"))
+        .write_packet(cfg::CUSTOM_PAYLOAD_ID, &cfg::encode_brand("hoya"))
         .await?;
     stream
         .write_packet(

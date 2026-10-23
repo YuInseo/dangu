@@ -11,7 +11,7 @@ use crate::plugins::store::{JsonFile, data_path};
 /// 재료 (원석·주괴·마석·강화석·주문서).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Material {
-    /// `dangu:mithril_ingot`
+    /// `hoya:mithril_ingot`
     pub id: String,
     pub name: String,
     /// 이름 색 (`#9fd8ff`)
@@ -28,7 +28,7 @@ pub struct Material {
 /// 장비 한 종류.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GearDef {
-    /// `dangu:mithril_helmet`
+    /// `hoya:mithril_helmet`
     pub id: String,
     pub name: String,
     pub part: Part,
@@ -59,7 +59,7 @@ pub struct SetDef {
 pub struct Recipe {
     pub result: String,
     pub count: i32,
-    /// (아이템 — 우리 것은 `dangu:…`, 바닐라는 이름, 개수)
+    /// (아이템 — 우리 것은 `hoya:…`, 바닐라는 이름, 개수)
     pub inputs: Vec<(String, i32)>,
     pub money: i64,
     /// 필요한 대장장이 레벨
@@ -72,7 +72,7 @@ pub struct Recipe {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct OreDef {
-    /// 광석 블록 아이템 (`dangu:mithril_ore`)
+    /// 광석 블록 아이템 (`hoya:mithril_ore`)
     pub block: String,
     pub name: String,
     /// 캐면 나오는 것
@@ -227,9 +227,9 @@ impl EquipConfig {
             .chain(self.gear.iter().map(|g| &g.id))
             .chain(self.ores.iter().map(|o| &o.block))
         {
-            if !id.starts_with("dangu:") || !ids.insert(id.clone()) {
+            if !id.starts_with("hoya:") || !ids.insert(id.clone()) {
                 return Err(format!(
-                    "아이템 id는 dangu:로 시작하고 겹치지 않아야 합니다: {id}"
+                    "아이템 id는 hoya:로 시작하고 겹치지 않아야 합니다: {id}"
                 ));
             }
         }
@@ -369,7 +369,7 @@ fn gear_piece(key: &str, set_name: &str, part: Part, tier: u8, palette: &str) ->
     };
     let accessory = part.is_accessory();
     GearDef {
-        id: format!("dangu:{key}_{}", part.key()),
+        id: format!("hoya:{key}_{}", part.key()),
         name: format!("{set_name} {noun}"),
         part,
         set: (!accessory).then(|| key.to_owned()),
@@ -400,7 +400,7 @@ fn boss_accessories(key: &str, owner: &str, power: f64, tries: u8, grade: &str) 
     ]
     .into_iter()
     .map(|(part, noun, stats)| GearDef {
-        id: format!("dangu:{key}_{}", part.key()),
+        id: format!("hoya:{key}_{}", part.key()),
         name: format!("{owner}의 {noun}"),
         part,
         set: None,
@@ -433,7 +433,7 @@ fn mat(
     lore: &[&str],
 ) -> Material {
     Material {
-        id: format!("dangu:{id}"),
+        id: format!("hoya:{id}"),
         name: name.into(),
         color: color.into(),
         grade: grade.into(),
@@ -502,9 +502,9 @@ impl Default for EquipConfig {
             ));
             let t = tier as u32;
             ores.push(OreDef {
-                block: format!("dangu:{key}_ore"),
+                block: format!("hoya:{key}_ore"),
                 name: format!("{name} 광석"),
-                drop: format!("dangu:{key}_raw"),
+                drop: format!("hoya:{key}_raw"),
                 nether,
                 min_y: match (nether, tier) {
                     (false, 1) => -16,
@@ -535,11 +535,11 @@ impl Default for EquipConfig {
                 pickaxe: if tier <= 2 { "iron" } else { "diamond" }.into(),
                 palette: key.into(),
             });
-            let ingot_id = format!("dangu:{key}_ingot");
+            let ingot_id = format!("hoya:{key}_ingot");
             recipes.push(recipe(
                 &ingot_id,
                 1,
-                &[(&format!("dangu:{key}_raw"), 2)],
+                &[(&format!("hoya:{key}_raw"), 2)],
                 50 * t as i64,
                 0,
                 2.0 * tier as f64,
@@ -593,9 +593,9 @@ impl Default for EquipConfig {
                 &g.id,
                 1,
                 &[
-                    ("dangu:magic_stone", n),
-                    ("dangu:seraphium_ingot", 2),
-                    ("dangu:evilium_ingot", 2),
+                    ("hoya:magic_stone", n),
+                    ("hoya:seraphium_ingot", 2),
+                    ("hoya:evilium_ingot", 2),
                 ],
                 50_000,
                 35,
@@ -673,9 +673,9 @@ impl Default for EquipConfig {
             ));
         }
         recipes.push(recipe(
-            "dangu:enhance_stone",
+            "hoya:enhance_stone",
             4,
-            &[("dangu:mithril_ingot", 1), ("dangu:cobalt_ingot", 1)],
+            &[("hoya:mithril_ingot", 1), ("hoya:cobalt_ingot", 1)],
             500,
             0,
             4.0,
@@ -768,13 +768,13 @@ impl Default for EquipConfig {
                 spawn_chance: 0.003,
                 raid: false,
                 drops: vec![
-                    drop("dangu:magic_stone", 0.6, 1, 2),
-                    drop("dangu:enhance_stone", 0.9, 2, 4),
-                    drop("dangu:orichalcum_raw", 0.5, 2, 5),
-                    drop("dangu:goblin_king_ring", 0.08, 1, 1),
-                    drop("dangu:goblin_king_necklace", 0.08, 1, 1),
-                    drop("dangu:goblin_king_earring", 0.08, 1, 1),
-                    drop("dangu:scroll_mid", 0.10, 1, 1),
+                    drop("hoya:magic_stone", 0.6, 1, 2),
+                    drop("hoya:enhance_stone", 0.9, 2, 4),
+                    drop("hoya:orichalcum_raw", 0.5, 2, 5),
+                    drop("hoya:goblin_king_ring", 0.08, 1, 1),
+                    drop("hoya:goblin_king_necklace", 0.08, 1, 1),
+                    drop("hoya:goblin_king_earring", 0.08, 1, 1),
+                    drop("hoya:scroll_mid", 0.10, 1, 1),
                 ],
             },
             BossDef {
@@ -786,13 +786,13 @@ impl Default for EquipConfig {
                 spawn_chance: 0.004,
                 raid: false,
                 drops: vec![
-                    drop("dangu:magic_stone", 0.75, 2, 3),
-                    drop("dangu:enhance_stone", 1.0, 3, 6),
-                    drop("dangu:evilium_raw", 0.4, 1, 3),
-                    drop("dangu:fallen_knight_ring", 0.08, 1, 1),
-                    drop("dangu:fallen_knight_necklace", 0.08, 1, 1),
-                    drop("dangu:fallen_knight_earring", 0.08, 1, 1),
-                    drop("dangu:scroll_mid", 0.15, 1, 1),
+                    drop("hoya:magic_stone", 0.75, 2, 3),
+                    drop("hoya:enhance_stone", 1.0, 3, 6),
+                    drop("hoya:evilium_raw", 0.4, 1, 3),
+                    drop("hoya:fallen_knight_ring", 0.08, 1, 1),
+                    drop("hoya:fallen_knight_necklace", 0.08, 1, 1),
+                    drop("hoya:fallen_knight_earring", 0.08, 1, 1),
+                    drop("hoya:scroll_mid", 0.15, 1, 1),
                 ],
             },
             BossDef {
@@ -804,12 +804,12 @@ impl Default for EquipConfig {
                 spawn_chance: 0.0,
                 raid: true,
                 drops: vec![
-                    drop("dangu:scroll_high", 0.5, 1, 1),
-                    drop("dangu:magic_stone", 1.0, 4, 8),
-                    drop("dangu:enhance_stone", 1.0, 8, 12),
-                    drop("dangu:abyss_lord_ring", 0.15, 1, 1),
-                    drop("dangu:abyss_lord_necklace", 0.15, 1, 1),
-                    drop("dangu:abyss_lord_earring", 0.15, 1, 1),
+                    drop("hoya:scroll_high", 0.5, 1, 1),
+                    drop("hoya:magic_stone", 1.0, 4, 8),
+                    drop("hoya:enhance_stone", 1.0, 8, 12),
+                    drop("hoya:abyss_lord_ring", 0.15, 1, 1),
+                    drop("hoya:abyss_lord_necklace", 0.15, 1, 1),
+                    drop("hoya:abyss_lord_earring", 0.15, 1, 1),
                 ],
             },
         ];
@@ -838,25 +838,25 @@ impl Default for EquipConfig {
                 per_level: 0.05,
                 milestone: 0.10,
                 money: 1_000,
-                stone: "dangu:enhance_stone".into(),
+                stone: "hoya:enhance_stone".into(),
             },
             scrolls: vec![
                 ScrollDef {
-                    item: "dangu:scroll_low".into(),
+                    item: "hoya:scroll_low".into(),
                     name: "하급".into(),
                     min_lines: 1,
                     max_lines: 2,
                     mult: 1.0,
                 },
                 ScrollDef {
-                    item: "dangu:scroll_mid".into(),
+                    item: "hoya:scroll_mid".into(),
                     name: "중급".into(),
                     min_lines: 2,
                     max_lines: 3,
                     mult: 1.5,
                 },
                 ScrollDef {
-                    item: "dangu:scroll_high".into(),
+                    item: "hoya:scroll_high".into(),
                     name: "상급".into(),
                     min_lines: 3,
                     max_lines: 4,
@@ -880,11 +880,11 @@ impl Default for EquipConfig {
             ],
             shop: vec![
                 ShopEntry {
-                    item: "dangu:scroll_low".into(),
+                    item: "hoya:scroll_low".into(),
                     price: 20_000,
                 },
                 ShopEntry {
-                    item: "dangu:enhance_stone".into(),
+                    item: "hoya:enhance_stone".into(),
                     price: 3_000,
                 },
             ],
@@ -1318,12 +1318,12 @@ mod tests {
         assert_eq!(c.enhance_chance(30), 0.0);
         assert_eq!(c.enhance_cost(9), (100_000, 4));
         // 모든 조합법의 재료와 결과가 있는 아이템
-        let known = |id: &str| !id.starts_with("dangu:") || c.item_name(id).is_some();
+        let known = |id: &str| !id.starts_with("hoya:") || c.item_name(id).is_some();
         for r in &c.recipes {
             assert!(known(&r.result), "{}", r.result);
             for (i, _) in &r.inputs {
                 assert!(known(i), "{i}");
-                if !i.starts_with("dangu:") {
+                if !i.starts_with("hoya:") {
                     assert!(crate::data::items::by_name(i).is_some(), "{i}");
                 }
             }
@@ -1335,7 +1335,7 @@ mod tests {
         }
         // 보스 악세가 같은 자리 제작 악세보다 좋음 (고블린 왕 > 오리하르콘)
         let cc = |id: &str| c.gear_def(id).unwrap().stats[Stat::CritChance];
-        assert!(cc("dangu:goblin_king_ring") > cc("dangu:orichalcum_ring"));
-        assert!(cc("dangu:abyss_lord_ring") > cc("dangu:evilium_ring"));
+        assert!(cc("hoya:goblin_king_ring") > cc("hoya:orichalcum_ring"));
+        assert!(cc("hoya:abyss_lord_ring") > cc("hoya:evilium_ring"));
     }
 }

@@ -2,7 +2,7 @@
 //!
 //! 바닐라 종이(`PAPER`) + `model_id`(custom_model_data) 10001 → 이 파일의 3D 모델.
 //! 두께가 있는 카드 모양이고, 앞면은 복권 그림, 뒷면은 따로 그린 무늬입니다.
-//! 콘텐츠 로더가 다른 ItemsAdder 팩과 똑같이 읽으므로, `contents/dangu/`에 같은 이름의
+//! 콘텐츠 로더가 다른 ItemsAdder 팩과 똑같이 읽으므로, `contents/hoya/`에 같은 이름의
 //! 파일을 두면 그쪽이 이깁니다.
 
 use crate::plugins::contents::source::Pack;
@@ -79,7 +79,7 @@ pub const LOTTERY_MODEL_ID: i32 = 10001;
 
 const LOTTERY_YML: &str = r#"# 서버에 들어 있는 복권 아이템 (ItemsAdder 설정과 같은 모양)
 info:
-  namespace: dangu
+  namespace: hoya
 items:
   lottery_ticket:
     name: "&6복권"
@@ -99,12 +99,12 @@ items:
 
 /// 두께 0.5의 카드: 남쪽(+Z) 면이 앞, 북쪽 면이 뒤. 손·화면·액자에 맞춘 자세.
 const LOTTERY_MODEL: &str = r##"{
-  "credit": "dangu - hand made",
+  "credit": "hoya - hand made",
   "texture_size": [16, 16],
   "textures": {
-    "front": "dangu:item/lottery_ticket",
-    "back": "dangu:item/lottery_ticket_back",
-    "particle": "dangu:item/lottery_ticket"
+    "front": "hoya:item/lottery_ticket",
+    "back": "hoya:item/lottery_ticket_back",
+    "particle": "hoya:item/lottery_ticket"
   },
   "elements": [
     {
@@ -135,22 +135,22 @@ const LOTTERY_MODEL: &str = r##"{
 }
 "##;
 
-/// 복권 콘텐츠 팩 (`dangu` 이름공간): 설정 + 모델 + 그림 두 장.
+/// 복권 콘텐츠 팩 (`hoya` 이름공간): 설정 + 모델 + 그림 두 장.
 pub fn pack() -> Pack {
     let mut files = vec![(
-        "assets/dangu/models/item/lottery_ticket.json".to_owned(),
+        "assets/hoya/models/item/lottery_ticket.json".to_owned(),
         LOTTERY_MODEL.as_bytes().to_vec(),
     )];
     for s in [&LOTTERY_TICKET, &LOTTERY_TICKET_BACK] {
         files.push((
-            format!("assets/dangu/textures/item/{}.png", s.name),
+            format!("assets/hoya/textures/item/{}.png", s.name),
             png(16, 16, &s.rgba()),
         ));
     }
     Pack {
-        name: "dangu".into(),
+        name: "hoya".into(),
         configs: vec![(
-            "(서버 내장) dangu/configs/lottery.yml".into(),
+            "(서버 내장) hoya/configs/lottery.yml".into(),
             LOTTERY_YML.into(),
         )],
         files,

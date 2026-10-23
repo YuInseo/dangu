@@ -2,7 +2,7 @@
 //!
 //! - **OP 단계** 0~4 (바닐라와 같음): 0 일반, 1 스폰 보호 무시, 2 치트 명령어(/gamemode,
 //!   /give, /tp…), 3 관리(/kick, /ban, /op…), 4 서버(/stop).
-//! - **권한 노드** (Bukkit식 `dangu.command.give`): 사람마다, 그룹마다 줄 수 있고 `*`·`a.b.*`
+//! - **권한 노드** (Bukkit식 `hoya.command.give`): 사람마다, 그룹마다 줄 수 있고 `*`·`a.b.*`
 //!   와일드카드와 `-노드`(빼앗기)를 씁니다. 사람에게 준 것이 그룹 것보다, 정확한 노드가
 //!   와일드카드보다, 빼앗기가 주기보다 먼저입니다. 아무 규칙도 없으면 명령어의 기본 OP
 //!   단계로 정합니다.
@@ -465,7 +465,7 @@ mod tests {
     #[test]
     fn op_level_is_the_fallback() {
         let p = perms();
-        assert!(!p.has(1, "dangu.command.give", 2));
+        assert!(!p.has(1, "hoya.command.give", 2));
         p.update(|d| {
             d.ops.push(Op {
                 uuid: 1,
@@ -473,8 +473,8 @@ mod tests {
                 level: 2,
             })
         });
-        assert!(p.has(1, "dangu.command.give", 2));
-        assert!(!p.has(1, "dangu.command.stop", 4));
+        assert!(p.has(1, "hoya.command.give", 2));
+        assert!(!p.has(1, "hoya.command.stop", 4));
     }
 
     #[test]
@@ -484,33 +484,33 @@ mod tests {
             d.groups.insert(
                 "builder".into(),
                 Group {
-                    nodes: vec!["dangu.command.*".into(), "-dangu.command.kill".into()],
+                    nodes: vec!["hoya.command.*".into(), "-hoya.command.kill".into()],
                     inherits: vec![],
                 },
             );
             d.groups.insert(
                 "default".into(),
                 Group {
-                    nodes: vec!["dangu.command.spawn".into()],
+                    nodes: vec!["hoya.command.spawn".into()],
                     inherits: vec![],
                 },
             );
             d.user_mut(7, "B").groups.push("builder".into());
         });
-        assert!(p.has(7, "dangu.command.give", 4), "wildcard from group");
-        assert!(!p.has(7, "dangu.command.kill", 0), "negated in group");
-        assert!(p.has(99, "dangu.command.spawn", 4), "default group");
+        assert!(p.has(7, "hoya.command.give", 4), "wildcard from group");
+        assert!(!p.has(7, "hoya.command.kill", 0), "negated in group");
+        assert!(p.has(99, "hoya.command.spawn", 4), "default group");
         // 사람에게 직접 준 것이 그룹보다 먼저
-        p.update(|d| d.user_mut(7, "B").nodes.push("dangu.command.kill".into()));
-        assert!(p.has(7, "dangu.command.kill", 4));
+        p.update(|d| d.user_mut(7, "B").nodes.push("hoya.command.kill".into()));
+        assert!(p.has(7, "hoya.command.kill", 4));
         p.update(|d| d.user_mut(7, "B").nodes.push("-*".into()));
-        assert!(p.has(7, "dangu.command.kill", 4), "exact beats wildcard");
-        assert!(!p.has(7, "dangu.command.give", 0), "user -* beats group");
+        assert!(p.has(7, "hoya.command.kill", 4), "exact beats wildcard");
+        assert!(!p.has(7, "hoya.command.give", 0), "user -* beats group");
     }
 
     #[test]
     fn files_round_trip() {
-        let dir = std::env::temp_dir().join(format!("dangu-perms-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("hoya-perms-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let p = Permissions::open(Some(dir.clone()), false).unwrap();
         p.update(|d| {
@@ -522,7 +522,7 @@ mod tests {
             d.groups.insert(
                 "vip".into(),
                 Group {
-                    nodes: vec!["dangu.command.item".into()],
+                    nodes: vec!["hoya.command.item".into()],
                     inherits: vec!["default".into()],
                 },
             );

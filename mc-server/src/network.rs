@@ -420,7 +420,7 @@ mod tests {
 
     #[test]
     fn first_start_creates_instances_and_worlds() {
-        let base = std::env::temp_dir().join(format!("dangu-net-{}", std::process::id()));
+        let base = std::env::temp_dir().join(format!("hoya-net-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&base);
         let info = ServerInfo {
             name: "t".into(),
